@@ -1,0 +1,43 @@
+name: Enterprise checks
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: isolated-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ENTERPRISE_TEMP_DIR: ${{ runner.temp }}
+      PGUSER: postgres
+      PGPASSWORD: isolated-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @enterprise/contracts build
+      - run: node scripts/check-architecture.mjs
+      - run: pnpm test:environment
+      - run: pnpm api:docs:check
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm --filter aiworkin-enterprise-api test --runInBand
+      - run: pnpm test:uploads
+      - run: node scripts/test-isolated-migration.mjs --full
+      - run: pnpm test:query-plans
+      - run: node scripts/verify-geo-collection-recovery.mjs
+      - run: pnpm test:performance
+      - run: pnpm build

@@ -1,0 +1,20 @@
+# 构建镜像时排除：依赖 / 产物 / 本地环境变量 / 日志 / 大型生成物
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/.turbo
+**/*.tsbuildinfo
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.production
+**/.env.development
+**/*.log
+**/generated/prisma
+.git
+.github
+api.log
+.dev-api.log
+.install.log
+.mock-upstream.log

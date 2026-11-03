@@ -1,0 +1,33 @@
+import { endpoints } from "@enterprise/contracts";
+import { endpoint } from "./endpoint";
+
+export const openApiApi = {
+  me: endpoint(endpoints.OpenApi_me),
+  roles: endpoint(endpoints.OpenApi_roles),
+  switchRole: endpoint(endpoints.OpenApi_switchRole),
+  contractsList: endpoint(endpoints.OpenApi_contractsList),
+  createContract: endpoint(endpoints.OpenApi_createContract),
+  confirm: endpoint(endpoints.OpenApi_confirm),
+  terminate: endpoint(endpoints.OpenApi_terminate),
+  taxList: endpoint(endpoints.OpenApi_taxList),
+  taxCreate: endpoint(endpoints.OpenApi_taxCreate),
+  overseasList: endpoint(endpoints.OpenApi_overseasList),
+  overseasCreate: endpoint(endpoints.OpenApi_overseasCreate),
+  logisticsList: endpoint(endpoints.OpenApi_logisticsList),
+  logisticsCreate: endpoint(endpoints.OpenApi_logisticsCreate),
+  logisticsMessages: endpoint(endpoints.OpenApi_logisticsMessages),
+  lawyers: endpoint(endpoints.OpenApi_lawyers),
+  legalCreate: endpoint(endpoints.OpenApi_legalCreate),
+  agencies: endpoint(endpoints.OpenApi_agencies),
+  ipCreate: endpoint(endpoints.OpenApi_ipCreate),
+  ipConsult: endpoint(endpoints.OpenApi_ipConsult),
+  flexProviders: endpoint(endpoints.OpenApi_flexProviders),
+  flexOrder: endpoint(endpoints.OpenApi_flexOrder),
+  flexOrderGet: endpoint(endpoints.OpenApi_flexOrderGet),
+  flexMatch: endpoint(endpoints.OpenApi_flexMatch),
+  flexOnboard: endpoint(endpoints.OpenApi_flexOnboard),
+  flexOnboardList: endpoint(endpoints.OpenApi_flexOnboardList),
+  keys: endpoint(endpoints.OpenApi_keys),
+  syncKey: endpoint(endpoints.OpenApi_syncKey),
+  keyUsage: endpoint(endpoints.OpenApi_keyUsage),
+};

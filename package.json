@@ -1,0 +1,49 @@
+{
+  "name": "aiworkin-enterprise",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "env:check:development": "node scripts/production-database.mjs check --environment development",
+    "env:check:production": "node scripts/production-database.mjs check",
+    "production:backup": "node scripts/production-database.mjs backup",
+    "production:migrate": "node scripts/production-database.mjs migrate",
+    "test:environment": "node --test scripts/verify-enterprise-environment.mjs",
+    "dev": "node scripts/dev.mjs",
+    "setup": "node scripts/install.mjs",
+    "db:gen:pg": "node scripts/gen-prisma-schema.mjs",
+    "dev:web": "pnpm --filter aiworkin-enterprise-web dev",
+    "dev:api": "pnpm --filter aiworkin-enterprise-api dev",
+    "build": "pnpm --filter @enterprise/contracts build && pnpm --filter aiworkin-enterprise-api build && pnpm --filter aiworkin-enterprise-web build",
+    "lint": "pnpm --recursive lint",
+    "typecheck": "pnpm --recursive typecheck",
+    "test:attachments": "node --test scripts/verify-attachment-upload.mjs",
+    "test:uploads": "node --test scripts/verify-attachment-upload.mjs scripts/verify-invoice-image.mjs",
+    "prisma:generate": "pnpm --filter aiworkin-enterprise-api prisma:generate",
+    "prisma:migrate:dev": "pnpm --filter aiworkin-enterprise-api prisma:migrate:dev",
+    "prisma:migrate:deploy": "pnpm --filter aiworkin-enterprise-api prisma:migrate:deploy",
+    "prisma:seed": "pnpm --filter aiworkin-enterprise-api prisma:seed",
+    "e2e": "node scripts/e2e-test.mjs",
+    "dev:worker": "pnpm --filter aiworkin-enterprise-api worker:dev",
+    "api:docs": "pnpm --filter aiworkin-enterprise-api exec tsx src/http/openapi.ts",
+    "api:docs:check": "pnpm --filter aiworkin-enterprise-api exec tsx src/http/openapi.ts --check",
+    "test:isolation": "node scripts/test-isolated-migration.mjs",
+    "test:regression": "node scripts/test-isolated-migration.mjs --full",
+    "test:performance": "node scripts/test-isolated-migration.mjs --performance",
+    "test:benchmark:backends": "node scripts/benchmark-backend-isolated.mjs",
+    "test:query-plans": "node scripts/test-isolated-migration.mjs --query-plans",
+    "test:geo-recovery": "node scripts/verify-geo-collection-recovery.mjs",
+    "check:architecture": "node scripts/check-architecture.mjs"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma"
+    ]
+  }
+}

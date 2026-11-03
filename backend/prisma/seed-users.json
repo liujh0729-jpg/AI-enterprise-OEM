@@ -1,0 +1,187 @@
+{
+  "admin": {
+    "userId": "u-admin",
+    "role": "admin",
+    "displayName": "平台管理员"
+  },
+  "demo_enterprise": {
+    "userId": "u-enterprise",
+    "role": "user",
+    "displayName": "杭州智造"
+  },
+  "demo_provider": {
+    "userId": "u-provider",
+    "role": "user",
+    "displayName": "中瑞财税"
+  },
+  "demo_tax2": {
+    "userId": "u-tax2",
+    "role": "user",
+    "displayName": "上海申税通"
+  },
+  "demo_tax3": {
+    "userId": "u-tax3",
+    "role": "user",
+    "displayName": "深圳华算"
+  },
+  "demo_tax4": {
+    "userId": "u-tax4",
+    "role": "user",
+    "displayName": "北京恒信"
+  },
+  "demo_overseas2": {
+    "userId": "u-overseas2",
+    "role": "user",
+    "displayName": "上海桥联"
+  },
+  "demo_overseas3": {
+    "userId": "u-overseas3",
+    "role": "user",
+    "displayName": "深圳湾区"
+  },
+  "demo_logistics": {
+    "userId": "u-logistics",
+    "role": "user",
+    "displayName": "环球联运"
+  },
+  "demo_logistics2": {
+    "userId": "u-logistics2",
+    "role": "user",
+    "displayName": "宁波远洋"
+  },
+  "demo_logistics3": {
+    "userId": "u-logistics3",
+    "role": "user",
+    "displayName": "陈飞"
+  },
+  "demo_legal": {
+    "userId": "u-legal",
+    "role": "user",
+    "displayName": "秉正法律"
+  },
+  "demo_legal2": {
+    "userId": "u-legal2",
+    "role": "user",
+    "displayName": "浙江六和"
+  },
+  "demo_legal3": {
+    "userId": "u-legal3",
+    "role": "user",
+    "displayName": "深圳恒法"
+  },
+  "demo_ip": {
+    "userId": "u-ip",
+    "role": "user",
+    "displayName": "杭州知产汇"
+  },
+  "demo_flex": {
+    "userId": "u-flex",
+    "role": "user",
+    "displayName": "杭州聚力"
+  },
+  "demo_flex2": {
+    "userId": "u-flex2",
+    "role": "user",
+    "displayName": "上海优才"
+  },
+  "demo_flex3": {
+    "userId": "u-flex3",
+    "role": "user",
+    "displayName": "杭州众鑫"
+  },
+  "demo_agent": {
+    "userId": "u-agent",
+    "role": "user",
+    "displayName": "顾晓雨"
+  },
+  "demo_supply": {
+    "userId": "u-supply",
+    "role": "user",
+    "displayName": "华东供销"
+  },
+  "demo_supply2": {
+    "userId": "u-supply2",
+    "role": "user",
+    "displayName": "张丰收"
+  },
+  "demo_asset": {
+    "userId": "u-asset",
+    "role": "user",
+    "displayName": "甬城资产"
+  },
+  "demo_marketing": {
+    "userId": "u-marketing",
+    "role": "user",
+    "displayName": "星链传媒"
+  },
+  "demo_marketing2": {
+    "userId": "u-marketing2",
+    "role": "user",
+    "displayName": "云播MCN"
+  },
+  "demo_all": {
+    "userId": "u-all",
+    "role": "user",
+    "displayName": "万象综合服务"
+  },
+  "demo_user": {
+    "userId": "u-user",
+    "role": "user",
+    "displayName": "新用户"
+  },
+  "demo_dual": {
+    "userId": "u-dual",
+    "role": "user",
+    "displayName": "双身份演示"
+  },
+  "demo_staff": {
+    "userId": "u-staff",
+    "role": "user",
+    "displayName": "李芳"
+  },
+  "demo_staff2": {
+    "userId": "u-staff2",
+    "role": "user",
+    "displayName": "周凯"
+  },
+  "demo_staff3": {
+    "userId": "u-staff3",
+    "role": "user",
+    "displayName": "吴桐"
+  },
+  "demo_staff4": {
+    "userId": "u-staff4",
+    "role": "user",
+    "displayName": "赵倩"
+  },
+  "demo_staff5": {
+    "userId": "u-staff5",
+    "role": "user",
+    "displayName": "王建国"
+  },
+  "demo_staff6": {
+    "userId": "u-staff6",
+    "role": "user",
+    "displayName": "陈正涛"
+  },
+  "demo_staff7": {
+    "userId": "u-staff7",
+    "role": "user",
+    "displayName": "李敏"
+  },
+  "demo_staff_all": {
+    "userId": "u-staff-all",
+    "role": "user",
+    "displayName": "许静"
+  },
+  "demo_personal": {
+    "userId": "u-personal",
+    "role": "user",
+    "displayName": "个人用户演示"
+  },
+  "demo_individual": {
+    "userId": "u-individual",
+    "role": "user",
+    "displayName": "个体工商户演示"
+  }
+}

@@ -1,0 +1,33 @@
+import { endpoints } from "@enterprise/contracts";
+import { endpoint } from "./endpoint";
+
+export const geoApi = {
+  settings: endpoint(endpoints.Geo_settings),
+  saveSettings: endpoint(endpoints.Geo_saveSettings),
+  clearSettings: endpoint(endpoints.Geo_clearSettings),
+  testSettings: endpoint(endpoints.Geo_testSettings),
+  meta: endpoint(endpoints.Geo_meta),
+  projects: endpoint(endpoints.Geo_projects),
+  createProject: endpoint(endpoints.Geo_createProject),
+  updateProject: endpoint(endpoints.Geo_updateProject),
+  removeProject: endpoint(endpoints.Geo_removeProject),
+  report: endpoint(endpoints.Geo_report),
+  autoCollect: endpoint(endpoints.Geo_autoCollect),
+  setAutoCollect: endpoint(endpoints.Geo_setAutoCollect),
+  questions: endpoint(endpoints.Geo_questions),
+  createQuestion: endpoint(endpoints.Geo_createQuestion),
+  updateQuestion: endpoint(endpoints.Geo_updateQuestion),
+  removeQuestion: endpoint(endpoints.Geo_removeQuestion),
+  batches: endpoint(endpoints.Geo_batches),
+  createBatch: endpoint(endpoints.Geo_createBatch),
+  updateBatch: endpoint(endpoints.Geo_updateBatch),
+  removeBatch: endpoint(endpoints.Geo_removeBatch),
+  observations: endpoint(endpoints.Geo_observations),
+  createObservation: endpoint(endpoints.Geo_createObservation),
+  updateObservation: endpoint(endpoints.Geo_updateObservation),
+  removeObservation: endpoint(endpoints.Geo_removeObservation),
+  topics: endpoint(endpoints.Geo_topics),
+  createTopic: endpoint(endpoints.Geo_createTopic),
+  updateTopic: endpoint(endpoints.Geo_updateTopic),
+  removeTopic: endpoint(endpoints.Geo_removeTopic),
+};

@@ -1,0 +1,62 @@
+import { endpoints } from "@enterprise/contracts";
+import { endpoint } from "./endpoint";
+
+export const lowcodeApi = {
+  projects: endpoint(endpoints.LowCode_projects),
+  templates: endpoint(endpoints.LowCode_projectTemplates),
+  createProject: endpoint(endpoints.LowCode_projectCreate),
+  projectDetail: endpoint(endpoints.LowCode_projectDetail),
+  updateProject: endpoint(endpoints.LowCode_projectUpdate),
+  removeProject: endpoint(endpoints.LowCode_projectDelete),
+  availableTables: endpoint(endpoints.LowCode_availableTables),
+
+  members: endpoint(endpoints.LowCode_members),
+  memberCandidates: endpoint(endpoints.LowCode_memberCandidates),
+  addMembers: endpoint(endpoints.LowCode_memberAdd),
+  updateMember: endpoint(endpoints.LowCode_memberUpdate),
+  removeMember: endpoint(endpoints.LowCode_memberRemove),
+  roles: endpoint(endpoints.LowCode_roles),
+  saveRole: endpoint(endpoints.LowCode_roleSave),
+  removeRole: endpoint(endpoints.LowCode_roleDelete),
+  rolePermissions: endpoint(endpoints.LowCode_rolePermissions),
+  saveRolePermissions: endpoint(endpoints.LowCode_rolePermissionSave),
+  dataRules: endpoint(endpoints.LowCode_dataRules),
+  saveDataRule: endpoint(endpoints.LowCode_dataRuleSave),
+  removeDataRule: endpoint(endpoints.LowCode_dataRuleDelete),
+
+  entities: endpoint(endpoints.LowCode_entities),
+  saveEntity: endpoint(endpoints.LowCode_entitySave),
+  removeEntity: endpoint(endpoints.LowCode_entityDelete),
+  entityFields: endpoint(endpoints.LowCode_entityFields),
+  saveEntityField: endpoint(endpoints.LowCode_entityFieldSave),
+  removeEntityField: endpoint(endpoints.LowCode_entityFieldDelete),
+  pages: endpoint(endpoints.LowCode_pages),
+  savePage: endpoint(endpoints.LowCode_pageSave),
+  removePage: endpoint(endpoints.LowCode_pageDelete),
+  reorderPages: endpoint(endpoints.LowCode_pageReorder),
+
+  entityRows: endpoint(endpoints.LowCode_entityRows),
+  entityRow: endpoint(endpoints.LowCode_entityRow),
+  createRow: endpoint(endpoints.LowCode_entityRowCreate),
+  updateRow: endpoint(endpoints.LowCode_entityRowUpdate),
+  deleteRow: endpoint(endpoints.LowCode_entityRowDelete),
+  exportRows: endpoint(endpoints.LowCode_entityRowExport),
+
+  approvalFlows: endpoint(endpoints.LowCode_approvalFlows),
+  saveApprovalFlow: endpoint(endpoints.LowCode_approvalFlowSave),
+  removeApprovalFlow: endpoint(endpoints.LowCode_approvalFlowDelete),
+  submitApproval: endpoint(endpoints.LowCode_approvalSubmit),
+  approvalTasks: endpoint(endpoints.LowCode_approvalTasks),
+  actApproval: endpoint(endpoints.LowCode_approvalAct),
+  recordApproval: endpoint(endpoints.LowCode_recordApproval),
+
+  aiFill: endpoint(endpoints.LowCode_aiFill),
+  aiAsk: endpoint(endpoints.LowCode_aiAsk),
+  aiSettings: endpoint(endpoints.LowCode_aiSettings),
+  saveAiSettings: endpoint(endpoints.LowCode_aiSaveSettings),
+  aiChannels: endpoint(endpoints.LowCode_aiChannels),
+  aiModels: endpoint(endpoints.LowCode_aiModels),
+
+  assets: endpoint(endpoints.LowCode_assets),
+  uploadAsset: endpoint(endpoints.LowCode_uploadAsset),
+};

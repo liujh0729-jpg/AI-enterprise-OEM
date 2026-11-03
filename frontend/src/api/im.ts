@@ -1,0 +1,31 @@
+import { endpoints } from "@enterprise/contracts";
+import { endpoint } from "./endpoint";
+
+export const imApi = {
+  connectors: endpoint(endpoints.Im_connectors),
+  saveConnector: endpoint(endpoints.Im_saveConnector),
+  deleteConnector: endpoint(endpoints.Im_deleteConnector),
+  testConnector: endpoint(endpoints.Im_testConnector),
+  staffDirectory: endpoint(endpoints.Im_staffDirectory),
+  members: endpoint(endpoints.Im_members),
+  importMembers: endpoint(endpoints.Im_importMembers),
+  linkMember: endpoint(endpoints.Im_linkMember),
+  unlinkMember: endpoint(endpoints.Im_unlinkMember),
+  inviteUnlinked: endpoint(endpoints.Im_inviteUnlinked),
+  departments: endpoint(endpoints.Im_departments),
+  saveDeptLink: endpoint(endpoints.Im_saveDeptLink),
+  bindings: endpoint(endpoints.Im_bindings),
+  saveBinding: endpoint(endpoints.Im_saveBinding),
+  deleteBinding: endpoint(endpoints.Im_deleteBinding),
+  bindingTest: endpoint(endpoints.Im_bindingTest),
+  syncNow: endpoint(endpoints.Im_syncNow),
+  syncLogs: endpoint(endpoints.Im_syncLogs),
+  retryEvent: endpoint(endpoints.Im_retryEvent),
+  notifyRules: endpoint(endpoints.Im_notifyRules),
+  saveNotifyRules: endpoint(endpoints.Im_saveNotifyRules),
+  testNotify: endpoint(endpoints.Im_testNotify),
+  approvalTemplates: endpoint(endpoints.Im_approvalTemplates),
+  publishApproval: endpoint(endpoints.Im_publishApproval),
+  taskPublish: endpoint(endpoints.Im_taskPublish),
+  overview: endpoint(endpoints.Im_overview),
+};

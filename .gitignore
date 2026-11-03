@@ -1,0 +1,34 @@
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+node_modules/
+dist/
+.next/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+!.env.example
+!.env.development.example
+!.env.production.example
+
+.idea/
+.vscode/
+verification-screenshots/
+.tmp/
+
+# 本地调试产物（probe 脚本 / 截图 / 编译探针），不属于发布内容
+scripts/tmp/
+packages/tmp/
+
+# PostgreSQL schema 为派生产物（由 scripts/gen-prisma-schema.mjs 从 schema.prisma 生成），不入库以免与事实源漂移
+backend/prisma/schema.postgres.prisma
