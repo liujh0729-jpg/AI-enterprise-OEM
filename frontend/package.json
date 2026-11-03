@@ -5,10 +5,10 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p 15890",
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/with-heap.mjs next build",
     "start": "next start -H 127.0.0.1 -p 15890",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node scripts/with-heap.mjs tsc --noEmit"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
