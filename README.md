@@ -248,7 +248,7 @@ oem-enterprise/
 ├── packages/contracts/      # 前后端共享契约、错误码、MCP 目录
 ├── scripts/                 # 安装、迁移、校验与冒烟脚本
 ├── infra/                   # nginx / 部署样例
-└── docs/                    # 整体设计方案、OpenAPI 快照、路由基线、界面截图
+└── docs/                    # 整体设计方案、OpenAPI 快照、路由基线、截图与二维码资源
 ```
 
 ---
@@ -446,6 +446,16 @@ pwsh scripts/smoke-aipdd-platform-key.ps1  # 平台 AIPDD Key：密文不外泄 
 - 平台代查 / 代申 `sk-` Key、`DEV_AUTO_LOGIN` 就地签发等机制（演示数据随 `prisma:seed` 提供，
   但演示身份不可一键登录，须正常本地注册）；
 - 上游 Java 目录服务：数据源改为本地 `users` 表。
+
+---
+
+## 💬 社区
+
+加入 AI 企业服务系统讨论群，请扫下面二维码即可。欢迎发现问题和提出改进建议，好的建议我们会实现并共享源码。
+
+<div align="center">
+<img src="docs/assets/wechat-group-qr.png" width="260" alt="AI 企业服务系统讨论群 · 微信二维码">
+</div>
 
 ---
 
