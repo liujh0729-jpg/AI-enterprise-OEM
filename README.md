@@ -105,6 +105,18 @@ pnpm dev:web
 浏览器打开 `http://127.0.0.1:15890`，注册一个本地账号即可进入社交与供求广场。
 前端通过 Next.js 服务端把 `/api/backend/*` 代理到后端，浏览器侧保持同源。
 
+### 创建平台管理员（首次部署必须）
+
+平台管理员**不会**随安装/启动自动创建，需用 `backend/scripts/seed-admin.ts` 显式创建（幂等，`--reset` 可重置密码）：
+
+```bash
+# 1) 在 backend/.env 设置 ADMIN_USERNAME / ADMIN_PASSWORD
+# 2) 执行（首次创建；已有同名账号则跳过）
+pnpm --filter aiworkin-enterprise-api exec tsx scripts/seed-admin.ts
+```
+
+创建后用该账号登录，侧栏出现平台后台入口；未创建时只能注册普通用户，进不了平台后台。
+
 ### 关键环境变量
 
 | 变量 | 说明 |
@@ -117,7 +129,7 @@ pnpm dev:web
 | `AIPDD_PLATFORM_KEY` | 平台级 AIPDD APIKey 的部署兜底（基础数据通道）；后台「系统配置 → AIPDD 平台 Key」保存后以库内密文为准 |
 | `AIWORKIN_BASE_URL` / `AIWORKIN_ENABLED` | 上游市场地址与开关（关闭后仅本地闭环可用） |
 | `CORS_ORIGIN_PATTERNS` | 允许的跨域来源（逗号分隔） |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 首次启动种子出的平台管理员账号 |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 执行 `seed-admin` 脚本创建平台管理员时读取的账号密码（不随启动自动创建） |
 
 > 所有密钥仅存本机 `.env`（已在 `.gitignore` 中），任何接口永不回显 AIPDD Key 原文。
 
@@ -147,7 +159,14 @@ docker compose up --build
 # 后端 http://localhost:1690  前端 http://localhost:15890
 ```
 
-首次启动后端会自动执行 `prisma migrate deploy` 建表。生产部署请替换 `JWT_SECRET` / `EXTERNAL_CRED_KEY`
+首次启动后端会自动执行 `prisma migrate deploy` 建表。首次启动后还需在容器内创建平台管理员（compose 已注入
+`ADMIN_USERNAME` / `ADMIN_PASSWORD`，默认 `admin` / `admin-Startup-2026`，可在根目录 `.env` 覆盖）：
+
+```bash
+docker compose exec api pnpm --filter aiworkin-enterprise-api exec tsx scripts/seed-admin.ts
+```
+
+生产部署请替换 `JWT_SECRET` / `EXTERNAL_CRED_KEY`
 为强随机值，并使用独立的数据库与反向代理（`infra/nginx/` 提供样例配置）。
 
 ---

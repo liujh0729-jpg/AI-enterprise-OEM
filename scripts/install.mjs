@@ -157,7 +157,9 @@ async function main() {
       runPrisma(seedArgs, env);
     }
 
-    console.log('\n✅ 安装完成。启动业务：\n  pnpm dev        （后端 1690 + 前端）\n首次登录管理员见 README。');
+    console.log(
+      '\n✅ 安装完成。启动业务：\n  pnpm dev:api    （后端 1690）\n  pnpm dev:web    （前端 15890）\n（pnpm dev 需要本机已安装 Nginx，会额外拉起反向代理）\n首次部署请用 seed-admin 创建平台管理员，见 README。',
+    );
   } finally {
     rl?.close();
   }

@@ -15,11 +15,13 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      ENTERPRISE_TEMP_DIR: ${{ runner.temp }}
       PGUSER: postgres
       PGPASSWORD: isolated-ci-only
     steps:
       - uses: actions/checkout@v4
+      # runner 上下文不能用在 job 级 env（会让整个 workflow 校验失败、不产生任何 job），
+      # 临时目录改为在步骤里导出给后续步骤使用。
+      - run: echo "ENTERPRISE_TEMP_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.0
