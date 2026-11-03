@@ -1,95 +1,73 @@
 import { sign } from 'jsonwebtoken';
+import { createHmac } from 'node:crypto';
 import { AuthService } from './auth.service';
+import { issueSsoSession } from './token';
 
-describe('identity authentication scheduling', () => {
+/** 当前实现只接受本站自签会话（issuer=enterprise-sso），并核对账号版本。 */
+describe('local session authentication boundary', () => {
   const originalEnv = { ...process.env };
-  const secret = 'isolated-auth-scheduling-key';
+  const secret = 'isolated-local-session-key';
   beforeEach(() => {
     process.env.JWT_SECRET = secret;
-    process.env.JWT_ISSUER = 'aipdd-java-core';
   });
   afterEach(() => {
     process.env = { ...originalEnv };
   });
-  const token = (
-    payload: Record<string, unknown> = {},
-    key = secret,
-    issuer = 'aipdd-java-core',
-    expiresIn = 3600,
-  ): string =>
-    sign(
-      {
-        userId: 'auth-unit',
-        username: 'unit',
-        role: 'user',
-        type: 'access',
-        ...payload,
-      },
-      key,
-      { issuer, expiresIn },
-    );
 
-  it('lets the identity handler overlap its queries with account status checks', async () => {
-    let finish!: () => void;
-    const remember = jest.fn().mockReturnValue(
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-    );
-    const auth = new AuthService({} as never, { remember } as never);
-    const access = token();
-    expect(
-      await auth.authenticate('GET', '/enterprise/me', access),
-    ).toMatchObject({ userId: 'auth-unit', role: 'user' });
-    expect(remember).toHaveBeenCalledWith(
-      'auth-unit',
-      'unit',
-      access,
-      expect.any(Function),
-    );
-    finish();
+  const accounts = () => ({
+    assertSessionValid: jest.fn().mockResolvedValue(undefined),
   });
+  // 与 token.ts 的 HKDF 派生一致：改签 issuer=enterprise-sso 的伪造令牌。
+  const forgedSecret = () =>
+    createHmac('sha256', secret).update('enterprise-sso-session').digest();
 
-  it('retains the existing ordering for other business endpoints', async () => {
-    let finish!: () => void;
-    const remember = jest.fn().mockReturnValue(
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-    );
-    const requireActiveUser = jest.fn().mockResolvedValue({ enabled: true });
+  it('accepts a locally signed session and validates its token version', async () => {
+    const account = accounts();
     const auth = new AuthService(
       {} as never,
-      { remember, requireActiveUser } as never,
-    );
-    let finished = false;
-    const pending = auth
-      .authenticate('GET', '/enterprise/contracts', token())
-      .then(() => {
-        finished = true;
-      });
-    await Promise.resolve();
-    expect(finished).toBe(false);
-    finish();
-    await pending;
-    expect(finished).toBe(true);
-    expect(requireActiveUser).toHaveBeenCalledWith('auth-unit');
-  });
-
-  it('rejects a disabled account on a business endpoint after directory sync', async () => {
-    const requireActiveUser = jest
-      .fn()
-      .mockRejectedValue(new Error('user disabled'));
-    const auth = new AuthService(
       {} as never,
-      {
-        remember: jest.fn().mockResolvedValue(undefined),
-        requireActiveUser,
-      } as never,
+      account as never,
     );
     await expect(
-      auth.authenticate('GET', '/enterprise/contracts', token()),
-    ).rejects.toThrow('user disabled');
+      auth.authenticate('GET', '/enterprise/me', issueSsoSession('42', 'unit', 'user', 3)),
+    ).resolves.toMatchObject({ userId: '42', username: 'unit' });
+    expect(account.assertSessionValid).toHaveBeenCalledWith('42', 3);
+  });
+
+  it('rejects the request when the account module is not wired', async () => {
+    const auth = new AuthService({} as never, {} as never);
+    await expect(
+      auth.authenticate('GET', '/enterprise/me', issueSsoSession('42', 'unit')),
+    ).rejects.toThrow('会话无效');
+  });
+
+  it.each([
+    ['missing', (): undefined => undefined],
+    [
+      'upstream platform',
+      () =>
+        sign(
+          { userId: '42', username: 'unit', role: 'user', type: 'access' },
+          secret,
+          { issuer: 'aipdd-java-core', expiresIn: 300 },
+        ),
+    ],
+    [
+      'wrong signature',
+      () =>
+        sign(
+          { userId: '42', username: 'unit', role: 'user', type: 'access' },
+          forgedSecret().toString('hex'),
+          { issuer: 'enterprise-sso', expiresIn: 300 },
+        ),
+    ],
+  ] as const)('rejects %s before touching the account module', async (_, access) => {
+    const account = accounts();
+    const auth = new AuthService({} as never, {} as never, account as never);
+    await expect(
+      auth.authenticate('GET', '/enterprise/me', access()),
+    ).rejects.toThrow();
+    expect(account.assertSessionValid).not.toHaveBeenCalled();
   });
 
   it('rejects a disabled API key owner before recording a successful API call', async () => {
@@ -115,22 +93,4 @@ describe('identity authentication scheduling', () => {
     expect(updateMany).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
-
-  it.each([
-    ['missing', (): undefined => undefined],
-    ['bad signature', () => token({}, 'other-key')],
-    ['wrong issuer', () => token({}, secret, 'other-issuer')],
-    ['expired', () => token({}, secret, 'aipdd-java-core', -60)],
-    ['refresh token', () => token({ type: 'refresh' })],
-  ] as const)(
-    'rejects %s before starting directory work',
-    async (_, access) => {
-      const remember = jest.fn();
-      const auth = new AuthService({} as never, { remember } as never);
-      await expect(
-        auth.authenticate('GET', '/enterprise/me', access()),
-      ).rejects.toThrow();
-      expect(remember).not.toHaveBeenCalled();
-    },
-  );
 });

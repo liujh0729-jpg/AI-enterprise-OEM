@@ -216,6 +216,8 @@ describe('administrator business identity switching', () => {
 describe('identity startup checks', () => {
   it('starts qualifications and platform settings while account validation is pending', async () => {
     const { service, user, prisma, users } = setup();
+    // 灵工发薪仅在管理员显式写入 'false' 时关闭，缺省行视为启用。
+    prisma.systemSetting.findUnique.mockResolvedValue({ value: 'false' });
     let finish!: (directory: { username: string; displayName: string }) => void;
     users.requireActiveUser.mockReturnValue(
       new Promise((resolve) => {

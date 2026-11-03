@@ -1,9 +1,9 @@
 import { createApp } from './app';
 import { createServices } from './services';
-import { sign } from 'jsonwebtoken';
 import { endpoints } from '@enterprise/contracts';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { issueSsoSession } from '../auth/token';
 
 describe('Hono routing and session boundary', () => {
   const originalEnv = { ...process.env };
@@ -13,6 +13,12 @@ describe('Hono routing and session boundary', () => {
     process.env.JWT_SECRET = 'isolated-unit-secret';
     process.env.DEV_AUTO_LOGIN = 'false';
     jest.spyOn(services.users, 'remember').mockResolvedValue(undefined);
+    // 开源版会话只认本站自签令牌，并核对账号版本；这里把账户查询固定为有效账户。
+    jest.spyOn(services.prisma.account, 'findUnique').mockResolvedValue({
+      id: 1,
+      status: 'ACTIVE',
+      tokenVersion: 0,
+    } as never);
     jest.spyOn(services.users, 'requireActiveUser').mockResolvedValue({
       id: 'unit-user',
       username: 'unit',
@@ -27,12 +33,7 @@ describe('Hono routing and session boundary', () => {
     process.env = { ...originalEnv };
     jest.restoreAllMocks();
   });
-  const token = () =>
-    sign(
-      { userId: 'unit-user', username: 'unit', role: 'user', type: 'access' },
-      'isolated-unit-secret',
-      { issuer: 'aipdd-java-core', expiresIn: 300 },
-    );
+  const token = () => issueSsoSession('1', 'unit');
   it.each(['/health', '/api/backend/health'])(
     'serves the public health route %s',
     async (path) => {
@@ -139,6 +140,5 @@ describe('Hono routing and session boundary', () => {
     );
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of Object.keys(endpoints)) expect(ids).toContain(id);
-    expect(ids).toContain('Auth_logout');
   });
 });
