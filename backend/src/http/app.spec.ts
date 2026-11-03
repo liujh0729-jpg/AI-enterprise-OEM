@@ -5,6 +5,12 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { issueSsoSession } from '../auth/token';
 
+// PrismaClient 构造时要求 datasource 地址；单测不连库，没有 backend/.env 时（CI）
+// 用占位连接串与临时密钥兜底，避免模块加载阶段就抛错。
+process.env.DB_PROVIDER ||= 'mysql';
+process.env.DATABASE_URL ||= 'mysql://unit:unit@127.0.0.1:3306/unit';
+process.env.EXTERNAL_CRED_KEY ||= 'isolated-unit-credential-key';
+
 describe('Hono routing and session boundary', () => {
   const originalEnv = { ...process.env };
   const services = createServices();
