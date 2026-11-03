@@ -133,6 +133,14 @@ test('bare production migrations and remote isolated-test bypass are rejected be
 
 test('production example templates contain no usable database password', () => {
   const template = readFileSync('backend/.env.production.example', 'utf8');
-  assert.match(template, /ENTERPRISE_ENV=production/); assert.match(template, /ae_prod\?schema=public/);
-  assert.throws(() => databaseTarget(template.match(/^DATABASE_URL=(.+)$/m)[1], 'production'), /占位/);
+  assert.match(template, /ENTERPRISE_ENV=production/);
+  // 模板主用 MySQL（与 docker-compose、install.mjs 的默认一致），PostgreSQL 写法以注释形式并列；
+  // 两种方言的口令都必须是占位符，不能出现可直接连接的凭据。
+  const value = template.match(/^DATABASE_URL=(.+)$/m)[1];
+  const url = new URL(value);
+  assert.match(url.protocol, /^(?:mysql|postgres|postgresql):$/);
+  assert.match(decodeURIComponent(url.password), /^REPLACE_/i);
+  // MySQL 模板不能满足生产联动脚本的专用 PostgreSQL 目标，必须在触达数据库前被拒绝。
+  assert.throws(() => databaseTarget(value, 'production'), /只允许连接/);
+  assert.throws(() => databaseTarget('postgresql://ae_prod:REPLACE_WITH_PRODUCTION_PASSWORD@8.219.81.18:15432/ae_prod?schema=public', 'production'), /占位/);
 });
