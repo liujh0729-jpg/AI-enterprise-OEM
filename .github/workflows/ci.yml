@@ -33,7 +33,12 @@ jobs:
       - run: pnpm --filter @enterprise/contracts build
       - run: node scripts/check-architecture.mjs
       - run: pnpm test:environment
+      # OpenAPI 生成会构造 PrismaClient（不真正连库），缺少 DATABASE_URL 会直接抛错；
+      # 这里给占位连接串，方言与本地快照生成时保持一致（mysql）。
       - run: pnpm api:docs:check
+        env:
+          DB_PROVIDER: mysql
+          DATABASE_URL: mysql://docs:docs@127.0.0.1:3306/docs
       - run: pnpm typecheck
       # 存量 lint 债务（约 690 条，绝大部分是 Windows CRLF 触发 prettier 与少量规则项）：
       # 不阻塞构建/部署验证，结果照常输出，后续逐步清零后再改为硬门禁。

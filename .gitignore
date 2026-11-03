@@ -32,3 +32,6 @@ packages/tmp/
 
 # PostgreSQL schema 为派生产物（由 scripts/gen-prisma-schema.mjs 从 schema.prisma 生成），不入库以免与事实源漂移
 backend/prisma/schema.postgres.prisma
+
+# 本地分发包（git archive 生成，不入库）
+/*.zip
