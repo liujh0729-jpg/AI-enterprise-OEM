@@ -1,0 +1,1337 @@
+[
+  {
+    "operationId": "Admin_contractPage"
+  },
+  {
+    "operationId": "Admin_users"
+  },
+  {
+    "operationId": "Admin_appPage"
+  },
+  {
+    "operationId": "Admin_providerPage"
+  },
+  {
+    "operationId": "Admin_capabilityPage"
+  },
+  {
+    "operationId": "Admin_requestPage"
+  },
+  {
+    "operationId": "Admin_providerStats"
+  },
+  {
+    "operationId": "Invoice_page"
+  },
+  {
+    "operationId": "Invoice_stats"
+  },
+  {
+    "operationId": "Tax_recordPage"
+  },
+  {
+    "operationId": "Services_page"
+  },
+  {
+    "operationId": "Services_detail"
+  },
+  {
+    "operationId": "Tax_setPage"
+  },
+  {
+    "operationId": "Tax_materialPage"
+  },
+  {
+    "operationId": "Tax_setDetail"
+  },
+  {
+    "operationId": "Overseas_claimPage"
+  },
+  {
+    "operationId": "Overseas_claimStats"
+  },
+  {
+    "operationId": "Flex_onboardingPage"
+  },
+  {
+    "operationId": "Flex_onboardingStats"
+  },
+  {
+    "operationId": "Flex_payrollPage"
+  },
+  {
+    "operationId": "Flex_payrollStats"
+  },
+  {
+    "operationId": "Supply_orderPage"
+  },
+  {
+    "operationId": "Supply_orderStats"
+  },
+  {
+    "operationId": "Supply_bookingPage"
+  },
+  {
+    "operationId": "Supply_bookingStats"
+  },
+  {
+    "operationId": "Tax_declarationPage"
+  },
+  {
+    "operationId": "Tax_declarationStats"
+  },
+  {
+    "operationId": "Contracts_options"
+  },
+  {
+    "operationId": "Contracts_stats"
+  },
+  {
+    "operationId": "Health_health"
+  },
+  {
+    "operationId": "Health_version"
+  },
+  {
+    "operationId": "Health_ready"
+  },
+  {
+    "operationId": "Admin_stats"
+  },
+  {
+    "operationId": "Admin_enterprises"
+  },
+  {
+    "operationId": "Admin_apps"
+  },
+  {
+    "operationId": "Admin_auditApp"
+  },
+  {
+    "operationId": "Admin_providers"
+  },
+  {
+    "operationId": "Admin_revoke"
+  },
+  {
+    "operationId": "Admin_restore"
+  },
+  {
+    "operationId": "Admin_capabilityRequests"
+  },
+  {
+    "operationId": "Admin_capabilityMatrix"
+  },
+  {
+    "operationId": "Admin_capabilities"
+  },
+  {
+    "operationId": "Admin_setCapability"
+  },
+  {
+    "operationId": "Admin_settings"
+  },
+  {
+    "operationId": "Admin_saveSettings"
+  },
+  {
+    "operationId": "Geo_settings"
+  },
+  {
+    "operationId": "Geo_saveSettings"
+  },
+  {
+    "operationId": "Geo_clearSettings"
+  },
+  {
+    "operationId": "Geo_testSettings"
+  },
+  {
+    "operationId": "Admin_geoCollectionStats"
+  },
+  {
+    "operationId": "Admin_flexPayroll"
+  },
+  {
+    "operationId": "Admin_saveFlexPayroll"
+  },
+  {
+    "operationId": "Admin_contracts"
+  },
+  {
+    "operationId": "Aiworkin_status"
+  },
+  {
+    "operationId": "Aiworkin_categories"
+  },
+  {
+    "operationId": "Aiworkin_myDemands"
+  },
+  {
+    "operationId": "Aiworkin_marketListings"
+  },
+  {
+    "operationId": "Aiworkin_demandDetail"
+  },
+  {
+    "operationId": "Aiworkin_publishDemand"
+  },
+  {
+    "operationId": "Aiworkin_removeDemand"
+  },
+  {
+    "operationId": "Aiworkin_demandConversations"
+  },
+  {
+    "operationId": "Aiworkin_conversations"
+  },
+  {
+    "operationId": "Aiworkin_conversation"
+  },
+  {
+    "operationId": "Aiworkin_reply"
+  },
+  {
+    "operationId": "Aiworkin_profile"
+  },
+  {
+    "operationId": "Aiworkin_saveProfile"
+  },
+  {
+    "operationId": "Connections_resources"
+  },
+  {
+    "operationId": "Connections_locations"
+  },
+  {
+    "operationId": "Connections_contact"
+  },
+  {
+    "operationId": "Connections_dictionary"
+  },
+  {
+    "operationId": "Connections_favorites"
+  },
+  {
+    "operationId": "Connections_profileFavorites"
+  },
+  {
+    "operationId": "Connections_addFavorite"
+  },
+  {
+    "operationId": "Connections_removeFavorite"
+  },
+  {
+    "operationId": "Connections_addProfileFavorite"
+  },
+  {
+    "operationId": "Connections_removeProfileFavorite"
+  },
+  {
+    "operationId": "Asset_list"
+  },
+  {
+    "operationId": "Asset_create"
+  },
+  {
+    "operationId": "Asset_accept"
+  },
+  {
+    "operationId": "Asset_update"
+  },
+  {
+    "operationId": "Asset_remove"
+  },
+  {
+    "operationId": "Asset_messages"
+  },
+  {
+    "operationId": "Asset_postMessage"
+  },
+  {
+    "operationId": "Asset_updateContacts"
+  },
+  {
+    "operationId": "Capability_mine"
+  },
+  {
+    "operationId": "Capability_served"
+  },
+  {
+    "operationId": "Capability_request"
+  },
+  {
+    "operationId": "Capability_cancel"
+  },
+  {
+    "operationId": "Contracts_list"
+  },
+  {
+    "operationId": "Contracts_candidates"
+  },
+  {
+    "operationId": "Contracts_providers"
+  },
+  {
+    "operationId": "Contracts_enterprises"
+  },
+  {
+    "operationId": "Contracts_create"
+  },
+  {
+    "operationId": "Contracts_updateTerms"
+  },
+  {
+    "operationId": "Contracts_remove"
+  },
+  {
+    "operationId": "Contracts_updateContacts"
+  },
+  {
+    "operationId": "Contracts_confirm"
+  },
+  {
+    "operationId": "Contracts_terminate"
+  },
+  {
+    "operationId": "Contracts_staff"
+  },
+  {
+    "operationId": "Contracts_agent"
+  },
+  {
+    "operationId": "External_channels"
+  },
+  {
+    "operationId": "External_submissions"
+  },
+  {
+    "operationId": "External_byRef"
+  },
+  {
+    "operationId": "External_detail"
+  },
+  {
+    "operationId": "External_preview"
+  },
+  {
+    "operationId": "External_create"
+  },
+  {
+    "operationId": "External_submit"
+  },
+  {
+    "operationId": "External_receipt"
+  },
+  {
+    "operationId": "External_pay"
+  },
+  {
+    "operationId": "External_reject"
+  },
+  {
+    "operationId": "External_retry"
+  },
+  {
+    "operationId": "External_cancel"
+  },
+  {
+    "operationId": "External_callbacks"
+  },
+  {
+    "operationId": "External_recordCallback"
+  },
+  {
+    "operationId": "External_listCredentials"
+  },
+  {
+    "operationId": "External_saveCredential"
+  },
+  {
+    "operationId": "External_removeCredential"
+  },
+  {
+    "operationId": "Flex_providers"
+  },
+  {
+    "operationId": "Flex_createProvider"
+  },
+  {
+    "operationId": "Flex_updateProvider"
+  },
+  {
+    "operationId": "Flex_removeProvider"
+  },
+  {
+    "operationId": "Flex_onboardings"
+  },
+  {
+    "operationId": "Flex_createOnboarding"
+  },
+  {
+    "operationId": "Flex_uploadOnboardingAttachments"
+  },
+  {
+    "operationId": "Flex_auditOnboarding"
+  },
+  {
+    "operationId": "Flex_workOrders"
+  },
+  {
+    "operationId": "Flex_createWorkOrder"
+  },
+  {
+    "operationId": "Flex_match"
+  },
+  {
+    "operationId": "Flex_messages"
+  },
+  {
+    "operationId": "Flex_postMessage"
+  },
+  {
+    "operationId": "Flex_candidates"
+  },
+  {
+    "operationId": "Flex_settlements"
+  },
+  {
+    "operationId": "Flex_publish"
+  },
+  {
+    "operationId": "Flex_updateWorkOrder"
+  },
+  {
+    "operationId": "Flex_removeWorkOrder"
+  },
+  {
+    "operationId": "Flex_updateWorkOrderContacts"
+  },
+  {
+    "operationId": "Flex_updateOnboardingContacts"
+  },
+  {
+    "operationId": "Flex_updatePayrollContacts"
+  },
+  {
+    "operationId": "Flex_payrolls"
+  },
+  {
+    "operationId": "Flex_createPayroll"
+  },
+  {
+    "operationId": "Flex_auditPayroll"
+  },
+  {
+    "operationId": "Geo_meta"
+  },
+  {
+    "operationId": "Geo_projects"
+  },
+  {
+    "operationId": "Geo_createProject"
+  },
+  {
+    "operationId": "Geo_updateProject"
+  },
+  {
+    "operationId": "Geo_removeProject"
+  },
+  {
+    "operationId": "Geo_report"
+  },
+  {
+    "operationId": "Geo_autoCollect"
+  },
+  {
+    "operationId": "Geo_setAutoCollect"
+  },
+  {
+    "operationId": "Geo_questions"
+  },
+  {
+    "operationId": "Geo_createQuestion"
+  },
+  {
+    "operationId": "Geo_updateQuestion"
+  },
+  {
+    "operationId": "Geo_removeQuestion"
+  },
+  {
+    "operationId": "Geo_batches"
+  },
+  {
+    "operationId": "Geo_createBatch"
+  },
+  {
+    "operationId": "Geo_updateBatch"
+  },
+  {
+    "operationId": "Geo_removeBatch"
+  },
+  {
+    "operationId": "Geo_observations"
+  },
+  {
+    "operationId": "Geo_createObservation"
+  },
+  {
+    "operationId": "Geo_updateObservation"
+  },
+  {
+    "operationId": "Geo_removeObservation"
+  },
+  {
+    "operationId": "Geo_topics"
+  },
+  {
+    "operationId": "Geo_createTopic"
+  },
+  {
+    "operationId": "Geo_updateTopic"
+  },
+  {
+    "operationId": "Geo_removeTopic"
+  },
+  {
+    "operationId": "Identity_me"
+  },
+  {
+    "operationId": "Identity_switchIdentity"
+  },
+  {
+    "operationId": "Identity_enterprise"
+  },
+  {
+    "operationId": "Identity_submitEnterprise"
+  },
+  {
+    "operationId": "Identity_updateEnterprise"
+  },
+  {
+    "operationId": "Identity_removeEnterprise"
+  },
+  {
+    "operationId": "Identity_providerApplication"
+  },
+  {
+    "operationId": "Identity_submitProvider"
+  },
+  {
+    "operationId": "Identity_upload"
+  },
+  {
+    "operationId": "Identity_updateProvider"
+  },
+  {
+    "operationId": "Identity_removeProvider"
+  },
+  {
+    "operationId": "Identity_staffProfile"
+  },
+  {
+    "operationId": "Identity_submitStaff"
+  },
+  {
+    "operationId": "Identity_staff"
+  },
+  {
+    "operationId": "Identity_search"
+  },
+  {
+    "operationId": "Identity_roles"
+  },
+  {
+    "operationId": "Identity_inviteStaff"
+  },
+  {
+    "operationId": "Identity_myInvitations"
+  },
+  {
+    "operationId": "Identity_respondInvitation"
+  },
+  {
+    "operationId": "Identity_cancelInvitation"
+  },
+  {
+    "operationId": "Identity_bind"
+  },
+  {
+    "operationId": "Identity_unbind"
+  },
+  {
+    "operationId": "Identity_selfUnbind"
+  },
+  {
+    "operationId": "Identity_joinable"
+  },
+  {
+    "operationId": "Identity_myAffiliations"
+  },
+  {
+    "operationId": "Identity_inbox"
+  },
+  {
+    "operationId": "Identity_apply"
+  },
+  {
+    "operationId": "Identity_cancelAffiliation"
+  },
+  {
+    "operationId": "Identity_auditAff"
+  },
+  {
+    "operationId": "Identity_assign"
+  },
+  {
+    "operationId": "Identity_myWork"
+  },
+  {
+    "operationId": "Identity_apiKeys"
+  },
+  {
+    "operationId": "Identity_createKey"
+  },
+  {
+    "operationId": "Identity_resetKey"
+  },
+  {
+    "operationId": "Identity_revokeKey"
+  },
+  {
+    "operationId": "Identity_keyUsage"
+  },
+  {
+    "operationId": "Invoice_create"
+  },
+  {
+    "operationId": "Invoice_list"
+  },
+  {
+    "operationId": "Invoice_detail"
+  },
+  {
+    "operationId": "Invoice_approve"
+  },
+  {
+    "operationId": "Invoice_reject"
+  },
+  {
+    "operationId": "Invoice_updateContacts"
+  },
+  {
+    "operationId": "Invoice_cancel"
+  },
+  {
+    "operationId": "Ip_agencies"
+  },
+  {
+    "operationId": "Ip_createAgency"
+  },
+  {
+    "operationId": "Ip_updateAgency"
+  },
+  {
+    "operationId": "Ip_removeAgency"
+  },
+  {
+    "operationId": "Ip_list"
+  },
+  {
+    "operationId": "Ip_create"
+  },
+  {
+    "operationId": "Ip_consult"
+  },
+  {
+    "operationId": "Ip_messages"
+  },
+  {
+    "operationId": "Ip_postMessage"
+  },
+  {
+    "operationId": "Ip_publish"
+  },
+  {
+    "operationId": "Ip_updateContacts"
+  },
+  {
+    "operationId": "Ip_updateRequest"
+  },
+  {
+    "operationId": "Ip_removeRequest"
+  },
+  {
+    "operationId": "ThinkTank_experts"
+  },
+  {
+    "operationId": "ThinkTank_createExpert"
+  },
+  {
+    "operationId": "ThinkTank_updateExpert"
+  },
+  {
+    "operationId": "ThinkTank_removeExpert"
+  },
+  {
+    "operationId": "ThinkTank_create"
+  },
+  {
+    "operationId": "ThinkTank_messages"
+  },
+  {
+    "operationId": "ThinkTank_postMessage"
+  },
+  {
+    "operationId": "ThinkTank_publish"
+  },
+  {
+    "operationId": "ThinkTank_update"
+  },
+  {
+    "operationId": "ThinkTank_updateContacts"
+  },
+  {
+    "operationId": "ThinkTank_remove"
+  },
+  {
+    "operationId": "Legal_lawyers"
+  },
+  {
+    "operationId": "Legal_createLawyer"
+  },
+  {
+    "operationId": "Legal_updateLawyer"
+  },
+  {
+    "operationId": "Legal_removeLawyer"
+  },
+  {
+    "operationId": "Legal_list"
+  },
+  {
+    "operationId": "Legal_create"
+  },
+  {
+    "operationId": "Legal_messages"
+  },
+  {
+    "operationId": "Legal_postMessage"
+  },
+  {
+    "operationId": "Legal_publish"
+  },
+  {
+    "operationId": "Legal_updateContacts"
+  },
+  {
+    "operationId": "Legal_updateRequest"
+  },
+  {
+    "operationId": "Legal_removeRequest"
+  },
+  {
+    "operationId": "Logistics_list"
+  },
+  {
+    "operationId": "Logistics_create"
+  },
+  {
+    "operationId": "Logistics_accept"
+  },
+  {
+    "operationId": "Logistics_update"
+  },
+  {
+    "operationId": "Logistics_remove"
+  },
+  {
+    "operationId": "Logistics_messages"
+  },
+  {
+    "operationId": "Logistics_postMessage"
+  },
+  {
+    "operationId": "Logistics_updateContacts"
+  },
+  {
+    "operationId": "Logistics_advance"
+  },
+  {
+    "operationId": "MarketBoard_demands"
+  },
+  {
+    "operationId": "MarketBoard_createDemand"
+  },
+  {
+    "operationId": "MarketBoard_demandMessages"
+  },
+  {
+    "operationId": "MarketBoard_updateDemand"
+  },
+  {
+    "operationId": "MarketBoard_removeDemand"
+  },
+  {
+    "operationId": "MarketBoard_services"
+  },
+  {
+    "operationId": "MarketBoard_marketplace"
+  },
+  {
+    "operationId": "MarketBoard_createService"
+  },
+  {
+    "operationId": "MarketBoard_updateService"
+  },
+  {
+    "operationId": "MarketBoard_removeService"
+  },
+  {
+    "operationId": "Marketing_list"
+  },
+  {
+    "operationId": "Marketing_create"
+  },
+  {
+    "operationId": "Marketing_accept"
+  },
+  {
+    "operationId": "Marketing_update"
+  },
+  {
+    "operationId": "Marketing_remove"
+  },
+  {
+    "operationId": "Marketing_messages"
+  },
+  {
+    "operationId": "Marketing_postMessage"
+  },
+  {
+    "operationId": "Marketing_updateContacts"
+  },
+  {
+    "operationId": "Marketing_confirm"
+  },
+  {
+    "operationId": "OpenApi_me"
+  },
+  {
+    "operationId": "OpenApi_roles"
+  },
+  {
+    "operationId": "OpenApi_switchRole"
+  },
+  {
+    "operationId": "OpenApi_contractsList"
+  },
+  {
+    "operationId": "OpenApi_createContract"
+  },
+  {
+    "operationId": "OpenApi_confirm"
+  },
+  {
+    "operationId": "OpenApi_terminate"
+  },
+  {
+    "operationId": "OpenApi_taxList"
+  },
+  {
+    "operationId": "OpenApi_taxCreate"
+  },
+  {
+    "operationId": "OpenApi_overseasList"
+  },
+  {
+    "operationId": "OpenApi_overseasCreate"
+  },
+  {
+    "operationId": "OpenApi_logisticsList"
+  },
+  {
+    "operationId": "OpenApi_logisticsCreate"
+  },
+  {
+    "operationId": "OpenApi_logisticsMessages"
+  },
+  {
+    "operationId": "OpenApi_lawyers"
+  },
+  {
+    "operationId": "OpenApi_legalCreate"
+  },
+  {
+    "operationId": "OpenApi_agencies"
+  },
+  {
+    "operationId": "OpenApi_ipCreate"
+  },
+  {
+    "operationId": "OpenApi_ipConsult"
+  },
+  {
+    "operationId": "OpenApi_flexProviders"
+  },
+  {
+    "operationId": "OpenApi_flexOrder"
+  },
+  {
+    "operationId": "OpenApi_flexOrderGet"
+  },
+  {
+    "operationId": "OpenApi_flexMatch"
+  },
+  {
+    "operationId": "OpenApi_flexOnboard"
+  },
+  {
+    "operationId": "OpenApi_flexOnboardList"
+  },
+  {
+    "operationId": "OpenApi_thinkTankExperts"
+  },
+  {
+    "operationId": "OpenApi_thinkTankRequests"
+  },
+  {
+    "operationId": "OpenApi_thinkTankCreate"
+  },
+  {
+    "operationId": "OpenApi_keys"
+  },
+  {
+    "operationId": "OpenApi_syncKey"
+  },
+  {
+    "operationId": "OpenApi_keyUsage"
+  },
+  {
+    "operationId": "Overseas_catalog"
+  },
+  {
+    "operationId": "Overseas_list"
+  },
+  {
+    "operationId": "Overseas_create"
+  },
+  {
+    "operationId": "Overseas_advance"
+  },
+  {
+    "operationId": "Overseas_updateContacts"
+  },
+  {
+    "operationId": "OssSettings_view"
+  },
+  {
+    "operationId": "OssSettings_save"
+  },
+  {
+    "operationId": "OssSettings_test"
+  },
+  {
+    "operationId": "Qxy_status"
+  },
+  {
+    "operationId": "Qxy_probe"
+  },
+  {
+    "operationId": "Qxy_options"
+  },
+  {
+    "operationId": "Qxy_autoFile"
+  },
+  {
+    "operationId": "Qxy_filingResult"
+  },
+  {
+    "operationId": "Qxy_autoInvoice"
+  },
+  {
+    "operationId": "Qxy_invoices"
+  },
+  {
+    "operationId": "Services_list"
+  },
+  {
+    "operationId": "Services_create"
+  },
+  {
+    "operationId": "Services_update"
+  },
+  {
+    "operationId": "Services_publish"
+  },
+  {
+    "operationId": "Services_remove"
+  },
+  {
+    "operationId": "SmartService_list"
+  },
+  {
+    "operationId": "SmartService_create"
+  },
+  {
+    "operationId": "SmartService_accept"
+  },
+  {
+    "operationId": "SmartService_update"
+  },
+  {
+    "operationId": "SmartService_remove"
+  },
+  {
+    "operationId": "SmartService_messages"
+  },
+  {
+    "operationId": "SmartService_postMessage"
+  },
+  {
+    "operationId": "SmartService_updateContacts"
+  },
+  {
+    "operationId": "SmartService_advance"
+  },
+  {
+    "operationId": "Supply_stations"
+  },
+  {
+    "operationId": "Supply_createStation"
+  },
+  {
+    "operationId": "Supply_updateStation"
+  },
+  {
+    "operationId": "Supply_removeStation"
+  },
+  {
+    "operationId": "Supply_products"
+  },
+  {
+    "operationId": "Supply_createProduct"
+  },
+  {
+    "operationId": "Supply_updateProduct"
+  },
+  {
+    "operationId": "Supply_removeProduct"
+  },
+  {
+    "operationId": "Supply_setProductStations"
+  },
+  {
+    "operationId": "Supply_setProductStationStatus"
+  },
+  {
+    "operationId": "Supply_addSku"
+  },
+  {
+    "operationId": "Supply_updateSku"
+  },
+  {
+    "operationId": "Supply_removeSku"
+  },
+  {
+    "operationId": "Supply_services"
+  },
+  {
+    "operationId": "Supply_createService"
+  },
+  {
+    "operationId": "Supply_updateService"
+  },
+  {
+    "operationId": "Supply_removeService"
+  },
+  {
+    "operationId": "Supply_orders"
+  },
+  {
+    "operationId": "Supply_createOrder"
+  },
+  {
+    "operationId": "Supply_updateOrder"
+  },
+  {
+    "operationId": "Supply_removeOrder"
+  },
+  {
+    "operationId": "Supply_submitOrder"
+  },
+  {
+    "operationId": "Supply_quoteOrder"
+  },
+  {
+    "operationId": "Supply_confirmOrder"
+  },
+  {
+    "operationId": "Supply_returnOrder"
+  },
+  {
+    "operationId": "Supply_vetoOrder"
+  },
+  {
+    "operationId": "Supply_cancelOrder"
+  },
+  {
+    "operationId": "Supply_assignOrder"
+  },
+  {
+    "operationId": "Supply_orderLogs"
+  },
+  {
+    "operationId": "Supply_bookings"
+  },
+  {
+    "operationId": "Supply_createBooking"
+  },
+  {
+    "operationId": "Supply_updateBooking"
+  },
+  {
+    "operationId": "Supply_removeBooking"
+  },
+  {
+    "operationId": "Supply_submitBooking"
+  },
+  {
+    "operationId": "Supply_quoteBooking"
+  },
+  {
+    "operationId": "Supply_confirmBooking"
+  },
+  {
+    "operationId": "Supply_returnBooking"
+  },
+  {
+    "operationId": "Supply_vetoBooking"
+  },
+  {
+    "operationId": "Supply_cancelBooking"
+  },
+  {
+    "operationId": "Supply_assignBooking"
+  },
+  {
+    "operationId": "Supply_bookingLogs"
+  },
+  {
+    "operationId": "Supply_adminOverview"
+  },
+  {
+    "operationId": "Tax_meta"
+  },
+  {
+    "operationId": "Tax_providers"
+  },
+  {
+    "operationId": "Tax_decls"
+  },
+  {
+    "operationId": "Tax_declDetail"
+  },
+  {
+    "operationId": "Tax_createDecl"
+  },
+  {
+    "operationId": "Tax_form"
+  },
+  {
+    "operationId": "Tax_declarationContacts"
+  },
+  {
+    "operationId": "Tax_runAi"
+  },
+  {
+    "operationId": "Tax_qc"
+  },
+  {
+    "operationId": "Tax_pay"
+  },
+  {
+    "operationId": "Tax_trial"
+  },
+  {
+    "operationId": "Tax_saveTrial"
+  },
+  {
+    "operationId": "Tax_records"
+  },
+  {
+    "operationId": "Tax_deleteRecord"
+  },
+  {
+    "operationId": "Tax_archiveSet"
+  },
+  {
+    "operationId": "Tax_sets"
+  },
+  {
+    "operationId": "Tax_materialPacks"
+  },
+  {
+    "operationId": "Tax_currentMaterialPack"
+  },
+  {
+    "operationId": "Tax_materialPackDetail"
+  },
+  {
+    "operationId": "Tax_materialPackContacts"
+  },
+  {
+    "operationId": "Tax_addMaterialRow"
+  },
+  {
+    "operationId": "Tax_updateMaterialRow"
+  },
+  {
+    "operationId": "Tax_removeMaterialRow"
+  },
+  {
+    "operationId": "Tax_submitMaterialPack"
+  },
+  {
+    "operationId": "Tax_ocrStatus"
+  },
+  {
+    "operationId": "Tax_ocrInvoice"
+  },
+  {
+    "operationId": "Tax_materialAnalysis"
+  },
+  {
+    "operationId": "Tax_generateDeclarations"
+  },
+  {
+    "operationId": "Tax_createSet"
+  },
+  {
+    "operationId": "Tax_planList"
+  },
+  {
+    "operationId": "Tax_generatePlans"
+  },
+  {
+    "operationId": "Tax_fromPlan"
+  },
+  {
+    "operationId": "Tax_consultations"
+  },
+  {
+    "operationId": "Tax_ask"
+  },
+  {
+    "operationId": "Tax_reply"
+  },
+  {
+    "operationId": "Tax_planStats"
+  },
+  {
+    "operationId": "MarketBoard_demandDetail"
+  },
+  {
+    "operationId": "MarketBoard_serviceDetail"
+  },
+  {
+    "operationId": "MarketBoard_marketplaceDetail"
+  },
+  {
+    "operationId": "Marketing_page"
+  },
+  {
+    "operationId": "Marketing_stats"
+  },
+  {
+    "operationId": "Marketing_detail"
+  },
+  {
+    "operationId": "Logistics_page"
+  },
+  {
+    "operationId": "Logistics_stats"
+  },
+  {
+    "operationId": "Logistics_detail"
+  },
+  {
+    "operationId": "SmartService_page"
+  },
+  {
+    "operationId": "SmartService_stats"
+  },
+  {
+    "operationId": "SmartService_detail"
+  },
+  {
+    "operationId": "Asset_page"
+  },
+  {
+    "operationId": "Asset_stats"
+  },
+  {
+    "operationId": "Asset_detail"
+  },
+  {
+    "operationId": "Legal_page"
+  },
+  {
+    "operationId": "Legal_stats"
+  },
+  {
+    "operationId": "Legal_detail"
+  },
+  {
+    "operationId": "Ip_page"
+  },
+  {
+    "operationId": "Ip_stats"
+  },
+  {
+    "operationId": "Ip_detail"
+  },
+  {
+    "operationId": "ThinkTank_page"
+  },
+  {
+    "operationId": "ThinkTank_stats"
+  },
+  {
+    "operationId": "ThinkTank_detail"
+  },
+  {
+    "operationId": "Flex_page"
+  },
+  {
+    "operationId": "Flex_stats"
+  },
+  {
+    "operationId": "Flex_detail"
+  },
+  {
+    "operationId": "Overseas_claimDetail"
+  },
+  {
+    "operationId": "Flex_onboardingDetail"
+  },
+  {
+    "operationId": "Flex_payrollDetail"
+  },
+  {
+    "operationId": "Supply_orderDetail"
+  },
+  {
+    "operationId": "Supply_bookingDetail"
+  },
+  {
+    "operationId": "Apps_list"
+  },
+  {
+    "operationId": "Apps_detail"
+  },
+  {
+    "operationId": "Apps_reviews"
+  }
+]
