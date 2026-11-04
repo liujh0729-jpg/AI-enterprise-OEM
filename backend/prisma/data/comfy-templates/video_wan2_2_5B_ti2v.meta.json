@@ -1,0 +1,25 @@
+{
+  "name": "video_wan2_2_5B_ti2v",
+  "title": "Wan 2.2 5B Video Generation",
+  "summary": "Fast text-to-video and image-to-video generation with 5B parameters. Optimized for rapid prototyping and creative exploration.",
+  "description": "Fast text-to-video and image-to-video generation with 5B parameters. Optimized for rapid prototyping and creative exploration.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Text to Video",
+    "Video",
+    "Wan2.2",
+    "Wan"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「UNETLoader」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_wan2_2_5B_ti2v",
+  "author": "ComfyUI",
+  "usage": 335,
+  "nodes": 0,
+  "sourceFile": "video_wan2_2_5B_ti2v.json"
+}

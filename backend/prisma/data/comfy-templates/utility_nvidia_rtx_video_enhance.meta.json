@@ -1,0 +1,23 @@
+{
+  "name": "utility_nvidia_rtx_video_enhance",
+  "title": "RTX Video Enhance: HDR",
+  "summary": "Upload a video and chain Nvidia's three RTX video nodes in one pass: super resolution upscale, frame generation and SDR-to-HDR conversion, running locally on your Nvidia RTX GPU. Built for VFX artists and professional video creators.",
+  "description": "Upload a video and chain Nvidia's three RTX video nodes in one pass: super resolution upscale, frame generation and SDR-to-HDR conversion, running locally on your Nvidia RTX GPU. Built for VFX artists and professional video creators.\n\n",
+  "category": "tools",
+  "groupLabel": "Video Tools",
+  "tags": [
+    "Video Upscale",
+    "None"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GetVideoComponents」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=utility_nvidia_rtx_video_enhance",
+  "author": "ComfyUI",
+  "usage": 640,
+  "nodes": 0,
+  "sourceFile": "utility_nvidia_rtx_video_enhance.json"
+}

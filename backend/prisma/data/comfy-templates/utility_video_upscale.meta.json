@@ -1,0 +1,23 @@
+{
+  "name": "utility_video_upscale",
+  "title": "Video Upscale: Wan 2.2 Creative",
+  "summary": "Upload a video and upscale it to a higher resolution with Wan 2.2",
+  "description": "Upload a video and upscale it to a higher resolution with Wan 2.2",
+  "category": "tools",
+  "groupLabel": "Video Tools",
+  "tags": [
+    "Video Upscale",
+    "Wan2.2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 2 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/input_upscale.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=utility_video_upscale",
+  "author": "sirolim",
+  "usage": 293,
+  "nodes": 0,
+  "sourceFile": "utility_video_upscale.json"
+}

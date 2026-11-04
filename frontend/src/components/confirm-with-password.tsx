@@ -10,7 +10,8 @@ type RequestOptions = {
   content?: ReactNode;
   okText?: string;
   danger?: boolean;
-  onOk: () => Promise<void> | void;
+  /** 拿到已校验通过的密码：服务端对「放开权限」的写入还要自己再验一次，不能只信前端预检。 */
+  onOk: (password: string) => Promise<void> | void;
 };
 
 /**
@@ -51,7 +52,7 @@ export function usePasswordConfirm() {
         setError("密码不正确");
         return;
       }
-      await options.onOk();
+      await options.onOk(password);
       setOptions(null);
       setPassword("");
       setError("");

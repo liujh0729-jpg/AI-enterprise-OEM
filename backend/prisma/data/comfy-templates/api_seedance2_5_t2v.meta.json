@@ -1,0 +1,24 @@
+{
+  "name": "api_seedance2_5_t2v",
+  "title": "Seedance 2.5: Text to Video",
+  "summary": "Generate 30-second cinematic videos from text prompts with Seedance 2.5, producing synchronized sound and music alongside the footage. Input a single text prompt to create one video with precise camera control and multi-shot storytelling. Ideal for brand films, episodic series, and e-commerce content where quality matters more than budget.",
+  "description": "Generate 30-second cinematic videos from text prompts with Seedance 2.5, producing synchronized sound and music alongside the footage. Input a single text prompt to create one video with precise camera control and multi-shot storytelling. Ideal for brand films, episodic series, and e-commerce content where quality matters more than budget.",
+  "category": "video",
+  "groupLabel": "文生视频",
+  "tags": [
+    "API",
+    "Text to Video",
+    "Seedance 2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_seedance2_5_t2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_seedance2_5_t2v",
+  "author": "ComfyUI",
+  "usage": 260,
+  "nodes": 0,
+  "sourceFile": "api_seedance2_5_t2v.json"
+}

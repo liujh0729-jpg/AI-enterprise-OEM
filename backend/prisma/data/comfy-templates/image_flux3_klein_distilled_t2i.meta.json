@@ -1,0 +1,23 @@
+{
+  "name": "image_flux3_klein_distilled_t2i",
+  "title": "FLUX 3 Image Klein Distilled: Text to Image",
+  "summary": "Generate images from text prompts using the distilled FLUX 3 Image Klein model, which runs efficiently in 15 sampling steps with no classifier-free guidance. Just describe what you want and receive one finished image. Ideal for rapid concept art, marketing visuals, and everyday creative ideation where speed matters.",
+  "description": "Generate images from text prompts using the distilled FLUX 3 Image Klein model, which runs efficiently in 15 sampling steps with no classifier-free guidance. Just describe what you want and receive one finished image. Ideal for rapid concept art, marketing visuals, and everyday creative ideation where speed matters.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "Text to Image",
+    "FLUX 3 Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_flux3_klein_distilled_t2i",
+  "author": "ComfyUI",
+  "usage": 336,
+  "nodes": 0,
+  "sourceFile": "image_flux3_klein_distilled_t2i.json"
+}

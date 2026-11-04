@@ -1038,6 +1038,23 @@ export const contentAgentPluginSchema = z.object({
   updatedAt: z.string(),
 });
 
+/**
+ * 技能/插件的历史版本快照（同名重传或目录覆盖安装时的旧内容）：
+ * 列表不返正文，只给时间、来源、说明与体量，够界面判断「哪一版被换过」。
+ */
+export const contentAgentRevisionSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  description: z.string(),
+  /** 快照当时的内容来源：upload / skillhub */
+  source: z.string(),
+  fileCount: z.number(),
+  /** 正文字数（不返正文，只用来对比版本差异体量） */
+  chars: z.number(),
+  createdAt: z.string(),
+});
+export type ContentAgentRevision = z.infer<typeof contentAgentRevisionSchema>;
+
 /** MCP 连接器接入方式：http＝Streamable HTTP，sse＝旧版 HTTP+SSE。 */
 export const CONTENT_CONNECTOR_TRANSPORTS = ["http", "sse"] as const;
 export type ContentConnectorTransport =
@@ -1127,6 +1144,11 @@ export const contentAgentScheduleSchema = z.object({
   connectorIds: z.array(z.number()),
   /** 本任务只处理哪些邮箱账号 id；空数组＝不限定 */
   mailboxIds: z.array(z.number()),
+  /**
+   * 无人值守是否允许执行写动作；默认 false＝定时任务只能读取与出草案，
+   * 所有修改类动作要用户在对话里确认后执行。只给单个任务单独放开不是全局开关。
+   */
+  allowWrite: z.boolean(),
   /** 任务固定的参考文件（图片 / 视频 / 音频） */
   references: z.array(contentAgentReferenceSchema),
   /** 文本模型渠道；0＝「模型设置」的文本槽位 */
@@ -1720,6 +1742,22 @@ export const ContentEndpoints = {
     body: z.undefined(),
     response: envelope(z.object({ removed: z.boolean() })),
   },
+  Content_skillRevisions: {
+    method: "get" as const,
+    path: "/enterprise/content/agent/skills/:id/revisions",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(contentAgentRevisionSchema)),
+  },
+  Content_restoreSkill: {
+    method: "post" as const,
+    path: "/enterprise/content/agent/skills/:id/restore",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(contentAgentSkillSchema),
+  },
   Content_plugins: {
     method: "get" as const,
     path: "/enterprise/content/agent/plugins",
@@ -1743,6 +1781,22 @@ export const ContentEndpoints = {
     query: emptyQuery,
     body: z.undefined(),
     response: envelope(z.object({ removed: z.boolean() })),
+  },
+  Content_pluginRevisions: {
+    method: "get" as const,
+    path: "/enterprise/content/agent/plugins/:id/revisions",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(contentAgentRevisionSchema)),
+  },
+  Content_restorePlugin: {
+    method: "post" as const,
+    path: "/enterprise/content/agent/plugins/:id/restore",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(contentAgentPluginSchema),
   },
   Content_experts: {
     method: "get" as const,

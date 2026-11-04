@@ -20,6 +20,7 @@ import { CONTENT_AGENT_SCHEDULE_PRESETS } from "@enterprise/contracts";
 import {
   App,
   Button,
+  Checkbox,
   Drawer,
   Input,
   Modal,
@@ -34,6 +35,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { contentApi } from "@/api/content";
 import { ScheduleFields } from "@/components/schedule-fields";
+import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { InstructionComposer } from "./instruction-composer";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
 import { fmtTime } from "@/lib/datetime";
@@ -91,6 +93,10 @@ type Editor = {
   libraryIds: number[];
   /** 引用的 MCP 连接器；空数组＝全部启用中的连接器（0＝本站 MCP Server） */
   connectorIds: number[];
+  /** 无人值守是否允许执行写动作；默认关，放开要验登录密码 */
+  allowWrite: boolean;
+  /** 库里已有的开关值：只有「从关到开」才触发验密 */
+  originAllowWrite: boolean;
   /** 任务固定的参考文件（图片 / 视频 / 音频） */
   references: ContentAgentReference[];
 };
@@ -110,6 +116,8 @@ const EMPTY_EDITOR: Editor = {
   pluginIds: [],
   libraryIds: [],
   connectorIds: [],
+  allowWrite: false,
+  originAllowWrite: false,
   references: [],
 };
 
@@ -150,6 +158,8 @@ export function AgentSchedulesTab({
   onOpenConversation: (conversationId: number) => void;
 }) {
   const { message } = App.useApp();
+  const { request: confirmPassword, modal: passwordModal } =
+    usePasswordConfirm();
   const [rows, setRows] = useState<ContentAgentSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -324,6 +334,8 @@ export function AgentSchedulesTab({
       pluginIds: row.pluginIds,
       libraryIds: row.libraryIds,
       connectorIds: row.connectorIds,
+      allowWrite: row.allowWrite,
+      originAllowWrite: row.allowWrite,
       references: row.references,
     });
     if (!auxLoadedRef.current && !auxLoading) void loadAux();
@@ -356,6 +368,31 @@ export function AgentSchedulesTab({
       : [editor.model, ...modelOptions]
   ).map((id) => ({ value: id, label: id }));
 
+  /** 落库：新建与编辑走同一份表单；验密通过的那次把密码一起带上（服务端只拿来核对，不入库）。 */
+  const persist = async (body: Record<string, unknown>) => {
+    setSaving(true);
+    try {
+      if (editor.id) {
+        await contentApi.updateSchedule({
+          params: { id: String(editor.id) },
+          body,
+        });
+        message.success("定时任务已更新");
+      } else {
+        await contentApi.saveSchedule({
+          body: { ...body, preset: editor.preset },
+        });
+        message.success("定时任务已创建，到点自动执行");
+      }
+      setEditor(EMPTY_EDITOR);
+      await load();
+    } catch (caught) {
+      message.error((caught as Error).message || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submit = async () => {
     const title = editor.title.trim();
     if (!title) {
@@ -376,42 +413,34 @@ export function AgentSchedulesTab({
       message.error("先选渠道，再给这个渠道选一个模型");
       return;
     }
-    setSaving(true);
-    try {
-      const body: Record<string, unknown> = {
-        title,
-        instruction: editor.instruction.trim(),
-        ...scheduleBody(editor.schedule),
-        channelId: editor.channelId,
-        model: editor.model.trim(),
-        expertId: editor.expertId,
-        personaId: editor.personaId,
-        skillIds: editor.skillIds,
-        pluginIds: editor.pluginIds,
-        libraryIds: editor.libraryIds,
-        connectorIds: editor.connectorIds,
-        mailboxIds: [],
-        references: editor.references,
-      };
-      if (editor.id) {
-        await contentApi.updateSchedule({
-          params: { id: String(editor.id) },
-          body,
-        });
-        message.success("定时任务已更新");
-      } else {
-        await contentApi.saveSchedule({
-          body: { ...body, preset: editor.preset },
-        });
-        message.success("定时任务已创建，到点自动执行");
-      }
-      setEditor(EMPTY_EDITOR);
-      await load();
-    } catch (caught) {
-      message.error((caught as Error).message || "保存失败");
-    } finally {
-      setSaving(false);
+    const body: Record<string, unknown> = {
+      title,
+      instruction: editor.instruction.trim(),
+      ...scheduleBody(editor.schedule),
+      channelId: editor.channelId,
+      model: editor.model.trim(),
+      expertId: editor.expertId,
+      personaId: editor.personaId,
+      skillIds: editor.skillIds,
+      pluginIds: editor.pluginIds,
+      libraryIds: editor.libraryIds,
+      connectorIds: editor.connectorIds,
+      mailboxIds: [],
+      allowWrite: editor.allowWrite,
+      references: editor.references,
+    };
+    // 无人值守写动作等于让机器半夜替自己改数据：从关到开要验本站登录密码，服务端再判一次
+    if (editor.allowWrite && !editor.originAllowWrite) {
+      confirmPassword({
+        title: "允许自动执行写动作",
+        content:
+          "勾选后这个定时任务到点会真的替你改数据、发消息，不再逐次确认；不勾选时任务只读取与出草案。要放开请输入本站登录密码（签约、报税提交、开票、外呼导入永远不放开）。",
+        okText: "验证并保存",
+        onOk: (password) => persist({ ...body, password }),
+      });
+      return;
     }
+    await persist(body);
   };
 
   const toggleStatus = async (row: ContentAgentSchedule) => {
@@ -500,6 +529,11 @@ export function AgentSchedulesTab({
               <Tag color="blue">{PRESET_BY_ID.get(row.preset)?.title}</Tag>
             ) : null}
             {row.status === "paused" ? <Tag>已暂停</Tag> : null}
+            {row.allowWrite ? (
+              <Tooltip title="这个任务到点可以自己改数据、发消息（已验密放开）">
+                <Tag color="orange">自动写动作</Tag>
+              </Tooltip>
+            ) : null}
           </Space>
           <div className="text-12 muted" style={{ marginTop: 2 }}>
             {refText(row)}
@@ -836,6 +870,25 @@ export function AgentSchedulesTab({
               勾选后每次执行只在这些资料里检索；不选＝整库检索。
             </span>
           </label>
+          <label
+            className="data-table-form-item"
+            style={{ gridColumn: "1 / -1" }}
+          >
+            <span className="data-table-form-label">无人值守权限</span>
+            <Checkbox
+              checked={editor.allowWrite}
+              onChange={(event) =>
+                patchEditor({ allowWrite: event.target.checked })
+              }
+            >
+              允许自动执行写动作
+            </Checkbox>
+            <span className="text-12 muted">
+              {editor.allowWrite && editor.originAllowWrite
+                ? "这个任务已经放开自动写动作；取消勾选即可收回，不需要密码。"
+                : "默认关闭：到点只读取数据、生成草案，要改数据或发消息得你在对话里确认。勾选后本任务可以不问就执行修改类动作，保存时要验证本站登录密码。"}
+            </span>
+          </label>
         </div>
         {modelsError ? (
           <div className="text-12 muted" style={{ marginTop: 6 }}>
@@ -878,6 +931,8 @@ export function AgentSchedulesTab({
           />
         )}
       </Drawer>
+
+      {passwordModal}
     </>
   );
 }

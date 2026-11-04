@@ -1,0 +1,24 @@
+{
+  "name": "api_openai_gpt_image_25_sunburst_t2i",
+  "title": "GPT Image 2.5 Sunburst: Text to Image",
+  "summary": "GPT Image 2.5 Sunburst is a high-fidelity image editing and generation template for creating polished, detail-rich visuals. It preserves subject identity, complex materials, lighting consistency and scene structure across iterations. Suitable for concept refinement, product visuals, character scenes, cinematic backgrounds and finished artwork that requires precision, realism and visual depth.",
+  "description": "GPT Image 2.5 Sunburst is a high-fidelity image editing and generation template for creating polished, detail-rich visuals. It preserves subject identity, complex materials, lighting consistency and scene structure across iterations. Suitable for concept refinement, product visuals, character scenes, cinematic backgrounds and finished artwork that requires precision, realism and visual depth.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "API",
+    "Text to Image",
+    "GPT Image 2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「OpenAIGPTImageNodeV2」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_openai_gpt_image_25_sunburst_t2i.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_openai_gpt_image_25_sunburst_t2i",
+  "author": "ComfyUI",
+  "usage": 593,
+  "nodes": 0,
+  "sourceFile": "api_openai_gpt_image_25_sunburst_t2i.json"
+}

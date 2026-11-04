@@ -1,0 +1,23 @@
+{
+  "name": "video_wan21_scail2_character_replacement",
+  "title": "SCAIL-2: Character Replacement",
+  "summary": "Upload 1 reference character image and 1 driving video. Generate an animated video of the character matching the driving video's motion. Ideal for character animation, in-video character replacement, and motion transfer projects.",
+  "description": "Upload 1 reference character image and 1 driving video. Generate an animated video of the character matching the driving video's motion. Ideal for character animation, in-video character replacement, and motion transfer projects.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Character Replacement",
+    "SCAIL-2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 2 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_wan21_scail2_character_replacement",
+  "author": "ComfyUI",
+  "usage": 883,
+  "nodes": 0,
+  "sourceFile": "video_wan21_scail2_character_replacement.json"
+}

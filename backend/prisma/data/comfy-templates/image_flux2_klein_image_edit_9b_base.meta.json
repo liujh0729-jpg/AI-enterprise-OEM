@@ -1,0 +1,25 @@
+{
+  "name": "image_flux2_klein_image_edit_9b_base",
+  "title": "FLUX.2 [Klein] 9B: Image Edit",
+  "summary": "BFL undistilled foundation model. Maximum flexibility and control. Great for fine-tuning.",
+  "description": "BFL undistilled foundation model. Maximum flexibility and control. Great for fine-tuning.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image",
+    "Text to Image",
+    "FLUX",
+    "FLUX.2 Klein"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 2 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/thumbnail/image_flux2_klein_image_edit_9b_base.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_flux2_klein_image_edit_9b_base",
+  "author": "ComfyUI",
+  "usage": 722,
+  "nodes": 0,
+  "sourceFile": "image_flux2_klein_image_edit_9b_base.json"
+}

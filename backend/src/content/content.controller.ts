@@ -136,6 +136,18 @@ export class ContentController {
     return ok(await this.agent.removeSkill(user, id));
   }
 
+  async skillRevisions(user: CurrentUser, id: string) {
+    return ok(await this.agent.skillRevisions(user, id));
+  }
+
+  async restoreSkill(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.agent.restoreSkill(user, id, body));
+  }
+
   // ---------- Agent 插件 ----------
 
   async listPlugins(user: CurrentUser) {
@@ -152,6 +164,18 @@ export class ContentController {
 
   async removePlugin(user: CurrentUser, id: string) {
     return ok(await this.agent.removePlugin(user, id));
+  }
+
+  async pluginRevisions(user: CurrentUser, id: string) {
+    return ok(await this.agent.pluginRevisions(user, id));
+  }
+
+  async restorePlugin(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.agent.restorePlugin(user, id, body));
   }
 
   // ---------- Agent 专家（全站共用，创建人可删） ----------

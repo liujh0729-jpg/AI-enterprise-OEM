@@ -1,0 +1,24 @@
+{
+  "name": "api_seedance2_5_i2v_1080p",
+  "title": "Seedance2.5 1080P: Image to Video",
+  "summary": "Generate cinematic 1080P video clips from a single image using Seedance 2.5, animating the still into a moving scene with synchronized sound, music, and dialogue for clips up to 30 seconds across any aspect ratio. Ideal for breathing life into product shots, extending concept art into motion, and creating engaging social media content from photographs.",
+  "description": "Generate cinematic 1080P video clips from a single image using Seedance 2.5, animating the still into a moving scene with synchronized sound, music, and dialogue for clips up to 30 seconds across any aspect ratio. Ideal for breathing life into product shots, extending concept art into motion, and creating engaging social media content from photographs.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "API",
+    "Image to Video",
+    "Seedance 2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_seedance2_5_i2v_1080p",
+  "author": "ComfyUI",
+  "usage": 1684,
+  "nodes": 0,
+  "sourceFile": "api_seedance2_5_i2v_1080p.json"
+}

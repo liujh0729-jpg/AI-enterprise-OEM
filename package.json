@@ -33,7 +33,9 @@
     "test:benchmark:backends": "node scripts/benchmark-backend-isolated.mjs",
     "test:query-plans": "node scripts/test-isolated-migration.mjs --query-plans",
     "test:geo-recovery": "node scripts/verify-geo-collection-recovery.mjs",
-    "check:architecture": "node scripts/check-architecture.mjs"
+    "check:architecture": "node scripts/check-architecture.mjs",
+    "test:agent-security": "node --test scripts/verify-agent-security.mjs",
+    "test:creative-community": "node --test scripts/verify-creative-community.mjs"
   },
   "engines": {
     "node": ">=24.0.0",

@@ -1,0 +1,25 @@
+{
+  "name": "templates-wan2_1_infinitetalk_music",
+  "title": "Audio-Driven Character Lip Sync Video",
+  "summary": "Upload a character image and an audio file. Generate a lip-sync video where the character's mouth movements match the provided audio track.",
+  "description": "Upload a character image and an audio file. Generate a lip-sync video where the character's mouth movements match the provided audio track.",
+  "category": "image",
+  "groupLabel": "Character & Fashion",
+  "tags": [
+    "Audio to Video",
+    "Lip Sync",
+    "Video",
+    "Wan2.1 InfiniteTalk"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/templates-wan2_1_infinitetalk_music.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=templates-wan2_1_infinitetalk_music",
+  "author": "hellorob",
+  "usage": 294,
+  "nodes": 0,
+  "sourceFile": "templates-wan2_1_infinitetalk_music.json"
+}

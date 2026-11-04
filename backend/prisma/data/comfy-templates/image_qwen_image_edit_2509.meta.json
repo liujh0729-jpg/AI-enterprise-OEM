@@ -1,0 +1,24 @@
+{
+  "name": "image_qwen_image_edit_2509",
+  "title": "Qwen Image Edit 2509",
+  "summary": "Advanced image editing with multi-image support, improved consistency, and ControlNet integration.",
+  "description": "Advanced image editing with multi-image support, improved consistency, and ControlNet integration.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "ControlNet",
+    "Image Edit",
+    "Qwen-Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/image_qwen_image_edit_2509_input_image.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_qwen_image_edit_2509",
+  "author": "ComfyUI",
+  "usage": 3415,
+  "nodes": 0,
+  "sourceFile": "image_qwen_image_edit_2509.json"
+}

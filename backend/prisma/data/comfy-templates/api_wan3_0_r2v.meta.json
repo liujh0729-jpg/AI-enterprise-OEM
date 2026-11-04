@@ -1,0 +1,24 @@
+{
+  "name": "api_wan3_0_r2v",
+  "title": "Wan3.0: Reference to Video",
+  "summary": "Generate a video from two reference images using Wan3.0's reference-to-video capability, which produces up to 30 seconds of footage with character consistency and lifelike visuals. Ideal for creating consistent character animations, scene replication from visual references, and producing audiovisual content from static imagery.",
+  "description": "Generate a video from two reference images using Wan3.0's reference-to-video capability, which produces up to 30 seconds of footage with character consistency and lifelike visuals. Ideal for creating consistent character animations, scene replication from visual references, and producing audiovisual content from static imagery.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "API",
+    "Reference to Video",
+    "Wan3.0"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「MarkdownNote」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_wan3_0_r2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_wan3_0_r2v",
+  "author": "ComfyUI",
+  "usage": 469,
+  "nodes": 0,
+  "sourceFile": "api_wan3_0_r2v.json"
+}

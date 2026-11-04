@@ -1,0 +1,24 @@
+{
+  "name": "video_pika_h3_flex_t2v",
+  "title": "Pika H3 Flex: Text to Video",
+  "summary": "Generate a video with synchronized audio from a text prompt with Pika H3 Flex, a Pika post-trained adapter for MiniMax H3 that lands a finished 1344x768, 124-frame clip in six sampling steps. The adapter runs at strength 1.0 on the int8 MiniMax H3 base with the lcm sampler and Pika's own six-value sigma list, so a full render takes about a minute instead of a 20-step run. Ideal for fast prompt exploration and concept iteration on H3, with no image input to prepare.",
+  "description": "Generate a video with synchronized audio from a text prompt with Pika H3 Flex, a Pika post-trained adapter for MiniMax H3 that lands a finished 1344x768, 124-frame clip in six sampling steps. The adapter runs at strength 1.0 on the int8 MiniMax H3 base with the lcm sampler and Pika's own six-value sigma list, so a full render takes about a minute instead of a 20-step run. Ideal for fast prompt exploration and concept iteration on H3, with no image input to prepare.",
+  "category": "video",
+  "groupLabel": "文生视频",
+  "tags": [
+    "Text to Video",
+    "Video",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_pika_h3_flex_t2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_pika_h3_flex_t2v",
+  "author": "ComfyUI",
+  "usage": 649,
+  "nodes": 0,
+  "sourceFile": "video_pika_h3_flex_t2v.json"
+}

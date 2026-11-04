@@ -1,0 +1,25 @@
+{
+  "name": "video_minimax_h3_i2v_continuation",
+  "title": "Image to Video",
+  "summary": "Start with an image and an empty prompt, then describe the motion, shots, and audio you want MiniMax H3 to generate. The workflow produces one video with synchronized audio and remains fully editable before execution.",
+  "description": "Start with an image and an empty prompt, then describe the motion, shots, and audio you want MiniMax H3 to generate. The workflow produces one video with synchronized audio and remains fully editable before execution.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "Image to Video",
+    "Int8",
+    "Video",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/transparent_rgb_gaming_mouse.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_minimax_h3_i2v_continuation",
+  "author": "ComfyUI",
+  "usage": 372,
+  "nodes": 0,
+  "sourceFile": "video_minimax_h3_i2v_continuation.json"
+}

@@ -1,0 +1,24 @@
+{
+  "name": "api_grok_text_to_image",
+  "title": "Grok: Text to Image",
+  "summary": "Input text prompts to generate high-quality images quickly using the Grok model.",
+  "description": "Input text prompts to generate high-quality images quickly using the Grok model.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "API",
+    "Text to Image",
+    "Grok"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GrokImageNode」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_grok_text_to_image.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_grok_text_to_image",
+  "author": "ComfyUI",
+  "usage": 250,
+  "nodes": 0,
+  "sourceFile": "api_grok_text_to_image.json"
+}

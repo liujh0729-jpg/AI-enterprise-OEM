@@ -1,0 +1,26 @@
+{
+  "name": "api_higgsfield_genjutsu_motion_transfer",
+  "title": "Higgsfield Genjutsu: Motion Transfer",
+  "summary": "Recast an existing video with Higgsfield Genjutsu: the source clip keeps its motion, camera movement, timing and audio, while the cast, location and style are rebuilt from 1 to 8 reference images. Describe which reference replaces what in the optional prompt. Output length follows the source clip. Ideal for restyling footage, swapping the cast of a shot, and building scenes a shoot never covered.",
+  "description": "Recast an existing video with Higgsfield Genjutsu: the source clip keeps its motion, camera movement, timing and audio, while the cast, location and style are rebuilt from 1 to 8 reference images. Describe which reference replaces what in the optional prompt. Output length follows the source clip. Ideal for restyling footage, swapping the cast of a shot, and building scenes a shoot never covered.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Character Replacement",
+    "Motion Control",
+    "Video",
+    "Video Edit",
+    "Genjutsu 1.0"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「HiggsfieldMotionTransferNode」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_higgsfield_genjutsu_motion_transfer",
+  "author": "ComfyUI",
+  "usage": 279,
+  "nodes": 0,
+  "sourceFile": "api_higgsfield_genjutsu_motion_transfer.json"
+}

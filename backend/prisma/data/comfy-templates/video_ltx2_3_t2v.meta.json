@@ -1,0 +1,25 @@
+{
+  "name": "video_ltx2_3_t2v",
+  "title": "LTX-2.3: Text to Video",
+  "summary": "Generate a video from a text prompt, optionally using an image for reference. Receive a high-quality video with improved motion, audio, and detail, optimized for portrait or landscape formats.",
+  "description": "Generate a video from a text prompt, optionally using an image for reference. Receive a high-quality video with improved motion, audio, and detail, optimized for portrait or landscape formats.",
+  "category": "video",
+  "groupLabel": "文生视频",
+  "tags": [
+    "Text to Video",
+    "Video",
+    "LTX-2.3",
+    "Lightricks"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_ltx2_3_t2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_ltx2_3_t2v",
+  "author": "ComfyUI",
+  "usage": 726,
+  "nodes": 0,
+  "sourceFile": "video_ltx2_3_t2v.json"
+}

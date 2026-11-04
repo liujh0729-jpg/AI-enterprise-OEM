@@ -1,0 +1,24 @@
+{
+  "name": "api_openai_gpt_image_2_t2i",
+  "title": "GPT Image 2: Text to Image",
+  "summary": "Create campaign-ready posters, product shots, and multilingual signage using OpenAI's latest model. Upload an optional reference image, write a detailed prompt, and generate high-quality, photorealistic outputs.",
+  "description": "Create campaign-ready posters, product shots, and multilingual signage using OpenAI's latest model. Upload an optional reference image, write a detailed prompt, and generate high-quality, photorealistic outputs.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "API",
+    "Text to Image",
+    "GPT Image 2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「OpenAIGPTImageNodeV2」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_openai_gpt_image_2_t2i.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_openai_gpt_image_2_t2i",
+  "author": "ComfyUI",
+  "usage": 360,
+  "nodes": 0,
+  "sourceFile": "api_openai_gpt_image_2_t2i.json"
+}

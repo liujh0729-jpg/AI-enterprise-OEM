@@ -3,13 +3,19 @@ import {
   MCP_PROTOCOL_VERSION,
 } from '@enterprise/contracts';
 import { text } from '../common/api';
-import { httpRequest, streamRequest, TransportError } from '../http/transport';
+import {
+  httpRequest,
+  readCappedBody,
+  streamRequest,
+  TransportError,
+} from '../http/transport';
 
 /**
  * 通用 MCP 客户端：只实现两条接入方式——
  * - http：Streamable HTTP（2025-03-26 起的主推方式），一条 POST 承载一条 JSON-RPC；
  * - sse：旧版 HTTP+SSE，GET 流下发 `endpoint` 事件，消息 POST 到该地址、响应从流里回来。
  * 不做 stdio（本系统不在服务器上装第三方进程），响应既可能是 JSON 也可能是 SSE。
+ * 服务地址与返回内容都由用户/第三方控制，所以：不跟随跳转、正文与 SSE 流都有硬上限。
  */
 
 export type McpTransport = 'http' | 'sse';
@@ -36,6 +42,10 @@ const LIST_TIMEOUT = 20_000;
 const CALL_TIMEOUT = 90_000;
 const NOTIFY_TIMEOUT = 5_000;
 const RESULT_TEXT_LIMIT = 6000;
+/** 一条 JSON-RPC 响应的字节上限：合法报文远小于此，超限只可能是灌数据或畸形服务。 */
+const MAX_RESPONSE_BYTES = 1_000_000;
+/** SSE 流在一次等待里允许累计的字节数（同一口径，防无界流把内存吃光）。 */
+const MAX_SSE_BYTES = 1_000_000;
 
 /** 上游文案一律换成中文口径：原文只用于服务端判断，不进界面、不回给模型。 */
 export class McpClientError extends Error {
@@ -82,17 +92,44 @@ function cronyMessage(value: unknown) {
     .slice(0, 160);
 }
 
+/**
+ * 跳转一律拒绝：连接器地址是用户填的公网地址，跟着 302 走等于把出站校验绕过去
+ * （重定向到内网/元数据地址），所以只允许把最终地址直接填进来。
+ */
+function assertNoRedirect(response: { status: number }): void {
+  if (response.status >= 300 && response.status < 400) {
+    throw new McpClientError(
+      `连接器返回跳转（HTTP ${response.status}）：本系统不跟随跳转，请把服务地址填成最终地址`,
+      'protocol',
+    );
+  }
+}
+
 type SseFrame = { event: string; data: string };
+
+const NOOP_SIGNAL = new AbortController().signal;
+
+/** 按上限读完一条 JSON-RPC 响应正文（不走 fetch 默认的整包 text）。 */
+async function readCappedText(response: Response, signal?: AbortSignal) {
+  const bytes = await readCappedBody(
+    response,
+    MAX_RESPONSE_BYTES,
+    signal ?? NOOP_SIGNAL,
+  );
+  return new TextDecoder().decode(bytes);
+}
 
 /** 读 SSE 帧；回调返回 true 表示已经拿到要的结果，提前断开。 */
 async function pumpSse(
   body: ReadableStream<Uint8Array> | null,
   onFrame: (frame: SseFrame) => boolean,
+  maxBytes = MAX_SSE_BYTES,
 ) {
   if (!body) return;
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let received = 0;
   let event = '';
   let data: string[] = [];
   let stopped = false;
@@ -100,6 +137,14 @@ async function pumpSse(
     outer: for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      received += value.byteLength;
+      if (received > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new McpClientError(
+          '连接器推送的内容超过大小上限，已中断读取',
+          'protocol',
+        );
+      }
       buffer += decoder.decode(value, { stream: true });
       let index = buffer.indexOf('\n');
       while (index >= 0) {
@@ -257,6 +302,7 @@ class StreamableHttp {
         body: JSON.stringify(payload),
         signal,
         timeoutMs,
+        redirect: 'manual',
         operation: 'content:agentMcp',
       });
     } catch (error) {
@@ -264,6 +310,7 @@ class StreamableHttp {
     }
     try {
       const response = stream.response;
+      assertNoRedirect(response);
       const session = response.headers.get('mcp-session-id');
       if (session) this.sessionId = session;
       if (!response.ok) {
@@ -290,7 +337,17 @@ class StreamableHttp {
       if (type.includes('text/event-stream')) {
         return await this.readSse(response.body, id, timeoutMs);
       }
-      const raw = await response.text().catch(() => '');
+      const raw = await readCappedText(response, signal).catch((error) => {
+        // 超上限 / 读失败都要如实报错，不能当成「没有正文」静默过去
+        if (error instanceof McpClientError) throw error;
+        const detail = error instanceof Error ? error.message : '';
+        throw new McpClientError(
+          detail.includes('大小上限')
+            ? '连接器返回的内容超过大小上限，已中断读取'
+            : '连接器返回的内容无法读取',
+          'protocol',
+        );
+      });
       if (!raw.trim()) return undefined;
       let parsed: Record<string, unknown>;
       try {
@@ -490,12 +547,14 @@ class LegacySse {
         headers: { Accept: 'text/event-stream', ...this.config.headers },
         signal,
         timeoutMs: LIST_TIMEOUT,
+        redirect: 'manual',
         operation: 'content:agentMcpSse',
       });
     } catch (error) {
       throw transportError(error, LIST_TIMEOUT);
     }
     this.closeStream = stream.close;
+    assertNoRedirect(stream.response);
     if (!stream.response.ok) {
       stream.close();
       throw new McpClientError(
@@ -578,8 +637,11 @@ class LegacySse {
         signal,
         timeoutMs: 10_000,
         readAs: 'text',
+        redirect: 'manual',
+        maxBytes: MAX_RESPONSE_BYTES,
         operation: 'content:agentMcpSseMessage',
       });
+      assertNoRedirect(result);
       if (!result.ok)
         throw new McpClientError(
           `连接器返回 HTTP ${result.status}`,

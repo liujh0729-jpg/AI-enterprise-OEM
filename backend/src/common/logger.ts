@@ -1,5 +1,9 @@
+/**
+ * 敏感字段名表（整键匹配）：Comfy Cloud 的密文列 `keyCipher` 与 `comfyApiKey` 也在内——
+ * 密文进日志同样是泄漏面（密钥轮换后旧日志就能被解开来）。
+ */
 const credentialField =
-  /^(authorization|cookie|set-cookie|password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|token|secret|database_url|credential)$/i;
+  /^(authorization|cookie|set-cookie|password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|token|secret|database_url|credential|key[-_]?cipher|comfy[-_]?api[-_]?key)$/i;
 function redactText(value: string) {
   return value
     .replace(/\bBearer\s+[^\s"<>]+/gi, 'Bearer [redacted]')

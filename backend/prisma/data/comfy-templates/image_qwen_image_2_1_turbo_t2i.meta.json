@@ -1,0 +1,25 @@
+{
+  "name": "image_qwen_image_2_1_turbo_t2i",
+  "title": "Qwen Image 2.1 Turbo: Text to Image",
+  "summary": "Generate images from text prompts with Qwen Image 2.1 Turbo, the 8-step accelerated checkpoint, producing a single 1024×1024 image in 8 sampling steps. Same model family with native 2K output, professional typography, and alpha-channel support, plus an optional Qwen 3.5 prompt enhancer. Ideal for poster and layout design, transparent asset creation, and rapid concept visualization.",
+  "description": "Generate images from text prompts with Qwen Image 2.1 Turbo, the 8-step accelerated checkpoint, producing a single 1024×1024 image in 8 sampling steps. Same model family with native 2K output, professional typography, and alpha-channel support, plus an optional Qwen 3.5 prompt enhancer. Ideal for poster and layout design, transparent asset creation, and rapid concept visualization.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "Int8",
+    "Text to Image",
+    "Turbo",
+    "Qwen Image 2.1"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_qwen_image_2_1_turbo_t2i",
+  "author": "ComfyUI",
+  "usage": 1071,
+  "nodes": 0,
+  "sourceFile": "image_qwen_image_2_1_turbo_t2i.json"
+}

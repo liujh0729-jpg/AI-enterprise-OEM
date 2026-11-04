@@ -1,0 +1,24 @@
+{
+  "name": "video_wan_animate2",
+  "title": "Wan Animate 2: Motion Transfer",
+  "summary": "Animate a still character using a driving video with Wan Animate 2, transferring motion directly from video frames without any pose extraction or skeleton preprocessing. The output preserves the reference character's identity while generating a fresh background and camera movement from your text prompt. Ideal for motion transfer, action mimicry, and character animation replacement projects.",
+  "description": "Animate a still character using a driving video with Wan Animate 2, transferring motion directly from video frames without any pose extraction or skeleton preprocessing. The output preserves the reference character's identity while generating a fresh background and camera movement from your text prompt. Ideal for motion transfer, action mimicry, and character animation replacement projects.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Motion Control",
+    "Int8",
+    "Wan Animate"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 2 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_wan_animate2.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_wan_animate2",
+  "author": "ComfyUI",
+  "usage": 1729,
+  "nodes": 0,
+  "sourceFile": "video_wan_animate2.json"
+}

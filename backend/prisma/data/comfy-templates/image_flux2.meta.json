@@ -1,0 +1,26 @@
+{
+  "name": "image_flux2",
+  "title": "FLUX.2 Dev",
+  "summary": "Generate photorealistic images with multi-reference consistency and professional text rendering.",
+  "description": "Generate photorealistic images with multi-reference consistency and professional text rendering.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image",
+    "Image Edit",
+    "Text to Image",
+    "FLUX",
+    "FLUX.2 Dev"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/image_flux2_input_image.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_flux2",
+  "author": "ComfyUI",
+  "usage": 1122,
+  "nodes": 0,
+  "sourceFile": "image_flux2.json"
+}

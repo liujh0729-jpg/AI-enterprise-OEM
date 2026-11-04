@@ -1,0 +1,27 @@
+{
+  "name": "api_bytedance_seedream4",
+  "title": "Seedream 4.0: Image Edit",
+  "summary": "Multi-modal AI model for text-to-image and image editing. Generate 2K images in under 2 seconds with natural language control.",
+  "description": "Multi-modal AI model for text-to-image and image editing. Generate 2K images in under 2 seconds with natural language control.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "API",
+    "Image",
+    "Image Edit",
+    "Text to Image",
+    "ByteDance",
+    "Seedream 4.0"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「ByteDanceSeedreamNodeV3」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_bytedance_seedream4.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_bytedance_seedream4",
+  "author": "ComfyUI",
+  "usage": 763,
+  "nodes": 0,
+  "sourceFile": "api_bytedance_seedream4.json"
+}

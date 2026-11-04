@@ -2904,6 +2904,28 @@ model ContentAgentPlugin {
   @@map("content_agent_plugins")
 }
 
+/// 技能/插件的历史版本快照：同名覆盖前存旧内容，可查可回滚（防第三方包静默替换后无从追溯）
+model ContentAgentRevision {
+  id          Int      @id @default(autoincrement())
+  userId      String   @map("user_id") @db.VarChar(64)
+  /// skill＝技能包；plugin＝插件包
+  kind        String   @db.VarChar(8)
+  /// 被覆盖的技能/插件 id（行可能已删，只当回溯线索）
+  itemId      Int      @map("item_id")
+  name        String   @db.VarChar(60)
+  description String   @default("") @db.VarChar(200)
+  /// 覆盖前的正文
+  content     String   @default("") @db.Text
+  /// 覆盖前的包内文件 [{ path, content }]
+  files       Json     @default("[]")
+  /// 快照当时的内容来源：upload＝上传包；skillhub＝目录安装
+  source      String   @default("") @db.VarChar(16)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId, kind, itemId])
+  @@map("content_agent_revisions")
+}
+
 /// Agent 的 MCP 连接器：把外部 MCP Server 的工具并入 Agent；按账号归属，请求头只存密文
 model ContentAgentMcpConnector {
   id            Int       @id @default(autoincrement())
@@ -3045,6 +3067,8 @@ model ContentAgentSchedule {
   connectorIds   Json      @default("[]") @map("connector_ids")
   /// 本次任务只处理哪些邮箱账号 id；空＝不限定（仅未引用邮件能力时成立）
   mailboxIds     Json      @default("[]") @map("mailbox_ids")
+  /// 无人值守是否允许执行写动作；false＝只读取与出草案，修改类动作一律拒
+  allowWrite     Boolean   @default(false) @map("allow_write")
   /// 任务固定的参考文件（图片 / 视频 / 音频）：{label,fileName,url,media}
   references     Json      @default("[]")
   /// 文本模型渠道；0＝「模型设置」里的文本槽位
@@ -6323,4 +6347,152 @@ model StorageDailySnapshot {
   @@unique([userId, snapshotAt])
   @@index([snapshotAt])
   @@map("storage_daily_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// 创意社区（Comfy Cloud 工作流市场）
+//   表间一律用 id 松散关联、不建 Prisma 关系：与 content_* / points 模块同一口径，
+//   跨模块读写都在服务层按 userId 收口，避免级联删除误伤社区内容。
+// ---------------------------------------------------------------------------
+
+/// 社区工作流：官方模板（source=OFFICIAL）与用户发布（source=USER）同表共陈。
+/// format=api 才能站内直接运行；format=ui 只做浏览与下载（Comfy Cloud 拒收 UI 格式）。
+model CommunityWorkflow {
+  id            Int       @id @default(autoincrement())
+  /// 官方＝模板名（与 comfy.org/hub 一一对应），用户＝wf_<uuid8>；发布后不变，作幂等重导入的键
+  code          String    @unique @db.VarChar(64)
+  /// OFFICIAL | USER
+  source        String    @default("USER") @db.VarChar(16)
+  /// 归属账号；官方条目为空串（无作者账号，只展示出处）
+  ownerUserId   String    @default("") @map("owner_user_id") @db.VarChar(64)
+  /// 作者显示名：官方＝模板 author 字段，用户＝发布时昵称
+  ownerName     String    @default("") @map("owner_name") @db.VarChar(64)
+  title         String    @db.VarChar(200)
+  summary       String    @default("") @db.VarChar(500)
+  description   String    @default("") @db.Text
+  /// image | video | audio | 3d | llm | tools（社区页签分类）
+  category      String    @default("image") @db.VarChar(16)
+  /// 二级场景名：对应官方 Applied 分组或「文生图」等自定义分组
+  groupLabel    String    @default("") @map("group_label") @db.VarChar(64)
+  tags          Json      @default("[]")
+  /// 产物媒体类型：image | video | audio | file（决定转存限额与前端展示）
+  mediaType     String    @default("image") @map("media_type") @db.VarChar(16)
+  /// api＝站内可直接运行；ui＝仅浏览（workflow_json 存原文供下载）
+  format        String    @default("api") @db.VarChar(8)
+  /// 工作流正文：format 对应的原始 JSON（api 格式已经导入期转换固化）
+  workflowJson  Json      @map("workflow_json")
+  /// 运行表单槽位：[{ key, label, type, nodeId, field, defaultValue, options, min, max }]
+  slots         Json      @default("[]")
+  /// 封面与示例图：本站 OSS 对象键数组（官方种子由 seed 上传自有桶后回落）
+  coverKeys     Json      @default("[]") @map("cover_keys")
+  /// 上游出处链接（comfy.org/hub 模板页），卡片保留来源
+  comfyUrl      String    @default("") @map("comfy_url") @db.VarChar(500)
+  /// PENDING | APPROVED | REJECTED | RECOMMENDED | REMOVED
+  status        String    @default("PENDING") @db.VarChar(16)
+  auditNote     String    @default("") @map("audit_note") @db.VarChar(500)
+  auditedAt     DateTime? @map("audited_at")
+  /// 审核人 userId
+  auditBy       String    @default("") @map("audit_by") @db.VarChar(64)
+  /// 推荐发奖幂等标记：非空＝已就这条工作流给过作者推荐积分，重推不再发
+  rewardedAt    DateTime? @map("rewarded_at")
+  runCount      Int       @default(0) @map("run_count")
+  favoriteCount Int       @default(0) @map("favorite_count")
+  likeCount     Int       @default(0) @map("like_count")
+  viewCount     Int       @default(0) @map("view_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([category, status])
+  @@index([source, status])
+  @@index([ownerUserId, status])
+  @@map("community_workflows")
+}
+
+/// 社区运行记录：一次提交＝一个 Comfy Cloud job；产物由调度器转存进自有 OSS
+model CommunityRun {
+  id              Int       @id @default(autoincrement())
+  workflowId      Int       @map("workflow_id")
+  userId          String    @map("user_id") @db.VarChar(64)
+  /// 上游 job uuid（提交未成功时为空串，只留本地失败记录）
+  jobId           String    @default("") @map("job_id") @db.VarChar(64)
+  /// queued | running | succeeded | failed | canceled（跟上游 v2 状态同名）
+  status          String    @default("queued") @db.VarChar(16)
+  progressCurrent Int       @default(0) @map("progress_current")
+  progressTotal   Int       @default(0) @map("progress_total")
+  /// 排队位（上游 queue_position，0＝不在队首信息内）
+  queuePosition   Int       @default(0) @map("queue_position")
+  /// 用户填写的槽位值：{ slotKey: value }（图片槽存本站资产 id）
+  inputs          Json      @default("{}")
+  errorText       String    @default("") @map("error_text") @db.VarChar(500)
+  startedAt       DateTime? @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@index([workflowId])
+  @@index([jobId])
+  @@index([status, updatedAt])
+  @@map("community_runs")
+}
+
+/// 运行产物：已从 Comfy Cloud 签名 URL 转存进本站 OSS（签名约 6 小时过期，不落自有桶就必失效）
+model CommunityRunOutput {
+  id        Int      @id @default(autoincrement())
+  runId     Int      @map("run_id")
+  /// image | video | audio | file
+  kind      String   @default("image") @db.VarChar(16)
+  name      String   @default("") @db.VarChar(200)
+  /// 本站 OSS 对象键（空＝转存失败，仅留 url 快照）
+  ossKey    String   @default("") @map("oss_key") @db.VarChar(500)
+  /// 转存后的可访问地址（本站 OSS，非上游短命签名 URL）
+  url       String   @default("") @db.Text
+  sizeBytes BigInt   @default(0) @map("size_bytes")
+  /// 关联的本站数字资产 id（DigitalAssetEntry.id，0＝未入台账）
+  assetId   Int      @default(0) @map("asset_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([runId])
+  @@map("community_run_outputs")
+}
+
+/// 社区收藏：按账号唯一，重复收藏幂等
+model CommunityFavorite {
+  id         Int      @id @default(autoincrement())
+  userId     String   @map("user_id") @db.VarChar(64)
+  workflowId Int      @map("workflow_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, workflowId])
+  @@index([workflowId])
+  @@map("community_favorites")
+}
+
+/// 社区点赞：与收藏分表，便于后续单独统计与开关
+model CommunityLike {
+  id         Int      @id @default(autoincrement())
+  userId     String   @map("user_id") @db.VarChar(64)
+  workflowId Int      @map("workflow_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, workflowId])
+  @@index([workflowId])
+  @@map("community_likes")
+}
+
+/// Comfy Cloud 凭据：纯 BYOK，一个账号一把 Key；AES-256-GCM 密文入库，keyMask 仅供展示
+model ComfyCredential {
+  userId    String    @id @map("user_id") @db.VarChar(64)
+  keyCipher String    @map("key_cipher") @db.Text
+  /// 掩码展示（前4…后4），任何接口不回传原文
+  keyMask   String    @default("") @map("key_mask") @db.VarChar(64)
+  /// 最后一次校验通过时间；为空＝存了但未验证通过
+  verifiedAt DateTime? @map("verified_at")
+  /// 最近一次校验失败原因（已中文化，供引导弹窗展示）
+  lastError String    @default("") @map("last_error") @db.VarChar(500)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("comfy_credentials")
 }

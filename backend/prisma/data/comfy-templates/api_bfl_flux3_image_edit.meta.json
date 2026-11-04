@@ -1,0 +1,24 @@
+{
+  "name": "api_bfl_flux3_image_edit",
+  "title": "FLUX 3 Image: Image Edit",
+  "summary": "Edit or combine up to ten reference images from a text instruction with FLUX 3 Image, referring to them in the prompt as image 1, image 2, and so on. One image is output at any of sixteen aspect ratios and up to 4K, with web and image search grounding on by default. Ideal for character-consistent edits, product and object placement, and multi-reference scene compositing.",
+  "description": "Edit or combine up to ten reference images from a text instruction with FLUX 3 Image, referring to them in the prompt as image 1, image 2, and so on. One image is output at any of sixteen aspect ratios and up to 4K, with web and image search grounding on by default. Ideal for character-consistent edits, product and object placement, and multi-reference scene compositing.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image Edit",
+    "API",
+    "FLUX 3 Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveImageAdvanced」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_bfl_flux3_image_edit",
+  "author": "ComfyUI",
+  "usage": 1312,
+  "nodes": 0,
+  "sourceFile": "api_bfl_flux3_image_edit.json"
+}

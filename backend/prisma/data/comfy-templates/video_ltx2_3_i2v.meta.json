@@ -1,0 +1,25 @@
+{
+  "name": "video_ltx2_3_i2v",
+  "title": "LTX-2.3: Image to Video",
+  "summary": "Upload an image to generate a video with improved motion consistency and fine details, including enhanced support for portrait formats and audio quality.",
+  "description": "Upload an image to generate a video with improved motion consistency and fine details, including enhanced support for portrait formats and audio quality.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "Image to Video",
+    "Video",
+    "LTX-2.3",
+    "Lightricks"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_ltx2_3_i2v",
+  "author": "ComfyUI",
+  "usage": 18147,
+  "nodes": 0,
+  "sourceFile": "video_ltx2_3_i2v.json"
+}

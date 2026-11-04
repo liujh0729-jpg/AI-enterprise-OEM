@@ -1,0 +1,25 @@
+{
+  "name": "api_nano_banana_2_1_image_edit",
+  "title": "Nano Banana 2.1: Image Edit",
+  "summary": "Edit images with natural language and mask-based local edits powered by Nano Banana 2.1, taking one input image and returning one edited result alongside a side-by-side comparison view. Ideal for brand marketing posters, e-commerce product shots, and multi-round retouching where subjects and text must stay consistent.",
+  "description": "Edit images with natural language and mask-based local edits powered by Nano Banana 2.1, taking one input image and returning one edited result alongside a side-by-side comparison view. Ideal for brand marketing posters, e-commerce product shots, and multi-round retouching where subjects and text must stay consistent.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image Edit",
+    "Image",
+    "API",
+    "Nano Banana"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GeminiNanoBanana2V2」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_nano_banana_2_1_image_edit",
+  "author": "ComfyUI",
+  "usage": 2115,
+  "nodes": 0,
+  "sourceFile": "api_nano_banana_2_1_image_edit.json"
+}

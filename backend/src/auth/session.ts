@@ -2,12 +2,19 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import {
+  ErrorCode,
   loginSchema,
   registerSchema,
   safeNextPath,
   z,
 } from '@enterprise/contracts';
-import { issueSsoSession, parseAccessToken, REMEMBER_TTL_SECONDS } from './token';
+import {
+  issueSsoSession,
+  parseAccessToken,
+  REMEMBER_TTL_SECONDS,
+} from './token';
+import { BusinessException } from '../common/business.exception';
+import { RateWindow } from '../common/rate-window';
 import type { ApiEnv } from '../http/types';
 import type { AccountModule } from '../account/account.routes';
 
@@ -49,9 +56,32 @@ const envelope = (code: number, message: string, data: unknown = null) => ({
   data,
 });
 const clientIp = (c: Context) =>
-  (c.req.header('x-forwarded-for')?.split(',')[0].trim() ||
+  (
+    c.req.header('x-forwarded-for')?.split(',')[0].trim() ||
     c.req.header('x-real-ip') ||
-    '').slice(0, 64);
+    ''
+  ).slice(0, 64);
+
+/**
+ * 验密端点是「一次请求＝一次故意的慢 bcrypt」：不限流的话，拿到被盗令牌的一方
+ * 既能把它当 CPU 放大器拖住进程，也能无上限地试探密码。账号与来源各一道。
+ * 与 assertSensitivePassword 同一口径（进程内固定窗口，多实例各自独立）。
+ */
+const VERIFY_PER_USER = new RateWindow(10, 60_000);
+const VERIFY_PER_IP = new RateWindow(60, 60_000);
+const VERIFY_THROTTLED = '密码验证过于频繁，请稍后再试';
+
+/** 超限就回文案（调用方据此回 429）；账号那道是主力，来源那道只挡「一个 IP 挂着批量令牌」。 */
+function throttleVerify(userId: string, ip: string) {
+  try {
+    VERIFY_PER_USER.consume(`u:${userId}`, VERIFY_THROTTLED);
+    if (ip) VERIFY_PER_IP.consume(`i:${ip}`, VERIFY_THROTTLED);
+  } catch (error) {
+    if (error instanceof BusinessException) return error.message;
+    throw error;
+  }
+  return '';
+}
 
 /**
  * 会话兼容端点：前端既有调用路径 /api/auth/login|register|email-code|logout
@@ -99,7 +129,10 @@ export function registerSessionRoutes(
   });
   app.post('/api/auth/email-code', async (c) => {
     const body = z
-      .object({ email: z.string().email(), scene: z.string().default('REGISTER') })
+      .object({
+        email: z.string().email(),
+        scene: z.string().default('REGISTER'),
+      })
       .parse(await c.req.json().catch(() => ({})));
     await account.account.sendRegisterCode('EMAIL', body.email);
     return c.json(envelope(0, '验证码已发送'));
@@ -117,6 +150,10 @@ export function registerSessionRoutes(
     const { password } = z
       .object({ password: z.string().min(1) })
       .parse(await c.req.json().catch(() => ({})));
+    const throttled = throttleVerify(userId, clientIp(c));
+    if (throttled) {
+      return c.json(envelope(ErrorCode.RATE_LIMITED.code, throttled), 429);
+    }
     const okFlag = await account.account.verifyPassword(userId, password);
     return c.json(
       okFlag ? envelope(0, '验证通过') : envelope(422, '密码不正确'),

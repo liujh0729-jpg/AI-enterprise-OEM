@@ -1,0 +1,25 @@
+{
+  "name": "template_purz_wan22_animate_auto_character_replace",
+  "title": "Wan2.2 Animate: Automatic Character Replacement",
+  "summary": "Upload a video and a character image. Automatically replace the character in the video using the Wan2.2 Animate model.",
+  "description": "Upload a video and a character image. Automatically replace the character in the video using the Wan2.2 Animate model.",
+  "category": "image",
+  "groupLabel": "Character & Fashion",
+  "tags": [
+    "Video",
+    "Character Replacement",
+    "Video Edit",
+    "wan2.2 Animate"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 2 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/wan22-animate-auto-character_replace-input.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=template_purz_wan22_animate_auto_character_replace",
+  "author": "PurzBeats",
+  "usage": 387,
+  "nodes": 0,
+  "sourceFile": "template_purz_wan22_animate_auto_character_replace.json"
+}

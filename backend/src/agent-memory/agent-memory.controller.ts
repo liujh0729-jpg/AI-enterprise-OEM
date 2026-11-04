@@ -22,7 +22,10 @@ export class AgentMemoryController {
     const actions = Array.isArray(body.actions)
       ? body.actions.filter((item): item is string => typeof item === 'string')
       : [];
-    return ok(await this.memory.saveGrants(user.userId, actions));
+    // 新增授权要验本站登录密码（服务端判定，不信界面上的预检）
+    return ok(
+      await this.memory.saveGrants(user.userId, actions, body.password),
+    );
   }
 
   async clear(user: CurrentUser) {

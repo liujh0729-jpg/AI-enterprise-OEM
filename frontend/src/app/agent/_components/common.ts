@@ -129,9 +129,11 @@ export const memoryApi = {
     ),
   clear: () => api.clear({ body: {} }) as Promise<AgentClearResult>,
   grants: () => load<AgentGrants>(api.grants({})),
-  /** 整份覆盖：传当前勾选的全部动作，未传的视为取消授权。 */
-  saveGrants: (actions: string[]) =>
-    api.saveGrants({ body: { actions } }) as Promise<AgentGrantSaveResult>,
+  /** 整份覆盖：传当前勾选的全部动作，未传的视为取消授权；新增授权要带登录密码，由服务端再验一次。 */
+  saveGrants: (actions: string[], password?: string) =>
+    api.saveGrants({
+      body: { actions, ...(password ? { password } : {}) },
+    }) as Promise<AgentGrantSaveResult>,
 };
 
 /** 结果筛选的固定三项：标签取自契约，界面不出现 ok/failed/blocked 原文。 */

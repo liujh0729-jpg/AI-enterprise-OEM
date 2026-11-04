@@ -25,6 +25,8 @@ async function bootstrap() {
   const oaScheduler = new OaReminderScheduler(services.oa);
   const tpScheduler = new TencentQidianScheduler(services.tencentQidian);
   const pointsScheduler = new PointsDailyScheduler(services.points.billing);
+  // 创意社区运行：轮询 Comfy Cloud 作业并把产物转存进本站 OSS（签名 URL 约 6 小时失效）
+  const communityScheduler = services.community.scheduler;
   try {
     await services.prisma.$connect();
     // OSS 配置缓存：后台保存过则用库里的配置，否则回退 .env（URL 生成是同步调用）
@@ -37,6 +39,7 @@ async function bootstrap() {
     oaScheduler.onModuleInit();
     tpScheduler.onModuleInit();
     pointsScheduler.onModuleInit();
+    communityScheduler.onModuleInit();
   } catch (error) {
     rpaScheduler.onModuleDestroy();
     workbuddyScheduler.onModuleDestroy();
@@ -45,6 +48,7 @@ async function bootstrap() {
     oaScheduler.onModuleDestroy();
     tpScheduler.onModuleDestroy();
     pointsScheduler.onModuleDestroy();
+    communityScheduler.onModuleDestroy();
     await services.prisma.$disconnect();
     throw error;
   }
@@ -65,6 +69,7 @@ async function bootstrap() {
     oaScheduler.onModuleDestroy();
     tpScheduler.onModuleDestroy();
     pointsScheduler.onModuleDestroy();
+    communityScheduler.onModuleDestroy();
     server.close(() => {
       void services.prisma.$disconnect().finally(() => process.exit(0));
     });

@@ -1,0 +1,27 @@
+{
+  "name": "api_nano_banana_pro",
+  "title": "Nano Banana Pro",
+  "summary": "Nano-banana Pro (Gemini 3.0 Pro Image) - Studio-quality 4K image generation and editing with enhanced text rendering and character consistency.",
+  "description": "Nano-banana Pro (Gemini 3.0 Pro Image) - Studio-quality 4K image generation and editing with enhanced text rendering and character consistency.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "API",
+    "Image",
+    "Image Edit",
+    "Gemini3 Pro Image Preview",
+    "Google",
+    "Nano Banana Pro"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GeminiImage2Node」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_nano_banana_pro.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_nano_banana_pro",
+  "author": "ComfyUI",
+  "usage": 2403,
+  "nodes": 0,
+  "sourceFile": "api_nano_banana_pro.json"
+}

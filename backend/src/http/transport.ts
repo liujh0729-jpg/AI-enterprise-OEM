@@ -18,6 +18,11 @@ export interface TransportOptions extends Omit<RequestInit, 'signal'> {
   operation?: string;
   concurrency?: number;
   limiterKey?: string;
+  /**
+   * 读取响应正文的字节上限：超过立即中断并判协议错误。
+   * 客户端可控的上游（MCP 连接器等自定义渠道）必须传，否则对端整包灌大报文能打爆进程内存。
+   */
+  maxBytes?: number;
 }
 export interface TransportResult<T> {
   status: number;
@@ -47,6 +52,46 @@ function withAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
       .then(resolve, reject)
       .finally(() => signal.removeEventListener('abort', aborted));
   });
+}
+
+/**
+ * 有界读取：先看 Content-Length，再边读边累加，超限即取消流并按协议错误抛出。
+ * 只在这一层拿得到字节流，所以上限在这里做，调用方不需要各自实现一份；
+ * 已经拿到 Response 的调用方（流式上游）也可以直接复用。
+ */
+export async function readCappedBody(
+  response: Response,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<Uint8Array> {
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (Number.isFinite(declared) && declared > maxBytes)
+    throw new TransportError('protocol', '上游返回内容超过大小上限');
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await withAbort(reader.read(), signal);
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new TransportError('protocol', '上游返回内容超过大小上限');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 async function acquire(host: string, limit: number, signal: AbortSignal) {
   signal.throwIfAborted();
@@ -95,6 +140,7 @@ export async function httpRequest<T = unknown>(
     operation = 'upstream',
     concurrency = 8,
     limiterKey,
+    maxBytes,
     ...init
   } = options;
   const signals = [providedSignal, currentRequest()?.signal].filter(
@@ -137,13 +183,22 @@ export async function httpRequest<T = unknown>(
       controller.signal,
     );
     status = response.status;
+    // redirect: 'manual' 由调用方传（透给 fetch），3xx 不当错误吞掉：调用方自己判状态码
+    const capped = maxBytes
+      ? await readCappedBody(response, maxBytes, controller.signal)
+      : undefined;
     let data: unknown = null;
     if (readAs === 'bytes')
-      data = new Uint8Array(
-        await withAbort(response.arrayBuffer(), controller.signal),
-      );
-    else if (readAs !== 'empty') {
-      const text = await withAbort(response.text(), controller.signal);
+      data =
+        capped ??
+        new Uint8Array(
+          await withAbort(response.arrayBuffer(), controller.signal),
+        );
+    else if (readAs === 'empty') await response.body?.cancel();
+    else {
+      const text = capped
+        ? new TextDecoder().decode(capped)
+        : await withAbort(response.text(), controller.signal);
       if (readAs === 'text') data = text;
       else if (text) {
         try {
@@ -152,7 +207,7 @@ export async function httpRequest<T = unknown>(
           throw new TransportError('protocol', '上游返回格式不正确');
         }
       }
-    } else await response.body?.cancel();
+    }
     return {
       status: response.status,
       ok: response.ok,

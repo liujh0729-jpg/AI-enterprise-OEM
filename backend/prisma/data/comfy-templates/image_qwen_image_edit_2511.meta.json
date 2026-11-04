@@ -1,0 +1,23 @@
+{
+  "name": "image_qwen_image_edit_2511",
+  "title": "Qwen Image Edit 2511 - Material Replacement",
+  "summary": "Replace materials in objects (e.g., furniture) by combining reference images with Qwen-Image-Edit-2511.",
+  "description": "Replace materials in objects (e.g., furniture) by combining reference images with Qwen-Image-Edit-2511.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image Edit",
+    "Qwen-Image-Edit"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/leather_sofa.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_qwen_image_edit_2511",
+  "author": "ComfyUI",
+  "usage": 459,
+  "nodes": 0,
+  "sourceFile": "image_qwen_image_edit_2511.json"
+}

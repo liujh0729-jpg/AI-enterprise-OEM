@@ -99,6 +99,12 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     desc: "全平台活码清单：归属账号、当前入口域名与累计扫码；发现违规内容可下架，落地页立即显示「链接已停用」。",
   },
   {
+    key: "community",
+    name: "创意社区",
+    icon: "audit",
+    desc: "社区工作流审核与推荐，推荐后给发布者积分（规则可配）。",
+  },
+  {
     key: "points",
     name: "积分与充值",
     icon: "pay-circle",
@@ -152,7 +158,21 @@ export const enterpriseRoute: EnterpriseRoute = {
         { path: "/workbuddy", name: "Workbuddy 企业云", icon: "robot" },
         { path: "/data-table", name: "多维表格", icon: "table" },
         { path: "/rpa", name: "RPA自动化", icon: "play" },
-        { path: "/content", name: "内容创作", icon: "play" },
+        /**
+         * 「内容创作」板块：工作台里的可展开子菜单，下挂内容创作类功能入口。
+         * 原先平铺的「内容创作」菜单改名为「内容创作小工具」并收进这个板块，
+         * 页面地址仍为 /content（契约端点、后端路由与站内跳转链接都不受影响）。
+         * 之后新增内容创作方向的功能（选题、排期、发布等）只往这个板块的 routes 里加条目。
+         */
+        {
+          type: "group",
+          name: "内容创作",
+          icon: "play",
+          routes: [
+            { path: "/content", name: "内容创作小工具", icon: "play" },
+            { path: "/community", name: "创意社区", icon: "apps" },
+          ],
+        },
         { path: "/marketing-tools", name: "营销工具", icon: "horn" },
         { path: "/assets", name: "数字资产管理", icon: "folder" },
         { path: "/mail", name: "AI邮箱服务", icon: "mail" },
@@ -497,9 +517,14 @@ export const PAGE_META: Record<
       "两套 Key 分别管理：本系统 ek_ Key 用于调用开放接口（/api/v1），生成 / 重置 / 吊销都在本页；AIPDD API Key（sk-）在同一页绑定，开通同步发布到 AIworkin、服务商数据同步、建联资源等上游能力——没有账号时按页内三步引导：去 www.aipdd.work 注册（填推荐码赠算力）→ 创建 Key → 回来绑定，Key 加密保存永不回显。所在省 / 市等基础数据由平台统一 Key 提供（平台管理后台 → 系统设置 → AIPDD 平台 Key），不绑定也能填表单。",
   },
   "/content": {
-    title: "内容创作",
+    title: "内容创作小工具",
     description:
       "一屏工具卡片：文案、图片、视频、配音配乐、去水印与超分，末尾是「视频创作工具」（AIPDD Drama Agent，点卡片先看简介与网关配置——支持直接粘贴 AIPDD / AIworkin 的 API Key，那一页再去它的 GitHub Releases 下载）。生成结果自动存进本账号的 AIPDD 数字资产；模型与 Key 在「开放集成 → 模型设置」里配置。",
+  },
+  "/community": {
+    title: "创意社区",
+    description:
+      "官方 Comfy Cloud 的工作流市场：按分类挑现成的图像 / 视频 / 音频 / 3D / 文本工作流，填参数即可在站内直接运行，跑的是你自己绑定的 Comfy Cloud API Key 与订阅积分（本站不代付算力，免费套餐不含 API 访问）；产物会自动转存进本站对象存储并登记进数字资产。也可以把工作流发布上来，审核通过并被推荐进市场后获得积分奖励。",
   },
   "/assets": {
     title: "数字资产管理",

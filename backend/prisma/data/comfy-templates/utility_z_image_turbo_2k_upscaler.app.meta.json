@@ -1,0 +1,23 @@
+{
+  "name": "utility_z_image_turbo_2k_upscaler.app",
+  "title": "Image Upscale: Z-Image-Turbo 2K",
+  "summary": "Upload an image to upscale it to 2K resolution using the Z-Image-Turbo model.",
+  "description": "Upload an image to upscale it to 2K resolution using the Z-Image-Turbo model.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "Image Upscale",
+    "Z-Image-Turbo"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/fighter_jet.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=utility_z_image_turbo_2k_upscaler.app",
+  "author": "hellorob",
+  "usage": 271,
+  "nodes": 0,
+  "sourceFile": "utility_z_image_turbo_2k_upscaler.app.json"
+}

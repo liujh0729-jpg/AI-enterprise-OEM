@@ -1,0 +1,25 @@
+{
+  "name": "video_minimax_h3_i2v",
+  "title": "MiniMax H3: Image to Video",
+  "summary": "Turn a starting image into a short, high-quality video clip with MiniMax H3, a unified multimodal model that generates visuals and synchronized audio in a single pass. The workflow takes 1 input image and produces 1 video output, with optional text or reference media to steer motion, style, or sound. Ideal for rapid concept visualization, character-driven animation tests, and creating shareable social media clips with built-in sound design.",
+  "description": "Turn a starting image into a short, high-quality video clip with MiniMax H3, a unified multimodal model that generates visuals and synchronized audio in a single pass. The workflow takes 1 input image and produces 1 video output, with optional text or reference media to steer motion, style, or sound. Ideal for rapid concept visualization, character-driven animation tests, and creating shareable social media clips with built-in sound design.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "Image to Video",
+    "Int8",
+    "Video",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_minimax_h3_i2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_minimax_h3_i2v",
+  "author": "ComfyUI",
+  "usage": 18895,
+  "nodes": 0,
+  "sourceFile": "video_minimax_h3_i2v.json"
+}

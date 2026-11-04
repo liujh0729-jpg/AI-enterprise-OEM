@@ -1,0 +1,25 @@
+{
+  "name": "api_google_nano_banana2_image_edit",
+  "title": "Nano Banana 2: Image Edit",
+  "summary": "Upload an image and a text prompt to edit it. Generate a new image that modifies the original based on your instructions, maintaining subject consistency and high visual fidelity.",
+  "description": "Upload an image and a text prompt to edit it. Generate a new image that modifies the original based on your instructions, maintaining subject consistency and high visual fidelity.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "API",
+    "Image Edit",
+    "Google",
+    "Nano Banana 2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GeminiNanoBanana2V2」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_google_nano_banana2_image_edit",
+  "author": "ComfyUI",
+  "usage": 2750,
+  "nodes": 0,
+  "sourceFile": "api_google_nano_banana2_image_edit.json"
+}

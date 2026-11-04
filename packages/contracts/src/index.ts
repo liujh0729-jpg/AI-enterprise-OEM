@@ -101,4 +101,5 @@ export * from "./okr";
 export * from "./oa";
 export * from "./question-hall";
 export * from "./im";
+export * from "./community";
 export { ContentEndpoints as contentEndpoints } from "./content";

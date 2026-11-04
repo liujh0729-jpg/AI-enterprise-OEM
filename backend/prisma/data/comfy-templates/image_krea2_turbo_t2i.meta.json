@@ -1,0 +1,23 @@
+{
+  "name": "image_krea2_turbo_t2i",
+  "title": "Krea-2: Text to Image",
+  "summary": "Generate images from text prompts using Krea 2, a foundation model built for aesthetic quality and creative control. It focuses on rendering expressive and artistic styles. Ideal for concept art exploration, visual brainstorming, and creating stylized imagery for design projects.",
+  "description": "Generate images from text prompts using Krea 2, a foundation model built for aesthetic quality and creative control. It focuses on rendering expressive and artistic styles. Ideal for concept art exploration, visual brainstorming, and creating stylized imagery for design projects.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "Text to Image",
+    "Krea 2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/image_krea2_turbo_t2i.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_krea2_turbo_t2i",
+  "author": "ComfyUI",
+  "usage": 9270,
+  "nodes": 0,
+  "sourceFile": "image_krea2_turbo_t2i.json"
+}

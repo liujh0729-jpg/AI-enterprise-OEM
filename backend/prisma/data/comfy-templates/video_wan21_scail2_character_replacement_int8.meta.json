@@ -1,0 +1,24 @@
+{
+  "name": "video_wan21_scail2_character_replacement_int8",
+  "title": "SCAIL-2 Int8: Character Replacement",
+  "summary": "Animate a reference character using a driving video or replace characters entirely with SCAIL-2 Int8, which delivers higher quality than fp8 while running faster. The workflow accepts one reference image and one driving video, outputting an animated character sequence with replaced identity. Ideal for cross-identity character swaps, animal-driven animation, and multi-character scenes without intermediate pose representations.",
+  "description": "Animate a reference character using a driving video or replace characters entirely with SCAIL-2 Int8, which delivers higher quality than fp8 while running faster. The workflow accepts one reference image and one driving video, outputting an animated character sequence with replaced identity. Ideal for cross-identity character swaps, animal-driven animation, and multi-character scenes without intermediate pose representations.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Character Replacement",
+    "Int8",
+    "SCAIL-2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 2 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/girl_eats_apple.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_wan21_scail2_character_replacement_int8",
+  "author": "ComfyUI",
+  "usage": 533,
+  "nodes": 0,
+  "sourceFile": "video_wan21_scail2_character_replacement_int8.json"
+}

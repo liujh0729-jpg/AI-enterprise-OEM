@@ -1,0 +1,23 @@
+{
+  "name": "template_qwen_multiangle.app",
+  "title": "Generate Multiple Angles with 3D Camera Node",
+  "summary": "Generate camera angle variations of your input with an easy to use 3D camera angle node.",
+  "description": "Generate camera angle variations of your input with an easy to use 3D camera angle node.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "Image Edit",
+    "Qwen-Image-Edit"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/thumbnail/template_qwen_multiangle_app.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=template_qwen_multiangle.app",
+  "author": "ComfyUI",
+  "usage": 768,
+  "nodes": 0,
+  "sourceFile": "template_qwen_multiangle.app.json"
+}

@@ -1,0 +1,26 @@
+{
+  "name": "api_grok_video",
+  "title": "Grok: Video generation",
+  "summary": "Input text prompts or an initial image frame to generate up to 15-second videos with synchronized audio using the Grok model.",
+  "description": "Input text prompts or an initial image frame to generate up to 15-second videos with synchronized audio using the Grok model.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Video",
+    "Image to Video",
+    "Text to Video",
+    "API",
+    "Grok"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_grok_video.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_grok_video",
+  "author": "ComfyUI",
+  "usage": 261,
+  "nodes": 0,
+  "sourceFile": "api_grok_video.json"
+}

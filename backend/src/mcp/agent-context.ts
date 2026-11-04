@@ -10,8 +10,13 @@ export type AgentCallContext = {
   requestId: string;
   /** 定时任务指定的邮箱范围：邮件工具只能处理这些 mailboxId，越界直接拒。 */
   mailboxIds?: number[];
-  /** 触发来源：对话＝chat；定时任务 / 助理等无人值守＝schedule，OKR 落定类写动作在 schedule 下拒绝。 */
+  /** 触发来源：对话＝chat；定时任务 / 助理等无人值守＝schedule，写动作按它收紧。 */
   trigger?: 'chat' | 'schedule';
+  /**
+   * 本轮是否允许执行写动作：无人值守（trigger＝schedule）下只有这一项显式为 true
+   * 才真执行，否则一律只出草案。默认当 false 处理。
+   */
+  allowWrite?: boolean;
 };
 
 const storage = new AsyncLocalStorage<AgentCallContext>();

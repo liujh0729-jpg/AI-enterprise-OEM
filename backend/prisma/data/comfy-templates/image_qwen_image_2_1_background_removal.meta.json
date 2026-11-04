@@ -1,0 +1,24 @@
+{
+  "name": "image_qwen_image_2_1_background_removal",
+  "title": "Remove Background: Qwen Image 2.1",
+  "summary": "Remove image backgrounds with Qwen Image 2.1, which natively supports 2K output and RGBA transparency for direct transparent results. It takes 1 input image and returns 1 background-free image plus a comparison view showing the before and after. Ideal for e-commerce product photos, profile pictures, and marketing graphics needing clean cutouts.",
+  "description": "Remove image backgrounds with Qwen Image 2.1, which natively supports 2K output and RGBA transparency for direct transparent results. It takes 1 input image and returns 1 background-free image plus a comparison view showing the before and after. Ideal for e-commerce product photos, profile pictures, and marketing graphics needing clean cutouts.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "Remove Background",
+    "Int8",
+    "Qwen Image 2.1"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/angry_broccoli.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_qwen_image_2_1_background_removal",
+  "author": "ComfyUI",
+  "usage": 224,
+  "nodes": 0,
+  "sourceFile": "image_qwen_image_2_1_background_removal.json"
+}

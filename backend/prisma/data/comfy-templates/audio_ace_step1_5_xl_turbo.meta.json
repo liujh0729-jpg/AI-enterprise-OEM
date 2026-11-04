@@ -1,0 +1,24 @@
+{
+  "name": "audio_ace_step1_5_xl_turbo",
+  "title": "ACE-Step 1.5XL Turbo: Text to Music",
+  "summary": "Generate high-quality music from text prompts using the distilled 4B ACE-Step model. Produces commercial-ready audio in just 8 inference steps without CFG.",
+  "description": "Generate high-quality music from text prompts using the distilled 4B ACE-Step model. Produces commercial-ready audio in just 8 inference steps without CFG.",
+  "category": "audio",
+  "groupLabel": "音频生成",
+  "tags": [
+    "Music",
+    "Text to Music",
+    "ACE-Step"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「UNETLoader」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=audio_ace_step1_5_xl_turbo",
+  "author": "ComfyUI",
+  "usage": 238,
+  "nodes": 0,
+  "sourceFile": "audio_ace_step1_5_xl_turbo.json"
+}

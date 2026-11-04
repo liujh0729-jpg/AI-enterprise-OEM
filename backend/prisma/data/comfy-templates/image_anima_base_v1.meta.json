@@ -1,0 +1,24 @@
+{
+  "name": "image_anima_base_v1",
+  "title": "Anima Base v1: Text to Image",
+  "summary": "Input a text prompt describing an anime or artistic illustration. Generate a non-photorealistic image focused on anime concepts, characters, or styles.",
+  "description": "Input a text prompt describing an anime or artistic illustration. Generate a non-photorealistic image focused on anime concepts, characters, or styles.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Anime",
+    "Text to Image",
+    "Anima"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/image_anima_base_v1.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_anima_base_v1",
+  "author": "ComfyUI",
+  "usage": 776,
+  "nodes": 0,
+  "sourceFile": "image_anima_base_v1.json"
+}

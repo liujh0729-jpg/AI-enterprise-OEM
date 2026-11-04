@@ -1,0 +1,24 @@
+{
+  "name": "flux_kontext_dev_basic",
+  "title": "Flux Kontext Dev Image Edit",
+  "summary": "Smart image editing that keeps characters consistent, edits specific parts without affecting others, and preserves original styles.",
+  "description": "Smart image editing that keeps characters consistent, edits specific parts without affecting others, and preserves original styles.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image Edit",
+    "FLUX.1 Kontext",
+    "FLUX"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=flux_kontext_dev_basic",
+  "author": "ComfyUI",
+  "usage": 261,
+  "nodes": 0,
+  "sourceFile": "flux_kontext_dev_basic.json"
+}

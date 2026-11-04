@@ -1,0 +1,26 @@
+{
+  "name": "api_bytedance_image_to_video",
+  "title": "Seedance 1.0 Pro: Image to Video",
+  "summary": "Transform static images into dynamic videos using ByteDance's Seedance model. Analyzes image structure and generates natural motion with consistent visual style and coherent video sequences.",
+  "description": "Transform static images into dynamic videos using ByteDance's Seedance model. Analyzes image structure and generates natural motion with consistent visual style and coherent video sequences.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "API",
+    "Image to Video",
+    "Video",
+    "Seedance1.0 Pro",
+    "ByteDance"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「MarkdownNote」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_bytedance_image_to_video",
+  "author": "ComfyUI",
+  "usage": 633,
+  "nodes": 0,
+  "sourceFile": "api_bytedance_image_to_video.json"
+}

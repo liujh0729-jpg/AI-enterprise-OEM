@@ -1,0 +1,24 @@
+{
+  "name": "video_fastvideo_fasth3_t2v",
+  "title": "FastVideo FastH3: Text to Video",
+  "summary": "Generate synchronized video and audio directly from text using a distilled eight-step model, producing one video output with no file inputs required. Ideal for rapid text-to-video prototyping, audio-visual content creation, and creative storytelling where fast generation matters more than maximum detail.",
+  "description": "Generate synchronized video and audio directly from text using a distilled eight-step model, producing one video output with no file inputs required. Ideal for rapid text-to-video prototyping, audio-visual content creation, and creative storytelling where fast generation matters more than maximum detail.",
+  "category": "video",
+  "groupLabel": "文生视频",
+  "tags": [
+    "Text to Video",
+    "Int8",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_fastvideo_fasth3_t2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_fastvideo_fasth3_t2v",
+  "author": "ComfyUI",
+  "usage": 538,
+  "nodes": 0,
+  "sourceFile": "video_fastvideo_fasth3_t2v.json"
+}

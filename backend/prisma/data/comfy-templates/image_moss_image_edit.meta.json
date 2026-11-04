@@ -1,0 +1,23 @@
+{
+  "name": "image_moss_image_edit",
+  "title": "MOSS-Image: Image Edit LoRA",
+  "summary": "Edit a photo with a short instruction using MOSS-Image and its edit LoRA: the instruction and the source image are encoded together, so the sampler redraws the same frame and only the described change is applied. Colour, material, outfit and background swaps keep the face, hair, pose and framing intact, and a Compare Images node shows the source next to the result.",
+  "description": "Edit a photo with a short instruction using MOSS-Image and its edit LoRA: the instruction and the source image are encoded together, so the sampler redraws the same frame and only the described change is applied. Colour, material, outfit and background swaps keep the face, hair, pose and framing intact, and a Compare Images node shows the source next to the result.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image Edit",
+    "MOSS-Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「ImageCompare」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_moss_image_edit",
+  "author": "ComfyUI",
+  "usage": 1299,
+  "nodes": 0,
+  "sourceFile": "image_moss_image_edit.json"
+}

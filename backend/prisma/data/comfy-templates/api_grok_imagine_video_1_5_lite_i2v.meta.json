@@ -1,0 +1,24 @@
+{
+  "name": "api_grok_imagine_video_1_5_lite_i2v",
+  "title": "Grok Imagine Video 1.5 Lite: Image to Video",
+  "summary": "Generate short videos from a single still image using Grok Imagine Video 1.5 Lite, a faster, lower-cost model that turns one image into a video clip up to 15 seconds at resolutions up to 1080p. Ideal for rapid social content, storyboard previews, and high-volume creative iteration where speed and cost matter more than maximum fidelity.",
+  "description": "Generate short videos from a single still image using Grok Imagine Video 1.5 Lite, a faster, lower-cost model that turns one image into a video clip up to 15 seconds at resolutions up to 1080p. Ideal for rapid social content, storyboard previews, and high-volume creative iteration where speed and cost matter more than maximum fidelity.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "Image to Video",
+    "API",
+    "Grok Imagine Video"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GrokVideoNode」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_grok_imagine_video_1_5_lite_i2v",
+  "author": "ComfyUI",
+  "usage": 282,
+  "nodes": 0,
+  "sourceFile": "api_grok_imagine_video_1_5_lite_i2v.json"
+}

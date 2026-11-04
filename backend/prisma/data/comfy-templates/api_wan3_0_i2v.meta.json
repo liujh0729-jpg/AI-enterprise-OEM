@@ -1,0 +1,24 @@
+{
+  "name": "api_wan3_0_i2v",
+  "title": "Wan3.0: Image to Video",
+  "summary": "Create up to 30 seconds of high-fidelity video from a single image using Wan 3.0, which supports text, image, audio, and document inputs for versatile scene generation. Produces authentic, realistic footage with unique facial details and believable motion in one pass. Ideal for cinematic storytelling, product visualization, and documentary-style scene recreation.",
+  "description": "Create up to 30 seconds of high-fidelity video from a single image using Wan 3.0, which supports text, image, audio, and document inputs for versatile scene generation. Produces authentic, realistic footage with unique facial details and believable motion in one pass. Ideal for cinematic storytelling, product visualization, and documentary-style scene recreation.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "API",
+    "Image to Video",
+    "Wan3.0"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「Wan3ImageToVideoApi」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_wan3_0_i2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_wan3_0_i2v",
+  "author": "ComfyUI",
+  "usage": 446,
+  "nodes": 0,
+  "sourceFile": "api_wan3_0_i2v.json"
+}

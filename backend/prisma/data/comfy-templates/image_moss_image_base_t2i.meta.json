@@ -1,0 +1,23 @@
+{
+  "name": "image_moss_image_base_t2i",
+  "title": "MOSS-Image Base: Text to Image",
+  "summary": "Generate an image from a text prompt with the MOSS-Image base checkpoint, which reads a full scene caption and returns one finished image. The prompt upsampler expands a short request into that caption first. Use it for fine-tuning experiments and comparisons with the instruction-tuned checkpoint.",
+  "description": "Generate an image from a text prompt with the MOSS-Image base checkpoint, which reads a full scene caption and returns one finished image. The prompt upsampler expands a short request into that caption first. Use it for fine-tuning experiments and comparisons with the instruction-tuned checkpoint.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "Text to Image",
+    "MOSS-Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_moss_image_base_t2i",
+  "author": "ComfyUI",
+  "usage": 2306,
+  "nodes": 0,
+  "sourceFile": "image_moss_image_base_t2i.json"
+}

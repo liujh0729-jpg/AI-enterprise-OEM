@@ -556,11 +556,19 @@ export function registerAutomationRoutes(
       c.contentController.toggleSkill(i.user, i.param['id'], i.json),
     Content_removeSkill: async (i) =>
       c.contentController.removeSkill(i.user, i.param['id']),
+    Content_skillRevisions: async (i) =>
+      c.contentController.skillRevisions(i.user, i.param['id']),
+    Content_restoreSkill: async (i) =>
+      c.contentController.restoreSkill(i.user, i.param['id'], i.json),
     Content_plugins: async (i) => c.contentController.listPlugins(i.user),
     Content_togglePlugin: async (i) =>
       c.contentController.togglePlugin(i.user, i.param['id'], i.json),
     Content_removePlugin: async (i) =>
       c.contentController.removePlugin(i.user, i.param['id']),
+    Content_pluginRevisions: async (i) =>
+      c.contentController.pluginRevisions(i.user, i.param['id']),
+    Content_restorePlugin: async (i) =>
+      c.contentController.restorePlugin(i.user, i.param['id'], i.json),
     Content_experts: async (i) => c.contentController.listExperts(i.user),
     Content_createExpert: async (i) =>
       c.contentController.createExpert(i.user, i.token, i.json),
@@ -892,6 +900,15 @@ export function registerAutomationRoutes(
       'SkillHub_',
       c.skillHubController as unknown as Record<string, unknown>,
     ),
+    // 创意社区：面向用户的目录/运行/发布，与平台后台的审核、积分规则两组端点
+    moduleHandlers(
+      'Community_',
+      c.communityController as unknown as Record<string, unknown>,
+    ),
+    moduleHandlers(
+      'CommunityAdmin_',
+      c.communityController as unknown as Record<string, unknown>,
+    ),
   );
 
   // 内建应用里需要登录令牌的端点（AI 走模型设置、附件走 AIPDD 数字资产）：
@@ -1040,6 +1057,7 @@ export function registerAutomationRoutes(
   registerCsvExport(app, services);
   registerSkillHubDownload(app, services);
   registerContentUploads(app, services);
+  registerCommunityInputUpload(app, services);
   registerContentDigitalAssetUpload(app, services);
   registerContentAgentStream(app, services);
   registerContentSkillImport(app, services);
@@ -1224,6 +1242,40 @@ function registerContentUploads(app: OpenAPIHono<ApiEnv>, services: Services) {
     );
     return context.json({ code: 0, message: 'ok', data: result });
   });
+}
+
+/**
+ * 创意社区运行表单的图片输入：multipart 不进 JSON 契约，单独登记。
+ * 与内容创作的素材上传不同——这里必须落**本站自己的桶**：
+ * 后端取字节时要按本站 OSS 域校验主机（不能把运行入口开成任意外链代理），
+ * 所以不能走 AIPDD 数字资产云中转的那条通道。
+ */
+function registerCommunityInputUpload(
+  app: OpenAPIHono<ApiEnv>,
+  services: Services,
+) {
+  app.post(
+    '/enterprise/community/uploads',
+    async (context: Context<ApiEnv>) => {
+      const form = await context.req.formData();
+      const file = form.get('file');
+      if (!(file instanceof File)) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          '请选择要上传的图片',
+        );
+      }
+      const result = await services.controllers.communityController.uploadInput(
+        context.get('user')!,
+        {
+          name: file.name,
+          type: file.type,
+          bytes: Buffer.from(await file.arrayBuffer()),
+        },
+      );
+      return context.json({ code: 0, message: 'ok', data: result });
+    },
+  );
 }
 
 /** SkillHub 技能包下载返回 zip，不进 JSON 契约，单独登记。 */

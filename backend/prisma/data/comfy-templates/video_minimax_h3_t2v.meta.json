@@ -1,0 +1,25 @@
+{
+  "name": "video_minimax_h3_t2v",
+  "title": "MiniMax H3: Text to Video",
+  "summary": "Generate video with native stereo audio directly from a text prompt using MiniMax H3, an omni-modal model that synthesizes voice, sound effects, and music in a single pass. Output is up to 2K resolution, 24fps, and roughly 15 seconds long, with no file inputs required — just a prompt to one video output. Ideal for rapid concept visualization, social media content creation, and audio-synced storytelling.",
+  "description": "Generate video with native stereo audio directly from a text prompt using MiniMax H3, an omni-modal model that synthesizes voice, sound effects, and music in a single pass. Output is up to 2K resolution, 24fps, and roughly 15 seconds long, with no file inputs required — just a prompt to one video output. Ideal for rapid concept visualization, social media content creation, and audio-synced storytelling.",
+  "category": "video",
+  "groupLabel": "文生视频",
+  "tags": [
+    "Text to Video",
+    "Int8",
+    "Video",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_minimax_h3_t2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_minimax_h3_t2v",
+  "author": "ComfyUI",
+  "usage": 4102,
+  "nodes": 0,
+  "sourceFile": "video_minimax_h3_t2v.json"
+}

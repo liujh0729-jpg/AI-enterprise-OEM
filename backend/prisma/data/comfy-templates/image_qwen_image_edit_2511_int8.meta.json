@@ -1,0 +1,24 @@
+{
+  "name": "image_qwen_image_edit_2511_int8",
+  "title": "Qwen Image Edit 2511 Int8: Image Edit",
+  "summary": "Edit images with Qwen Image Edit 2511 Int8, using a quantized model for faster inference while maintaining high quality. Input one image and receive one edited output. Ideal for character-consistent portrait editing, multi-person group photo fusion, and industrial design modifications.",
+  "description": "Edit images with Qwen Image Edit 2511 Int8, using a quantized model for faster inference while maintaining high quality. Input one image and receive one edited output. Ideal for character-consistent portrait editing, multi-person group photo fusion, and industrial design modifications.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image Edit",
+    "Int8",
+    "Qwen Image Edit 2511"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_qwen_image_edit_2511_int8",
+  "author": "ComfyUI",
+  "usage": 1147,
+  "nodes": 0,
+  "sourceFile": "image_qwen_image_edit_2511_int8.json"
+}

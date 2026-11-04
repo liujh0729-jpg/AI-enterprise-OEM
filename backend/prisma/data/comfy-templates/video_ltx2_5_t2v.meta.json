@@ -1,0 +1,25 @@
+{
+  "name": "video_ltx2_5_t2v",
+  "title": "LTX-2.5: Text to Video",
+  "summary": "Generate cinematic video from a text prompt using LTX-2.5, a production-ready diffusion model that outputs a single video file with optional spatial upscaling for enhanced resolution. Ideal for film previsualization, commercial storyboards, and high-volume content creation pipelines.",
+  "description": "Generate cinematic video from a text prompt using LTX-2.5, a production-ready diffusion model that outputs a single video file with optional spatial upscaling for enhanced resolution. Ideal for film previsualization, commercial storyboards, and high-volume content creation pipelines.",
+  "category": "video",
+  "groupLabel": "文生视频",
+  "tags": [
+    "Video",
+    "Text to Video",
+    "Int8",
+    "LTX-2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_ltx2_5_t2v",
+  "author": "ComfyUI",
+  "usage": 1669,
+  "nodes": 0,
+  "sourceFile": "video_ltx2_5_t2v.json"
+}

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { pageOf, pageParam, text } from '../common/api';
+import { assertSensitivePassword } from '../common/confirm-password';
 import { truncate } from './agent-intent';
 import {
   MCP_WRITE_OPERATIONS,
@@ -279,9 +280,10 @@ export class AgentMemoryService {
 
   /**
    * 保存勾选：整份覆盖（取消勾选＝删行），未知动作、读接口、永久排除一律拒收。
-   * 授权只由人在界面上改，MCP 自己看不到这一组接口（见 mcp-catalog 的排除域），所以无法自我提权。
+   * 授权只由人在界面上改，MCP 自己看不到这一组接口（见 mcp-catalog 的排除域），所以无法自我提权；
+   * 新增授权另外要验登录密码——令牌被盗时也不能顺手把写动作放开，收回授权则随时可以。
    */
-  async saveGrants(userId: string, actions: string[]) {
+  async saveGrants(userId: string, actions: string[], password?: unknown) {
     const requested = new Set<string>();
     for (const raw of actions) {
       const action = raw.trim();
@@ -308,6 +310,14 @@ export class AgentMemoryService {
     const existing = await this.grantedActions(userId);
     const toAdd = [...requested].filter((action) => !existing.has(action));
     const toRemove = [...existing].filter((action) => !requested.has(action));
+    if (toAdd.length) {
+      await assertSensitivePassword(
+        this.prisma,
+        userId,
+        password,
+        '自动执行写动作',
+      );
+    }
     if (toAdd.length)
       await this.prisma.agentActionGrant.createMany({
         data: toAdd.map((action) => {

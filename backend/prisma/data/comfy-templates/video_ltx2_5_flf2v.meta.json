@@ -1,0 +1,25 @@
+{
+  "name": "video_ltx2_5_flf2v",
+  "title": "LTX-2.5: FLF2V",
+  "summary": "Generate a video from first and last frame reference images using LTX-2.5, blending both frames into a single animated sequence. Ideal for creating transition shots, morphing between two subjects or scenes, and building multi-shot narratives from still references.",
+  "description": "Generate a video from first and last frame reference images using LTX-2.5, blending both frames into a single animated sequence. Ideal for creating transition shots, morphing between two subjects or scenes, and building multi-shot narratives from still references.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "FLF2V",
+    "Int8",
+    "Video",
+    "LTX-2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_ltx2_5_flf2v",
+  "author": "ComfyUI",
+  "usage": 904,
+  "nodes": 0,
+  "sourceFile": "video_ltx2_5_flf2v.json"
+}

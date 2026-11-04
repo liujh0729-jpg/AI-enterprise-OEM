@@ -1,0 +1,2 @@
+# 官方模板导入脚本的本地缓存（object_info 有 10MB+，且与用户 Key 绑定，不入库）
+_object_info.json

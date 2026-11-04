@@ -1,0 +1,23 @@
+{
+  "name": "utility_seedvr2_image_upscale",
+  "title": "Image Upscale: SeedVR2",
+  "summary": "Upload an image to upscale it with SeedVR2 and generate a high-definition output.",
+  "description": "Upload an image to upscale it with SeedVR2 and generate a high-definition output.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "Image Upscale",
+    "SeedVR2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/vr_ad.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=utility_seedvr2_image_upscale",
+  "author": "ComfyUI",
+  "usage": 840,
+  "nodes": 0,
+  "sourceFile": "utility_seedvr2_image_upscale.json"
+}

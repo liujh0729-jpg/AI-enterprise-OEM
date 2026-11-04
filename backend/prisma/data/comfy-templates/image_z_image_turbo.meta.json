@@ -1,0 +1,24 @@
+{
+  "name": "image_z_image_turbo",
+  "title": "Z-Image-Turbo: Text to Image",
+  "summary": "An Efficient Image Generation Foundation Model with Single-Stream Diffusion Transformer, supports English & Chinese.",
+  "description": "An Efficient Image Generation Foundation Model with Single-Stream Diffusion Transformer, supports English & Chinese.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image",
+    "Text to Image",
+    "Z-Image-Turbo"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/image_z_image_turbo.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_z_image_turbo",
+  "author": "ComfyUI",
+  "usage": 14678,
+  "nodes": 0,
+  "sourceFile": "image_z_image_turbo.json"
+}

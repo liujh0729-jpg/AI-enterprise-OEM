@@ -1,0 +1,23 @@
+{
+  "name": "image_moss_image_t2i",
+  "title": "MOSS-Image: Text to Image",
+  "summary": "Generate an image from a text prompt with MOSS-Image, an open-weights model that reads a full scene caption and returns one finished image. A prompt upsampler expands a short request into that caption first, so a one-line description is enough. Ideal for editorial photography, product shots, and concept art.",
+  "description": "Generate an image from a text prompt with MOSS-Image, an open-weights model that reads a full scene caption and returns one finished image. A prompt upsampler expands a short request into that caption first, so a one-line description is enough. Ideal for editorial photography, product shots, and concept art.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "Text to Image",
+    "MOSS-Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_moss_image_t2i",
+  "author": "ComfyUI",
+  "usage": 8242,
+  "nodes": 0,
+  "sourceFile": "image_moss_image_t2i.json"
+}

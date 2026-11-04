@@ -1,0 +1,24 @@
+{
+  "name": "api_krea3_t2i",
+  "title": "Krea 3: Text to Image",
+  "summary": "Generate images from text prompts using Krea 3, producing a single finished image per run with no input files required. Ideal for e-commerce product staging, fashion and portrait work, and architectural concept rendering.",
+  "description": "Generate images from text prompts using Krea 3, producing a single finished image per run with no input files required. Ideal for e-commerce product staging, fashion and portrait work, and architectural concept rendering.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "API",
+    "Text to Image",
+    "Krea 3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「Krea3ImageNode」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_krea3_t2i",
+  "author": "ComfyUI",
+  "usage": 389,
+  "nodes": 0,
+  "sourceFile": "api_krea3_t2i.json"
+}

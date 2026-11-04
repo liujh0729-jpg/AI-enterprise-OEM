@@ -1,0 +1,23 @@
+{
+  "name": "image_firered_image_edit1_1",
+  "title": "FireRed Image Edit 1.1: Image Edit",
+  "summary": "Upload an image and a text prompt to edit it. Generate a modified image with enhanced identity consistency, multi-element fusion, or professional photo restoration.",
+  "description": "Upload an image and a text prompt to edit it. Generate a modified image with enhanced identity consistency, multi-element fusion, or professional photo restoration.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image Edit",
+    "FireRed Image Edit 1.1"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/future_portrait.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_firered_image_edit1_1",
+  "author": "ComfyUI",
+  "usage": 855,
+  "nodes": 0,
+  "sourceFile": "image_firered_image_edit1_1.json"
+}

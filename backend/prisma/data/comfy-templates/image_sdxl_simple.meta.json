@@ -1,0 +1,24 @@
+{
+  "name": "image_sdxl_simple",
+  "title": "SDXL1.0: Text to Image (Simple)",
+  "summary": "Generate high-quality images from text prompts using the SDXL 1.0 model, offering a straightforward text-to-image generation workflow. Ideal for quick concept visualization, creative brainstorming, and rapid prototyping of visual ideas.",
+  "description": "Generate high-quality images from text prompts using the SDXL 1.0 model, offering a straightforward text-to-image generation workflow. Ideal for quick concept visualization, creative brainstorming, and rapid prototyping of visual ideas.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image",
+    "Text to Image",
+    "SDXL"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「MarkdownNote」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_sdxl_simple",
+  "author": "ComfyUI",
+  "usage": 415,
+  "nodes": 0,
+  "sourceFile": "image_sdxl_simple.json"
+}

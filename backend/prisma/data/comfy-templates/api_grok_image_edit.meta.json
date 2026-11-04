@@ -1,0 +1,24 @@
+{
+  "name": "api_grok_image_edit",
+  "title": "Grok: Image Edit",
+  "summary": "Upload an image to edit with the Grok model. Generate a modified version with expressive, cinematic visuals",
+  "description": "Upload an image to edit with the Grok model. Generate a modified version with expressive, cinematic visuals",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "API",
+    "Image Edit",
+    "Grok"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GrokImageEditNodeV2」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/cyberpunk_robot.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_grok_image_edit",
+  "author": "ComfyUI",
+  "usage": 1968,
+  "nodes": 0,
+  "sourceFile": "api_grok_image_edit.json"
+}

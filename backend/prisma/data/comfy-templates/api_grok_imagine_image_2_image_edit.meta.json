@@ -1,0 +1,24 @@
+{
+  "name": "api_grok_imagine_image_2_image_edit",
+  "title": "Grok Imagine Image 2.0: Image Edit",
+  "summary": "Grok Imagine Image 2.0 performs precise image editing and text rendering using xAI's Aurora engine, letting you modify specific elements, swap backgrounds, or restyle scenes through natural language with crisp short-text output. It takes up to 3 reference images and generates at 1K or 2K resolution across 14 aspect ratios, with strong character consistency across scenes. Ideal for poster and cover design, product and brand visuals, or multi-scene character workflows.",
+  "description": "Grok Imagine Image 2.0 performs precise image editing and text rendering using xAI's Aurora engine, letting you modify specific elements, swap backgrounds, or restyle scenes through natural language with crisp short-text output. It takes up to 3 reference images and generates at 1K or 2K resolution across 14 aspect ratios, with strong character consistency across scenes. Ideal for poster and cover design, product and brand visuals, or multi-scene character workflows.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "API",
+    "Image Edit",
+    "Grok Imagine Image 2.0"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GrokImageEditNodeV2」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_grok_imagine_image_2_image_edit",
+  "author": "ComfyUI",
+  "usage": 621,
+  "nodes": 0,
+  "sourceFile": "api_grok_imagine_image_2_image_edit.json"
+}

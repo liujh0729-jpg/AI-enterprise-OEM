@@ -1,0 +1,25 @@
+{
+  "name": "video_ltx2_5_i2v",
+  "title": "LTX-2.5: Image to Video",
+  "summary": "Generate video from a single image using LTX-2.5, producing a high-fidelity clip with industry-leading pixel quality and native multishot capability that holds character, environment, and lighting across connected scenes. Ideal for cinematic production, VFX shot creation, and content pipelines requiring fast, locally deployable video generation.",
+  "description": "Generate video from a single image using LTX-2.5, producing a high-fidelity clip with industry-leading pixel quality and native multishot capability that holds character, environment, and lighting across connected scenes. Ideal for cinematic production, VFX shot creation, and content pipelines requiring fast, locally deployable video generation.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "Image to Video",
+    "Int8",
+    "Video",
+    "LTX-2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_ltx2_5_i2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_ltx2_5_i2v",
+  "author": "ComfyUI",
+  "usage": 4425,
+  "nodes": 0,
+  "sourceFile": "video_ltx2_5_i2v.json"
+}

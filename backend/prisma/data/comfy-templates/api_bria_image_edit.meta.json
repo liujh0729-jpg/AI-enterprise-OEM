@@ -1,0 +1,24 @@
+{
+  "name": "api_bria_image_edit",
+  "title": "Bria: FIBO 2.0 Image Edit",
+  "summary": "Edit an image with Bria FIBO 2.0 by describing the change in plain language, with an optional mask to confine it to one region. FIBO 2.0 is one model for both editing and generation, trained on structured VGL captions, so it holds everything you did not ask to change, and it returns that structured prompt so the edit can be rebuilt or refined from JSON.",
+  "description": "Edit an image with Bria FIBO 2.0 by describing the change in plain language, with an optional mask to confine it to one region. FIBO 2.0 is one model for both editing and generation, trained on structured VGL captions, so it holds everything you did not ask to change, and it returns that structured prompt so the edit can be rebuilt or refined from JSON.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "API",
+    "Image Edit",
+    "BRIA"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「ImageCompare」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/sunlit_rooftop_capture.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_bria_image_edit",
+  "author": "ComfyUI",
+  "usage": 344,
+  "nodes": 0,
+  "sourceFile": "api_bria_image_edit.json"
+}

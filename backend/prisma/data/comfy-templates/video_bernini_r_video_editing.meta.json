@@ -1,0 +1,23 @@
+{
+  "name": "video_bernini_r_video_editing",
+  "title": "Bernini-R: Video Edit",
+  "summary": "Generate an edited video with consistent relighting using Bernini-R. Ideal for portrait and product relighting, e-commerce catalog photography, and creating consistent lighting across photo sets.",
+  "description": "Generate an edited video with consistent relighting using Bernini-R. Ideal for portrait and product relighting, e-commerce catalog photography, and creating consistent lighting across photo sets.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Video Edit",
+    "Bernini-R"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 2 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_bernini_r_video_editing",
+  "author": "ComfyUI",
+  "usage": 277,
+  "nodes": 0,
+  "sourceFile": "video_bernini_r_video_editing.json"
+}

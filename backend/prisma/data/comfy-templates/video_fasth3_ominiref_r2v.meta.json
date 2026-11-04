@@ -1,0 +1,24 @@
+{
+  "name": "video_fasth3_ominiref_r2v",
+  "title": "FastH3 OmniRef: Reference to Video",
+  "summary": "Generate synchronized video with matching audio from a text prompt plus a reference image using the FastH3 OmniRef eight-step distilled model, which renders both streams in just eight sampling steps. Takes 1 input image and produces 1 video output. Ideal for animating reference characters, creating talking avatars, and rapid social media video prototyping.",
+  "description": "Generate synchronized video with matching audio from a text prompt plus a reference image using the FastH3 OmniRef eight-step distilled model, which renders both streams in just eight sampling steps. Takes 1 input image and produces 1 video output. Ideal for animating reference characters, creating talking avatars, and rapid social media video prototyping.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Reference to Video",
+    "Video",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_fasth3_ominiref_r2v",
+  "author": "ComfyUI",
+  "usage": 1885,
+  "nodes": 0,
+  "sourceFile": "video_fasth3_ominiref_r2v.json"
+}

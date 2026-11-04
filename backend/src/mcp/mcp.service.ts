@@ -21,7 +21,11 @@ import {
   sanitizeParams,
   truncate,
 } from '../agent-memory/agent-intent';
-import { runAsAgent, currentAgentCall } from './agent-context';
+import {
+  runAsAgent,
+  currentAgentCall,
+  type AgentCallContext,
+} from './agent-context';
 import { createAgentApp } from './agent-app';
 import {
   MCP_OPERATIONS,
@@ -81,8 +85,10 @@ const HOW_TO_ENABLE =
   '请用户在本系统「智能体记忆 → 可自动执行的动作」里勾选该动作并保存（保存需输入本站登录密码），之后同样的指令才会真正执行。';
 
 /**
- * 无人值守（定时任务 / 助理）下 OKR 只允许出草稿：落定目标、指派、改 KR、建计划
- * 都必须由用户在对话里确认后执行，避免半夜自动改掉考核口径。
+ * 无人值守（定时任务 / 助理）下写动作默认全拒，只出草案：
+ * 半夜没人盯着的一轮对话，不能因为远端内容里藏了一句指令就把数据改了。
+ * 要放开只能逐个定时任务显式勾选「允许自动执行写动作」（保存要验密）。
+ * 下面几条即使放开了也仍拒：OKR 的口径类动作关乎考核，只能人工确认。
  */
 const SCHEDULE_DENIED_ACTIONS: Record<string, string> = {
   Okr_objectiveSave: '定时任务只能生成目标草稿，落定目标请在对话里确认后执行',
@@ -90,6 +96,27 @@ const SCHEDULE_DENIED_ACTIONS: Record<string, string> = {
   Okr_krSave: '定时任务不能直接改关键结果，请在对话里确认后执行',
   Okr_planSave: '定时任务不能直接建工作计划，请在对话里确认后执行',
 };
+
+/** 没命中逐条名单时的统一措辞（无人值守且任务没放开写动作）。*/
+const UNATTENDED_DENIED =
+  '无人值守任务默认不执行写动作，只出草案；要自动执行请在该定时任务里勾选「允许自动执行写动作」，或在本人的对话里确认后执行。';
+
+/**
+ * 本轮能不能替用户执行这个写动作：
+ * · 对话里用户就在屏幕前，下一步不对可以立刻叫停，不受这一层约束；
+ * · 无人值守（定时任务 / 助理）默认全拒，只出草案；要放开只能逐个任务显式勾选（保存要验密）；
+ * · OKR 口径类动作关乎考核，即便放开了也仍然逐条拒。
+ */
+export function unattendedDenialOf(
+  operationId: string,
+  call: AgentCallContext | undefined,
+) {
+  if (call?.trigger !== 'schedule') return '';
+  return (
+    SCHEDULE_DENIED_ACTIONS[operationId] ??
+    (call.allowWrite === true ? '' : UNATTENDED_DENIED)
+  );
+}
 
 /**
  * MCP 服务端的能力本体：六个元工具，接口清单与授权闸全部从契约层和本账号的勾选派生。
@@ -362,10 +389,9 @@ export class McpService {
       : ({ ok: true } as const);
     const forbidden = forbiddenReasonOf(operationId);
     const granted = await this.memory.grantedActions(user.userId);
-    const scheduleBlocked =
-      currentAgentCall()?.trigger === 'schedule'
-        ? (SCHEDULE_DENIED_ACTIONS[operationId] ?? '')
-        : '';
+    // 无人值守下两道：逐条禁区（OKR 口径类）永远拒；其余写动作要任务显式放开才执行
+    const call = currentAgentCall();
+    const scheduleBlocked = unattendedDenialOf(operationId, call);
     const paramsOk = !missing.length && queryCheck.ok && bodyCheck.ok;
     const allowed =
       paramsOk &&

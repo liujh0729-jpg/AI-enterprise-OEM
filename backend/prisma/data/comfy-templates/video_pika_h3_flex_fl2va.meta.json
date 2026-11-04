@@ -1,0 +1,25 @@
+{
+  "name": "video_pika_h3_flex_fl2va",
+  "title": "Pika H3 Flex: FL2VA",
+  "summary": "Animate between two still frames with Pika H3 Flex: the first image opens the shot and the second closes it, while the prompt describes the path between them. The two frames are locked to the start and the end of the clip, the adapter runs at strength 1.0 on the int8 MiniMax H3 FL2VA base with the lcm sampler and Pika's six-step sigma list, and the output size is taken from the first frame and snapped to a multiple of 32 automatically, so portrait sources stay portrait.",
+  "description": "Animate between two still frames with Pika H3 Flex: the first image opens the shot and the second closes it, while the prompt describes the path between them. The two frames are locked to the start and the end of the clip, the adapter runs at strength 1.0 on the int8 MiniMax H3 FL2VA base with the lcm sampler and Pika's six-step sigma list, and the output size is taken from the first frame and snapped to a multiple of 32 automatically, so portrait sources stay portrait.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "FLF2V",
+    "Video",
+    "Image to Video",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_pika_h3_flex_fl2va.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_pika_h3_flex_fl2va",
+  "author": "ComfyUI",
+  "usage": 245,
+  "nodes": 0,
+  "sourceFile": "video_pika_h3_flex_fl2va.json"
+}

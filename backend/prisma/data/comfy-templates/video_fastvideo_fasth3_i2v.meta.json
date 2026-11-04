@@ -1,0 +1,24 @@
+{
+  "name": "video_fastvideo_fasth3_i2v",
+  "title": "FastVideo FastH3: Image to Video",
+  "summary": "Generate video with synchronized native audio from a single still image using MiniMax H3 and the FastH3 8-step checkpoint. One image produces one video output with matching voice, sound effects, and music in a single pass. Ideal for animating portraits, bringing product shots to life, and quick social media clips.",
+  "description": "Generate video with synchronized native audio from a single still image using MiniMax H3 and the FastH3 8-step checkpoint. One image produces one video output with matching voice, sound effects, and music in a single pass. Ideal for animating portraits, bringing product shots to life, and quick social media clips.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "Image to Video",
+    "Int8",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_fastvideo_fasth3_i2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_fastvideo_fasth3_i2v",
+  "author": "ComfyUI",
+  "usage": 1708,
+  "nodes": 0,
+  "sourceFile": "video_fastvideo_fasth3_i2v.json"
+}

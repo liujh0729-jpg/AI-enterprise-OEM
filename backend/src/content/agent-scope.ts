@@ -11,6 +11,12 @@ export type AgentRunScope = {
   pluginIds?: number[];
   /** 触发来源：对话＝chat；定时任务 / 助理等无人值守＝schedule，MCP 写动作按它收紧。 */
   trigger: 'chat' | 'schedule';
+  /**
+   * 本轮是否允许执行写动作。只有显式 true 才放开：
+   * 对话里用户在屏幕前＝true；定时任务默认 false（逐任务勾选才放开），
+   * 避免无人值守时被注入的远端内容驱动着改数据、发消息。
+   */
+  allowWrite?: boolean;
 };
 
 const storage = new AsyncLocalStorage<AgentRunScope>();

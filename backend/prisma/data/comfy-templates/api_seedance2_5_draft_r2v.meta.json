@@ -1,0 +1,24 @@
+{
+  "name": "api_seedance2_5_draft_r2v",
+  "title": "Seedance2.5 Draft: Reference to Video",
+  "summary": "Generate draft preview videos from reference images using Seedance 2.5's two-phase draft mode: stage one turns your references and prompt into a fast, low-cost 480p preview plus a reusable draft task ID, and stage two renders the 1080p final from that ID. Ideal for locking in a character or storyboard reference before committing to a full-quality render.",
+  "description": "Generate draft preview videos from reference images using Seedance 2.5's two-phase draft mode: stage one turns your references and prompt into a fast, low-cost 480p preview plus a reusable draft task ID, and stage two renders the 1080p final from that ID. Ideal for locking in a character or storyboard reference before committing to a full-quality render.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "API",
+    "Reference to Video",
+    "Seedance 2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveText」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_seedance2_5_draft_r2v",
+  "author": "ComfyUI",
+  "usage": 939,
+  "nodes": 0,
+  "sourceFile": "api_seedance2_5_draft_r2v.json"
+}

@@ -1,6 +1,7 @@
 import type { ContentAgentSchedule } from '@enterprise/contracts';
 import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
+import { assertSensitivePassword } from '../common/confirm-password';
 import { ErrorCode } from '../common/error-code';
 import {
   computeNextOccurrence,
@@ -71,6 +72,7 @@ type ScheduleRow = {
   libraryIds: unknown;
   connectorIds: unknown;
   mailboxIds: unknown;
+  allowWrite: boolean;
   references: unknown;
   channelId: number;
   model: string;
@@ -133,6 +135,7 @@ export class ContentAgentScheduleService {
       libraryIds: idList(row.libraryIds, LIBRARY_REFS_MAX),
       connectorIds: connectorIdList(row.connectorIds, CONNECTOR_REFS_MAX),
       mailboxIds: idList(row.mailboxIds, MAILBOX_REFS_MAX),
+      allowWrite: row.allowWrite === true,
       references: parseReferences(row.references),
       channelId: row.channelId,
       model: row.model,
@@ -331,6 +334,19 @@ export class ContentAgentScheduleService {
     return Number.isInteger(value) && value > 0 ? value : 0;
   }
 
+  /**
+   * 放开无人值守写动作等于「让机器半夜替我改数据」，要二次验本站登录密码：
+   * 会话令牌被盗时，攻击者也不能顺手把某个任务的写动作打开。
+   */
+  private async assertWritePassword(user: CurrentUser, raw: unknown) {
+    await assertSensitivePassword(
+      this.prisma,
+      user.userId,
+      raw,
+      '允许自动执行写动作',
+    );
+  }
+
   async save(user: CurrentUser, body: Record<string, unknown>) {
     const title = text(body.title).trim().slice(0, TITLE_MAX);
     if (!title) {
@@ -358,6 +374,9 @@ export class ContentAgentScheduleService {
     const connectorIds = connectorIdList(body.connectorIds, CONNECTOR_REFS_MAX);
     const mailboxIds = idList(body.mailboxIds, MAILBOX_REFS_MAX);
     await this.validateRefs(user, connectorIds, mailboxIds);
+    // 新建时默认不放开写动作；要放开得验密
+    const allowWrite = body.allowWrite === true;
+    if (allowWrite) await this.assertWritePassword(user, body.password);
     const row = await this.prisma.contentAgentSchedule.create({
       data: {
         userId: user.userId,
@@ -371,6 +390,7 @@ export class ContentAgentScheduleService {
         libraryIds: idList(body.libraryIds, LIBRARY_REFS_MAX),
         connectorIds,
         mailboxIds,
+        allowWrite,
         references: parseReferences(body.references),
         channelId: this.channelIdOf(body.channelId),
         model: text(body.model).trim().slice(0, 128),
@@ -383,7 +403,7 @@ export class ContentAgentScheduleService {
     await this.identity.audit(
       user.userId,
       'Agent定时任务新建',
-      `#${row.id} ${row.title}`,
+      `#${row.id} ${row.title}${row.allowWrite ? '（允许自动写动作）' : ''}`,
     );
     return this.shape(row, expert?.name || '', persona?.name || '');
   }
@@ -476,6 +496,14 @@ export class ContentAgentScheduleService {
     if (body.model !== undefined) {
       data.model = text(body.model).trim().slice(0, 128);
     }
+    if (body.allowWrite !== undefined) {
+      const allowWrite = body.allowWrite === true;
+      // 开关只在「从禁到开」时要验密；关掉永远不需要代价，鼓励随时收回来
+      if (allowWrite && existing.allowWrite !== true) {
+        await this.assertWritePassword(user, body.password);
+      }
+      data.allowWrite = allowWrite;
+    }
     if (body.status !== undefined) {
       const status =
         text(body.status).trim() === 'paused' ? 'paused' : 'enabled';
@@ -500,6 +528,15 @@ export class ContentAgentScheduleService {
       where: { id: existing.id },
       data: data as never,
     });
+    await this.identity.audit(
+      user.userId,
+      'Agent定时任务修改',
+      `#${row.id} ${row.title}${
+        data.allowWrite !== undefined
+          ? `（自动写动作：${row.allowWrite ? '开' : '关'}）`
+          : ''
+      }${data.status === 'paused' ? '（已暂停）' : ''}`,
+    );
     const expertId = Number(data.expertId ?? existing.expertId);
     const personaId = Number(data.personaId ?? existing.personaId);
     const names = await this.expertNames([expertId]);
@@ -519,6 +556,11 @@ export class ContentAgentScheduleService {
       }),
       this.prisma.contentAgentSchedule.delete({ where: { id: existing.id } }),
     ]);
+    await this.identity.audit(
+      user.userId,
+      'Agent定时任务删除',
+      `#${existing.id} ${existing.title}`,
+    );
     return { removed: true };
   }
 
@@ -576,6 +618,8 @@ export class ContentAgentScheduleService {
             CONNECTOR_REFS_MAX,
           ),
           mailboxIds: idList(schedule.mailboxIds, MAILBOX_REFS_MAX),
+          // 写动作默认不放开：只有任务自带上 allowWrite=true 才让无人值守这一轮真执行修改
+          allowWrite: schedule.allowWrite === true,
           references: schedule.references,
         },
       );

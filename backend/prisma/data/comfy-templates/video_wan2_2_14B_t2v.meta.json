@@ -1,0 +1,25 @@
+{
+  "name": "video_wan2_2_14B_t2v",
+  "title": "Wan 2.2 14B Text to Video",
+  "summary": "Generate high-quality videos from text prompts with cinematic aesthetic control and dynamic motion generation using Wan 2.2.",
+  "description": "Generate high-quality videos from text prompts with cinematic aesthetic control and dynamic motion generation using Wan 2.2.",
+  "category": "video",
+  "groupLabel": "文生视频",
+  "tags": [
+    "Text to Video",
+    "Video",
+    "Wan2.2",
+    "Wan"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_wan2_2_14B_t2v",
+  "author": "ComfyUI",
+  "usage": 299,
+  "nodes": 0,
+  "sourceFile": "video_wan2_2_14B_t2v.json"
+}

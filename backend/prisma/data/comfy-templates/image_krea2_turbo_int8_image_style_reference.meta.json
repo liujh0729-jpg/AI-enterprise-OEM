@@ -1,0 +1,25 @@
+{
+  "name": "image_krea2_turbo_int8_image_style_reference",
+  "title": "Krea-2 Int8: Image Style Reference",
+  "summary": "Generate images with the Krea-2 Turbo model while referencing the style of 1–2 uploaded images, using the high-performance Int8 Convrot format for faster, higher-quality inference. This workflow accepts up to two reference image inputs and produces a single stylized output, with optional LoRA support for further creative control. Ideal for matching a specific artistic style in concept art, producing consistent brand visuals, and exploring rapid style transfer for iterative design.",
+  "description": "Generate images with the Krea-2 Turbo model while referencing the style of 1–2 uploaded images, using the high-performance Int8 Convrot format for faster, higher-quality inference. This workflow accepts up to two reference image inputs and produces a single stylized output, with optional LoRA support for further creative control. Ideal for matching a specific artistic style in concept art, producing consistent brand visuals, and exploring rapid style transfer for iterative design.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Style Reference",
+    "Image",
+    "Int8",
+    "Krea 2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/thumbnail/image_krea2_turbo_int8_image_style_reference.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_krea2_turbo_int8_image_style_reference",
+  "author": "ComfyUI",
+  "usage": 406,
+  "nodes": 0,
+  "sourceFile": "image_krea2_turbo_int8_image_style_reference.json"
+}

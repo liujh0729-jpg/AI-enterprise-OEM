@@ -6,6 +6,7 @@ import { EmptyState, PageHero, Panel } from "@/components/ui/panel";
 import { ADMIN_PATH_PREFIX, ADMIN_SECTIONS } from "@/config/routes";
 import { useSession } from "@/lib/session";
 import { CapabilityTab } from "../_components/capability-tab";
+import { CommunityAdminTab } from "../_components/community-admin-tab";
 import { ContractsTab } from "../_components/contracts-tab";
 import { FlexPayrollSwitch } from "../_components/flex-payroll-switch";
 import { GeoSettingsTab } from "../_components/geo-settings-tab";
@@ -74,6 +75,7 @@ export default function AdminSectionPage() {
       {section === "tax-admin" ? <TaxAdminTab /> : null}
       {section === "geo" ? <GeoSettingsTab /> : null}
       {section === "marketing-livecode" ? <LivecodeAdminTab /> : null}
+      {section === "community" ? <CommunityAdminTab /> : null}
       {section === "points" ? <PointsTab /> : null}
       {section === "settings" ? <SettingsTab /> : null}
       {section === "provider-display" ? <ProvidersDisplayTab /> : null}

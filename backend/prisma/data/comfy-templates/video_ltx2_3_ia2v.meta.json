@@ -1,0 +1,25 @@
+{
+  "name": "video_ltx2_3_ia2v",
+  "title": "LTX-2.3: Image Audio to Video",
+  "summary": "Upload an image and an audio file to generate a high-quality video with synchronized lip movements using LTX-2.3.",
+  "description": "Upload an image and an audio file to generate a high-quality video with synchronized lip movements using LTX-2.3.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Image to Video",
+    "Lip Sync",
+    "Video",
+    "LTX-2.3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/video_ltx2_3_ia2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_ltx2_3_ia2v",
+  "author": "ComfyUI",
+  "usage": 1197,
+  "nodes": 0,
+  "sourceFile": "video_ltx2_3_ia2v.json"
+}

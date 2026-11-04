@@ -1,0 +1,24 @@
+{
+  "name": "video_minimax_h3_multiframe_reference",
+  "title": "MiniMax H3: Multiframe Reference",
+  "summary": "Generate video from multiple still images with MiniMax H3, anchoring up to four reference frames anywhere along the timeline to control motion and composition. Ideal for creating video continuations from existing clips, forcing narrative beats at specific moments, and producing footage with synchronized native audio for cinematic or social media content.",
+  "description": "Generate video from multiple still images with MiniMax H3, anchoring up to four reference frames anywhere along the timeline to control motion and composition. Ideal for creating video continuations from existing clips, forcing narrative beats at specific moments, and producing footage with synchronized native audio for cinematic or social media content.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "Reference to Video",
+    "Int8",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_minimax_h3_multiframe_reference",
+  "author": "ComfyUI",
+  "usage": 359,
+  "nodes": 0,
+  "sourceFile": "video_minimax_h3_multiframe_reference.json"
+}

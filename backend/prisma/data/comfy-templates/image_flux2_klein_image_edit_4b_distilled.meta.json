@@ -1,0 +1,25 @@
+{
+  "name": "image_flux2_klein_image_edit_4b_distilled",
+  "title": "FLUX.2 [Klein] 4B Distilled: Image Edit",
+  "summary": "The fastest variant in the Klein family. Built for interactive applications, real-time previews, and latency-critical production use cases.",
+  "description": "The fastest variant in the Klein family. Built for interactive applications, real-time previews, and latency-critical production use cases.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "Image",
+    "Image Edit",
+    "FLUX",
+    "FLUX.2 Klein"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 4 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/thumbnail/image_flux2_klein_image_edit_4b_distilled.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_flux2_klein_image_edit_4b_distilled",
+  "author": "ComfyUI",
+  "usage": 263,
+  "nodes": 0,
+  "sourceFile": "image_flux2_klein_image_edit_4b_distilled.json"
+}

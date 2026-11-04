@@ -1,0 +1,25 @@
+{
+  "name": "flux_fill_inpaint_example",
+  "title": "Flux.1 Inpaint",
+  "summary": "Fill missing parts of images using Flux.1 Fill Inpainting.",
+  "description": "Fill missing parts of images using Flux.1 Fill Inpainting.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image",
+    "Inpainting",
+    "FLUX",
+    "FLUX.1"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/flux_fill_inpaint_example_input_image.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=flux_fill_inpaint_example",
+  "author": "ComfyUI",
+  "usage": 550,
+  "nodes": 0,
+  "sourceFile": "flux_fill_inpaint_example.json"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "video_wan2_2_14B_flf2v",
+  "title": "Wan 2.2 14B First-Last Frame to Video",
+  "summary": "Generate smooth video transitions by defining start and end frames.",
+  "description": "Generate smooth video transitions by defining start and end frames.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "FLF2V",
+    "Video",
+    "Wan2.2",
+    "Wan"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「CLIPLoader」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=video_wan2_2_14B_flf2v",
+  "author": "ComfyUI",
+  "usage": 340,
+  "nodes": 0,
+  "sourceFile": "video_wan2_2_14B_flf2v.json"
+}

@@ -1,0 +1,24 @@
+{
+  "name": "api_google_gemini_omni_flash_1_1_edit",
+  "title": "Gemini Omni 1.1 Flash: Video Edit",
+  "summary": "Edit videos through natural language conversation with Gemini Omni 1.1 Flash. Upload a clip (10 seconds or less) and describe the change: swap backgrounds, restyle scenes, add or remove elements, and the model applies the edit while preserving everything you did not mention. Add \\\"Keep everything else the same\\\" for maximum consistency; simple prompts work best. Outputs video with native audio at 16:9 or 9:16, with 1080p/4K output available. Ideal for remixes, style changes, and iterative refine",
+  "description": "Edit videos through natural language conversation with Gemini Omni 1.1 Flash. Upload a clip (10 seconds or less) and describe the change: swap backgrounds, restyle scenes, add or remove elements, and the model applies the edit while preserving everything you did not mention. Add \\\"Keep everything else the same\\\" for maximum consistency; simple prompts work best. Outputs video with native audio at 16:9 or 9:16, with 1080p/4K output available. Ideal for remixes, style changes, and iterative refinement without re-generating from scratch.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "API",
+    "Video Edit",
+    "Gemini Omni 1.1 Flash"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「GeminiVideoOmniV2」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/hooded_wanderer_planet_bridge.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_google_gemini_omni_flash_1_1_edit",
+  "author": "ComfyUI",
+  "usage": 247,
+  "nodes": 0,
+  "sourceFile": "api_google_gemini_omni_flash_1_1_edit.json"
+}

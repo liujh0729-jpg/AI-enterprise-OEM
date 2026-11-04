@@ -1,0 +1,24 @@
+{
+  "name": "image_moss_image_t2i_bboxes",
+  "title": "MOSS-Image: Layout-Guided Text to Image",
+  "summary": "Generate an image from a text prompt plus a layout drawn in Create Bounding Boxes. Each box carries its own caption, and text boxes also render their text, so MOSS-Image places every element where you put it. Useful for posters, packaging shots, and any composition where placement matters.",
+  "description": "Generate an image from a text prompt plus a layout drawn in Create Bounding Boxes. Each box carries its own caption, and text boxes also render their text, so MOSS-Image places every element where you put it. Useful for posters, packaging shots, and any composition where placement matters.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "Layout",
+    "Text to Image",
+    "MOSS-Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_moss_image_t2i_bboxes",
+  "author": "ComfyUI",
+  "usage": 498,
+  "nodes": 0,
+  "sourceFile": "image_moss_image_t2i_bboxes.json"
+}

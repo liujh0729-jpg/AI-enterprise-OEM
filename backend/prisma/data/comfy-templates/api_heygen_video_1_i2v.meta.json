@@ -1,0 +1,24 @@
+{
+  "name": "api_heygen_video_1_i2v",
+  "title": "HeyGen Video 1.0: Image to Video",
+  "summary": "Generate a 5-15 second clip with synchronized dialogue and sound from a single image using HeyGen Video 1.0, which starts on that exact frame and keeps the image's aspect ratio, at 480p or 768p. The prompt drives both the action and the spoken line, and one video is output. Ideal for giving a portrait or product photo a voice, producing talking-head clips without a shoot, and bringing stills to life.",
+  "description": "Generate a 5-15 second clip with synchronized dialogue and sound from a single image using HeyGen Video 1.0, which starts on that exact frame and keeps the image's aspect ratio, at 480p or 768p. The prompt drives both the action and the spoken line, and one video is output. Ideal for giving a portrait or product photo a voice, producing talking-head clips without a shoot, and bringing stills to life.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "API",
+    "Image to Video",
+    "HeyGen"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_heygen_video_1_i2v",
+  "author": "ComfyUI",
+  "usage": 618,
+  "nodes": 0,
+  "sourceFile": "api_heygen_video_1_i2v.json"
+}

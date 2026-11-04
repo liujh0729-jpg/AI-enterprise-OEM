@@ -1,0 +1,24 @@
+{
+  "name": "templates_hellorob_facegen_skindetail_upscale",
+  "title": "Skin Enhancer + Upscaler",
+  "summary": "One click workflow to generate a character portrait, refine/add skin details, and upscale to 4k. All done in less than 60 seconds.",
+  "description": "One click workflow to generate a character portrait, refine/add skin details, and upscale to 4k. All done in less than 60 seconds.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "Image Upscale",
+    "Z-Image-Turbo",
+    "SDXL"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 3 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/templates_hellorob_facegen_skindetail_upscale-1.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=templates_hellorob_facegen_skindetail_upscale",
+  "author": "hellorob",
+  "usage": 289,
+  "nodes": 0,
+  "sourceFile": "templates_hellorob_facegen_skindetail_upscale.json"
+}

@@ -112,6 +112,13 @@ import { ImCrypto } from '../im/im.crypto';
 import { ImController } from '../im/im.controller';
 import { ImService } from '../im/im.service';
 import { QuestionHallService } from '../question-hall/question-hall.service';
+import { ComfyClient } from '../community/comfy.client';
+import { ComfyCrypto } from '../community/comfy-crypto';
+import { CommunityAwardService } from '../community/community-award.service';
+import { CommunityService } from '../community/community.service';
+import { CommunityController } from '../community/community.controller';
+import { CommunityImportService } from '../community/community-import.service';
+import { CommunityRunScheduler } from '../community/community-run.scheduler';
 import { ContentAgentExpertService } from '../content/agent-experts.service';
 import {
   ContentAgentConnectorService,
@@ -565,9 +572,13 @@ export function createServices() {
   const contentAgentMemoryService = new ContentAgentMemoryService(
     prismaService,
   );
-  const contentAgentSkillService = new ContentAgentSkillService(prismaService);
+  const contentAgentSkillService = new ContentAgentSkillService(
+    prismaService,
+    identityService,
+  );
   const contentAgentPluginService = new ContentAgentPluginService(
     prismaService,
+    identityService,
   );
   const skillHubService = new SkillHubService(
     new SkillHubClient(),
@@ -589,6 +600,7 @@ export function createServices() {
   const contentAgentConnectorService = new ContentAgentConnectorService(
     prismaService,
     new AgentMcpCrypto(),
+    identityService,
     builtinMcp,
   );
   const contentDigitalAssetService = new DigitalAssetService(
@@ -978,6 +990,42 @@ export function createServices() {
   biQueryService.pointsChargeSafely = chargeSafely;
   oaService.pointsChargeSafely = chargeSafely;
   serviceDeskService.pointsChargeSafely = chargeSafely;
+  // 创意社区（Comfy Cloud 工作流市场·纯 BYOK）：Key 独立加密域、上游唯一出口、
+  // 发布校验与审核发奖都在 community 域内；运行产物由调度器转存进本站 OSS 并入数字资产。
+  const comfyCrypto = new ComfyCrypto();
+  const comfyClient = new ComfyClient();
+  const communityAwardService = new CommunityAwardService(
+    prismaService,
+    pointsService,
+    pointsSettingsService,
+    identityService,
+  );
+  const communityService = new CommunityService(
+    prismaService,
+    identityService,
+    userLookupService,
+    ossService,
+    comfyClient,
+    comfyCrypto,
+    communityAwardService,
+  );
+  const communityController = new CommunityController(
+    communityService,
+    communityAwardService,
+    new CommunityImportService(
+      prismaService,
+      identityService,
+      userLookupService,
+      ossService,
+      comfyClient,
+    ),
+  );
+  const communityRunScheduler = new CommunityRunScheduler(
+    prismaService,
+    comfyClient,
+    communityService,
+    contentDigitalAssetService,
+  );
   return {
     prisma: prismaService,
     // M6 供求广场：社交板复用企业板块同一上游通道（DemandService + AiworkinClient）。
@@ -1006,6 +1054,12 @@ export function createServices() {
     qxySettings: qxySettingsService,
     capability: capabilityService,
     digitalAsset: contentDigitalAssetService,
+    // 创意社区：service 给路由与调度器取 Key，scheduler 由 main.ts 启停。
+    community: {
+      service: communityService,
+      awards: communityAwardService,
+      scheduler: communityRunScheduler,
+    },
     builtinMcp,
     // 积分与计费域（供 app.ts 组装 PointsModule、account/billing 钩子、main.ts 调度器使用）。
     points: {
@@ -1075,6 +1129,7 @@ export function createServices() {
       questionHallController,
       imController,
       skillHubController,
+      communityController,
     },
   };
 }

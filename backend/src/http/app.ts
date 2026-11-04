@@ -67,6 +67,8 @@ export function requestBodyLimit(path: string) {
     return 16 * 1024 * 1024;
   // 内容创作的素材上传走 AIPDD 数字资产云中转，图片/视频单件上限 100MB
   if (canonical === '/enterprise/content/uploads') return 100 * 1024 * 1024;
+  // 创意社区运行表单的输入图：Comfy Cloud 对 >50MiB 的图片输入直接拒收，取到 50MB 即可
+  if (canonical === '/enterprise/community/uploads') return 50 * 1024 * 1024;
   return 12 * 1024 * 1024;
 }
 /**

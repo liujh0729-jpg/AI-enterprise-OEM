@@ -59,6 +59,15 @@ export class OssService {
     return ossPublicUrl(ossObjectKey(path, config), config);
   }
 
+  /**
+   * 完整对象键 → 公开访问 URL。
+   * 库里存的是 `upload()` 返回的 key（已经带目录前缀）时必须用这个：
+   * `urlOf` 会再拼一次 dir，用它换出来的 URL 会多一层前缀而 404。
+   */
+  keyUrlOf(key: string) {
+    return ossPublicUrl(String(key || '').replace(/^\/+/, ''), this.current());
+  }
+
   private credentials(config: OssRuntimeConfig) {
     const { accessKeyId, accessKeySecret, securityToken } = config;
     if (!accessKeyId || !accessKeySecret) {

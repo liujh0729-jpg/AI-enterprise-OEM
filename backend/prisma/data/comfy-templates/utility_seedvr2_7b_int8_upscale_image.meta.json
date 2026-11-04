@@ -1,0 +1,24 @@
+{
+  "name": "utility_seedvr2_7b_int8_upscale_image",
+  "title": "Image Upscale: SeedVR2 7B Int8",
+  "summary": "Upscale images using SeedVR2 7B Int8, a one-step diffusion model that enhances resolution through adversarial training and adaptive window attention. Input 1 image and receive 1 upscaled output with improved detail and clarity. Ideal for restoring low-resolution photos, preparing assets for print, or sharpening lightly degraded digital images.",
+  "description": "Upscale images using SeedVR2 7B Int8, a one-step diffusion model that enhances resolution through adversarial training and adaptive window attention. Input 1 image and receive 1 upscaled output with improved detail and clarity. Ideal for restoring low-resolution photos, preparing assets for print, or sharpening lightly degraded digital images.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "Image Upscale",
+    "Int8",
+    "SeedVR2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/indoor_portrait.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=utility_seedvr2_7b_int8_upscale_image",
+  "author": "ComfyUI",
+  "usage": 588,
+  "nodes": 0,
+  "sourceFile": "utility_seedvr2_7b_int8_upscale_image.json"
+}

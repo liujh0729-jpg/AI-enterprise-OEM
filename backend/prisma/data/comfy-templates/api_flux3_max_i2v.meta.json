@@ -1,0 +1,24 @@
+{
+  "name": "api_flux3_max_i2v",
+  "title": "FLUX 3 Max: Image to Video",
+  "summary": "Animate a single still image into a short video clip using FLUX 3 Max, taking one input image and producing one video output. Ideal for bringing product shots, portraits, and concept art to life, generating social media motion content, and rapid prototyping of animated scenes.",
+  "description": "Animate a single still image into a short video clip using FLUX 3 Max, taking one input image and producing one video output. Ideal for bringing product shots, portraits, and concept art to life, generating social media motion content, and rapid prototyping of animated scenes.",
+  "category": "video",
+  "groupLabel": "图生视频",
+  "tags": [
+    "Image to Video",
+    "API",
+    "FLUX 3 Video"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_flux3_max_i2v",
+  "author": "ComfyUI",
+  "usage": 525,
+  "nodes": 0,
+  "sourceFile": "api_flux3_max_i2v.json"
+}

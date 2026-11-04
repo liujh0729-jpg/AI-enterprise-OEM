@@ -39,6 +39,11 @@ export const MCP_FORBIDDEN_ACTIONS: Record<string, string> = {
   Im_publishApproval: "IM 审批发布只允许在站内完成",
   Im_taskPublish: "IM 任务推送只允许在站内完成",
   Im_saveBinding: "IM 同步对象写操作只允许在站内完成",
+  // 创意社区：Key 只能人亲自在界面里粘贴（与上游签发口径一致，一条 MCP 指令不该能换掉账户凭据）；
+  // 跑一次工作流花的是用户自己 Comfy Cloud 订阅的积分，不归无人值守自动执行。
+  Community_saveCredential: "Comfy Cloud API Key 只能由本人在界面上填写",
+  Community_clearCredential: "Comfy Cloud 凭据解除只能由本人在界面上操作",
+  Community_run: "运行会消耗本人 Comfy Cloud 订阅积分，需要本人确认",
   Contracts_create: "签约发起需要本人确认",
   Contracts_confirm: "签约成立需要本人确认",
   Contracts_terminate: "签约解除需要本人确认",

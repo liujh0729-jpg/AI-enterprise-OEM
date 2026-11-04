@@ -32,6 +32,7 @@ import { oaEndpoints } from "./oa";
 import { questionHallEndpoints } from "./question-hall";
 import { imEndpoints } from "./im";
 import { skillHubEndpoints } from "./skillhub";
+import { communityEndpoints, communityAdminEndpoints } from "./community";
 const jsonValueSchema = z.union([
   z.null(),
   z.string(),
@@ -15482,7 +15483,9 @@ type ModuleEndpoints = typeof adminPageEndpoints &
   typeof oaEndpoints &
   typeof questionHallEndpoints &
   typeof imEndpoints &
-  typeof skillHubEndpoints;
+  typeof skillHubEndpoints &
+  typeof communityEndpoints &
+  typeof communityAdminEndpoints;
 export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...adminPageEndpoints,
   ...automationEndpoints,
@@ -15501,6 +15504,8 @@ export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...questionHallEndpoints,
   ...imEndpoints,
   ...skillHubEndpoints,
+  ...communityEndpoints,
+  ...communityAdminEndpoints,
   ...localEndpoints,
 };
 export type EndpointId = keyof typeof endpoints;

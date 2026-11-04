@@ -1,0 +1,25 @@
+{
+  "name": "image_flux2_text_to_image",
+  "title": "FLUX.2 Dev Text to Image",
+  "summary": "Text-to-image with enhanced lighting, materials, and realistic details.",
+  "description": "Text-to-image with enhanced lighting, materials, and realistic details.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image",
+    "Text to Image",
+    "FLUX",
+    "FLUX.2 Dev"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/image_flux2_text_to_image.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_flux2_text_to_image",
+  "author": "ComfyUI",
+  "usage": 424,
+  "nodes": 0,
+  "sourceFile": "image_flux2_text_to_image.json"
+}

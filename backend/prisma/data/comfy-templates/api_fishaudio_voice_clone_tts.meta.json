@@ -1,0 +1,25 @@
+{
+  "name": "api_fishaudio_voice_clone_tts",
+  "title": "Fish Audio: Voice Clone to Speech",
+  "summary": "Clone any voice from a short recording, then use it to speak any script with Fish Audio. Record 2-3 clips of 15-20 seconds, connect them to the Instant Voice Clone node, and the cloned voice feeds straight into text to speech with no training wait. Add emotion tags to control how your cloned voice delivers each line. Great for personalized narration, character voices, and content in your own voice.",
+  "description": "Clone any voice from a short recording, then use it to speak any script with Fish Audio. Record 2-3 clips of 15-20 seconds, connect them to the Instant Voice Clone node, and the cloned voice feeds straight into text to speech with no training wait. Add emotion tags to control how your cloned voice delivers each line. Great for personalized narration, character voices, and content in your own voice.",
+  "category": "audio",
+  "groupLabel": "音频生成",
+  "tags": [
+    "API",
+    "TTS",
+    "Voice Cloning",
+    "Fish Audio"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「FishAudioTextToSpeech」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_fishaudio_voice_clone_tts",
+  "author": "ComfyUI",
+  "usage": 299,
+  "nodes": 0,
+  "sourceFile": "api_fishaudio_voice_clone_tts.json"
+}

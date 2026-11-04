@@ -4,6 +4,7 @@ import { SaveOutlined } from "@ant-design/icons";
 import { App, Button, Checkbox, Collapse, Input, Skeleton, Tag } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Notice, Panel } from "@/components/ui/panel";
+import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { memoryApi, type AgentGrantItem, type AgentGrants } from "./common";
 
 type DomainGroup = {
@@ -22,9 +23,11 @@ function sameSet(left: string[], right: string[]) {
 /**
  * 授权闸：外部 MCP 客户端与 Agent 代用户执行写动作时，只执行这里勾选过的接口；
  * 未勾选与永久排除的只返回草案。整份覆盖保存（取消勾选＝收回授权），不自作主张自动提交。
+ * 新增授权等于把「不必问我」的范围扩大，因此要验登录密码；收回授权随时可行，不设门槛。
  */
 export function AgentGrantsPanel() {
   const { message } = App.useApp();
+  const { request: confirmPassword, modal: passwordModal } = usePasswordConfirm();
   const [data, setData] = useState<AgentGrants | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [saved, setSaved] = useState<string[]>([]);
@@ -85,6 +88,11 @@ export function AgentGrantsPanel() {
 
   const dirty = !sameSet(selected, saved);
   const grantableCount = data ? data.total - data.forbiddenCount : 0;
+  // 本次相比已保存的勾选多放开多少个动作：只有净新增才要验密
+  const addedCount = useMemo(
+    () => selected.filter((action) => !saved.includes(action)).length,
+    [saved, selected],
+  );
 
   const toggle = (item: AgentGrantItem, checked: boolean) => {
     if (item.forbidden) return;
@@ -95,10 +103,10 @@ export function AgentGrantsPanel() {
     );
   };
 
-  const save = async () => {
+  const persist = async (password?: string) => {
     setSaving(true);
     try {
-      const result = await memoryApi.saveGrants(selected);
+      const result = await memoryApi.saveGrants(selected, password);
       message.success(
         `已保存：新增授权 ${result.granted} 个、收回 ${result.revoked} 个`,
       );
@@ -108,6 +116,19 @@ export function AgentGrantsPanel() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const save = () => {
+    if (!addedCount) {
+      void persist();
+      return;
+    }
+    confirmPassword({
+      title: "新增自动执行授权",
+      content: `本次要新放开 ${addedCount} 个写动作：保存后 Agent 与 MCP 客户端执行它们不再逐次确认。要放开就输入本站登录密码；取消授权不需要密码。`,
+      okText: "验证并保存",
+      onOk: (password) => persist(password),
+    });
   };
 
   return (
@@ -124,7 +145,7 @@ export function AgentGrantsPanel() {
           icon={<SaveOutlined aria-hidden />}
           loading={saving}
           disabled={!dirty}
-          onClick={() => void save()}
+          onClick={save}
         >
           保存设置
         </Button>
@@ -139,6 +160,11 @@ export function AgentGrantsPanel() {
             <span className="text-12 muted">
               已授权 {selected.length} 个 / 可授权 {grantableCount} 个 · 永久排除{" "}
               {data.forbiddenCount} 个
+              {addedCount ? (
+                <Tag color="warning" style={{ marginLeft: 8 }}>
+                  本次新增 {addedCount} 个，保存要验密码
+                </Tag>
+              ) : null}
             </span>
             <span style={{ flex: 1 }} />
             <Input
@@ -200,6 +226,7 @@ export function AgentGrantsPanel() {
           )}
         </div>
       ) : null}
+      {passwordModal}
     </Panel>
   );
 }

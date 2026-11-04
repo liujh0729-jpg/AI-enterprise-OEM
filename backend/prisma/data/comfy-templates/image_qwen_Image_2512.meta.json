@@ -1,0 +1,25 @@
+{
+  "name": "image_qwen_Image_2512",
+  "title": "Qwen Image 2512",
+  "summary": "Text-to-image model with enhanced human realism, finer natural details for landscapes and animal fur, and improved text rendering with accurate layout and multimodal composition.",
+  "description": "Text-to-image model with enhanced human realism, finer natural details for landscapes and animal fur, and improved text rendering with accurate layout and multimodal composition.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image",
+    "Text to Image",
+    "Qwen",
+    "Qwen-Image"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/image_qwen_Image_2512.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_qwen_Image_2512",
+  "author": "ComfyUI",
+  "usage": 223,
+  "nodes": 0,
+  "sourceFile": "image_qwen_Image_2512.json"
+}

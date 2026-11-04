@@ -1,4 +1,5 @@
 import {
+  ContentAgentPluginService,
   expandPluginCommandBody,
   matchPluginCommand,
   parsePluginCommands,
@@ -90,6 +91,36 @@ describe('expandPluginCommandBody', () => {
   it('不传参数时正文原样返回', () => {
     expect(expandPluginCommandBody('# 步骤\n1. 做', '  ')).toBe(
       '# 步骤\n1. 做',
+    );
+  });
+});
+
+describe('ContentAgentPluginService.promptSummaries', () => {
+  const rows = [
+    {
+      name: '演示插件',
+      description: '带命令的插件',
+      files: [
+        {
+          path: 'commands/build.md',
+          content: '---\ndescription: 按需求出方案\n---\n# build\n正文',
+        },
+        { path: 'commands/review.md', content: '# review\n正文' },
+      ],
+    },
+  ];
+  const findMany = jest.fn().mockResolvedValue(rows);
+  const service = new ContentAgentPluginService(
+    { contentAgentPlugin: { findMany } } as never,
+    {} as never,
+  );
+
+  it('只拼名字、一句说明与命令名，并把条数收在查询上', async () => {
+    expect(await service.promptSummaries('u1')).toBe(
+      '- 演示插件：带命令的插件（插件命令：build、review）',
+    );
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 41 }),
     );
   });
 });

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaClient } from '../generated/prisma';
 import { seedSupplyNetwork } from './seed-supply';
+import { seedCreativeCommunity } from './seed-creative-community';
 
 const prisma = new PrismaClient();
 const seedUsers = JSON.parse(
@@ -792,6 +793,8 @@ async function main() {
   });
 
   await seedSupplyNetwork(prisma);
+  // 创意社区官方模板：按 code 幂等 upsert，重跑不产生重复行、不抹掉热度
+  await seedCreativeCommunity(prisma);
 }
 
 main()

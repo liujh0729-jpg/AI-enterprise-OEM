@@ -1,0 +1,24 @@
+{
+  "name": "api_seedance2_5_r2v",
+  "title": "Seedance 2.5: Reference to Video",
+  "summary": "Generate reference-driven videos with Seedance 2.5 by supplying up to 20 images, 6 video clips, and 6 audio clips to control character consistency, visual style, and motion rhythm in a single 4–30 second output with synchronized sound and lip-synced dialogue. Ideal for e-commerce product showcases, brand advertising, and character-driven short series.",
+  "description": "Generate reference-driven videos with Seedance 2.5 by supplying up to 20 images, 6 video clips, and 6 audio clips to control character consistency, visual style, and motion rhythm in a single 4–30 second output with synchronized sound and lip-synced dialogue. Ideal for e-commerce product showcases, brand advertising, and character-driven short series.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "API",
+    "Reference to Video",
+    "Seedance 2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_seedance2_5_r2v",
+  "author": "ComfyUI",
+  "usage": 2962,
+  "nodes": 0,
+  "sourceFile": "api_seedance2_5_r2v.json"
+}

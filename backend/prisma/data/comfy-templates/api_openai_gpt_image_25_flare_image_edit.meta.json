@@ -1,0 +1,24 @@
+{
+  "name": "api_openai_gpt_image_25_flare_image_edit",
+  "title": "GPT Image 2.5 Flare: Image Edit",
+  "summary": "Template for image rework & partial modification. Keep scene, pose, lighting and composition unchanged, only edit outfit, hairstyle or local details. Fast preview and iterative style adjustment powered by GPT-Image-2.5-Flare.",
+  "description": "Template for image rework & partial modification. Keep scene, pose, lighting and composition unchanged, only edit outfit, hairstyle or local details. Fast preview and iterative style adjustment powered by GPT-Image-2.5-Flare.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "API",
+    "Image Edit",
+    "GPT Image 2.5"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveImageAdvanced」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/thumbnail/api_openai_gpt_image_25_flare_image_edit.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_openai_gpt_image_25_flare_image_edit",
+  "author": "ComfyUI",
+  "usage": 780,
+  "nodes": 0,
+  "sourceFile": "api_openai_gpt_image_25_flare_image_edit.json"
+}

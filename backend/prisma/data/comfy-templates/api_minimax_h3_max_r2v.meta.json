@@ -1,0 +1,24 @@
+{
+  "name": "api_minimax_h3_max_r2v",
+  "title": "MiniMax H3 Max: Reference to Video",
+  "summary": "Generate video from an image reference using MiniMax H3 Max, which animates your still frame while preserving its composition, visual identity, and aspect ratio. The model generates faster than real time with strong prompt adherence and polished cinematic motion. Ideal for bringing character art to life, animating product shots, and creating video from concept images.",
+  "description": "Generate video from an image reference using MiniMax H3 Max, which animates your still frame while preserving its composition, visual identity, and aspect ratio. The model generates faster than real time with strong prompt adherence and polished cinematic motion. Ideal for bringing character art to life, animating product shots, and creating video from concept images.",
+  "category": "video",
+  "groupLabel": "Video",
+  "tags": [
+    "API",
+    "Reference to Video",
+    "MiniMax H3"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveVideo」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/api_minimax_h3_max_r2v.mp4",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_minimax_h3_max_r2v",
+  "author": "ComfyUI",
+  "usage": 347,
+  "nodes": 0,
+  "sourceFile": "api_minimax_h3_max_r2v.json"
+}

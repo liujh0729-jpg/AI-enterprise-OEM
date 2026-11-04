@@ -1,0 +1,24 @@
+{
+  "name": "image_krea2_turbo_t2i_int8",
+  "title": "Krea-2 Int8: Text to Image",
+  "summary": "Generate images with the Krea-2 Turbo distilled text-to-image model using the high-performance Int8 Convrot format, which delivers better quality than FP8 while generally running faster across most GPUs. This workflow accepts no file inputs and produces a single image output, with optional style LoRA support for creative customization. Ideal for rapid concept art iteration, batch asset generation for games or marketing, and exploring the speed-quality sweet spot of the Convrot Int8 quantization.",
+  "description": "Generate images with the Krea-2 Turbo distilled text-to-image model using the high-performance Int8 Convrot format, which delivers better quality than FP8 while generally running faster across most GPUs. This workflow accepts no file inputs and produces a single image output, with optional style LoRA support for creative customization. Ideal for rapid concept art iteration, batch asset generation for games or marketing, and exploring the speed-quality sweet spot of the Convrot Int8 quantization.",
+  "category": "image",
+  "groupLabel": "文生图",
+  "tags": [
+    "Text to Image",
+    "Int8",
+    "Krea 2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/output/image_krea2_turbo_t2i_int8.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_krea2_turbo_t2i_int8",
+  "author": "ComfyUI",
+  "usage": 511,
+  "nodes": 0,
+  "sourceFile": "image_krea2_turbo_t2i_int8.json"
+}

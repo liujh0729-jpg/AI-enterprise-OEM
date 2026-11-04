@@ -2,8 +2,19 @@ import { MCP_ENDPOINT_PATH } from '@enterprise/contracts';
 import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { RateWindow } from '../common/rate-window';
+import {
+  fenceExternal,
+  stripInvisible,
+  toSingleLine,
+} from '../common/text-safety';
 import { CurrentUser } from '../auth/current-user';
+import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  assertOutboundUrl,
+  assertOutboundUrlSync,
+} from '../http/outbound-guard';
 import { AgentMcpCrypto } from './agent-mcp-crypto';
 import {
   McpClient,
@@ -24,6 +35,11 @@ const TOOL_CACHE_MS = 5 * 60 * 1000;
 const MAX_CONNECTORS = 20;
 const MAX_TOOLS_PER_CONNECTOR = 40;
 const MAX_TOTAL_TOOLS = 46;
+/** 探测与测试连接会真实出站，按账号限流：防止连点把上游与本机拖住。 */
+const PROBE_MAX = 20;
+const PROBE_WINDOW_MS = 60_000;
+/** 单次工具调用回给模型的正文字数上限：远端整包回大文本时不能打爆上下文。 */
+const MAX_TOOL_RESULT_CHARS = 8000;
 
 const BUILTIN_NAME = '本站 MCP Server';
 
@@ -137,6 +153,10 @@ function parseHeaders(raw: unknown): Record<string, string> {
   return headers;
 }
 
+/**
+ * 服务地址：先过同步出站守卫（只认 https，开发环境允许回环 http；禁内网、链路本地与元数据地址、内网域名后缀）。
+ * 连接器地址是本站少数「由用户指定出站目标」的入口，不拦就等于把服务器当成内网跳板。
+ */
 function readUrl(raw: unknown) {
   const value = text(raw).trim();
   if (!value) {
@@ -151,28 +171,7 @@ function readUrl(raw: unknown) {
       `服务地址太长了（上限 ${URL_MAX} 字）`,
     );
   }
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new BusinessException(
-      ErrorCode.BAD_REQUEST,
-      '服务地址要写成完整网址，例如 https://example.com/mcp',
-    );
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new BusinessException(
-      ErrorCode.BAD_REQUEST,
-      '服务地址只支持 http:// 或 https://',
-    );
-  }
-  if (parsed.username || parsed.password) {
-    throw new BusinessException(
-      ErrorCode.BAD_REQUEST,
-      '请把账号密码填到请求头里，不要写进服务地址',
-    );
-  }
-  return parsed.toString();
+  return assertOutboundUrlSync(value, '服务地址').toString();
 }
 
 function readName(raw: unknown) {
@@ -200,12 +199,23 @@ export class ContentAgentConnectorService {
     number,
     { at: number; tools: McpRemoteTool[] }
   >();
+  private readonly probeLimiter = new RateWindow(PROBE_MAX, PROBE_WINDOW_MS);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: AgentMcpCrypto,
+    private readonly identity: IdentityService,
     readonly builtin: { current?: BuiltinMcpRunner },
   ) {}
+
+  /** 连接器名字带上来源主机，界面与审计都能看出它指向哪里。 */
+  private hostOf(url: string) {
+    try {
+      return new URL(url).host;
+    } catch {
+      return '';
+    }
+  }
 
   private builtinTools() {
     return mcpToolDescriptors().map((row) => row.name);
@@ -349,6 +359,11 @@ export class ContentAgentConnectorService {
     const reloaded = await this.prisma.contentAgentMcpConnector.findUnique({
       where: { id: fresh.id },
     });
+    await this.identity.audit(
+      user.userId,
+      'Agent新增MCP连接器',
+      `${name} → ${this.hostOf(fresh.url)}`,
+    );
     return this.shapeRow(reloaded ?? row);
   }
 
@@ -410,6 +425,11 @@ export class ContentAgentConnectorService {
     const after = await this.prisma.contentAgentMcpConnector.findUnique({
       where: { id: row.id },
     });
+    await this.identity.audit(
+      user.userId,
+      'Agent修改MCP连接器',
+      `${after?.name ?? row.name} → ${this.hostOf(after?.url ?? row.url)}`,
+    );
     return this.shapeRow(after ?? reloaded);
   }
 
@@ -421,6 +441,7 @@ export class ContentAgentConnectorService {
         '本站 MCP Server 是内置连接器，不能修改或删除',
       );
     }
+    const row = await this.ownedRow(user, connectorId);
     const removed = await this.prisma.contentAgentMcpConnector.deleteMany({
       where: { id: connectorId, userId: user.userId },
     });
@@ -431,6 +452,11 @@ export class ContentAgentConnectorService {
       );
     }
     this.cache.delete(connectorId);
+    await this.identity.audit(
+      user.userId,
+      'Agent删除MCP连接器',
+      `${row.name} → ${this.hostOf(row.url)}`,
+    );
     return { removed: true };
   }
 
@@ -454,6 +480,9 @@ export class ContentAgentConnectorService {
         '请填写连接器的服务地址',
       );
     }
+    // 测试连接是一次真实出站：按账号限流，并且同样要过带 DNS 的出站守卫
+    this.probeLimiter.consume(user.userId, '连接器测试过于频繁，请稍后再试');
+    await assertOutboundUrl(url, '服务地址');
     const usingStoredHeaders = body.headers === undefined && Boolean(row);
     const headers = usingStoredHeaders
       ? this.headersOf(row as ConnectorRow)
@@ -486,6 +515,33 @@ export class ContentAgentConnectorService {
     }
   }
 
+  /**
+   * 每次真实出站前再复核一次地址（带 DNS，全地址逐个判）：
+   * 既挡 DNS 重绑定（保存时解析到公网、调用时解析到内网），也让接入守卫前存下的内网地址自动失效。
+   * 不合规的连接器直接停用并在列表里写明原因，不再参与任何请求。
+   */
+  private async assertLiveUrl(row: { id: number; url: string }) {
+    try {
+      await assertOutboundUrl(row.url, '服务地址');
+    } catch (error) {
+      const message = text(
+        error instanceof Error ? error.message : '服务地址不合规',
+      ).slice(0, ERROR_TEXT_MAX);
+      await this.prisma.contentAgentMcpConnector
+        .updateMany({
+          where: { id: row.id },
+          data: {
+            enabled: false,
+            lastError: message,
+            lastCheckedAt: new Date(),
+          },
+        })
+        .catch(() => undefined);
+      this.cache.delete(row.id);
+      throw new BusinessException(ErrorCode.BAD_REQUEST, message);
+    }
+  }
+
   // ---------------------------------------------------------------- 探测与缓存
 
   private async persistProbe(
@@ -507,6 +563,7 @@ export class ContentAgentConnectorService {
   }
 
   private async probeRow(row: ConnectorRow) {
+    await this.assertLiveUrl(row);
     const client = new McpClient({
       transport: transportOf(row.transport),
       url: row.url,
@@ -542,7 +599,11 @@ export class ContentAgentConnectorService {
       connectorId: row.id,
       connectorName: row.name,
       remoteName: tool.name,
-      description: `[连接器 ${row.name}] ${tool.description || tool.name}`,
+      // 描述完全由远端控制：进工具清单前再洗一遍不可见字符并强制单行，不能把历史数据里的多行提示带进系统提示
+      description: `[连接器 ${row.name}] ${toSingleLine(
+        stripInvisible(tool.description || tool.name),
+        400,
+      )}`,
       inputSchema: tool.inputSchema,
     }));
   }
@@ -625,6 +686,12 @@ export class ContentAgentConnectorService {
     if (!spec) {
       return failText(`连接器「${row.name}」没有名为 ${match[2]} 的工具`);
     }
+    // 真正发起工具调用前再复核一次地址：连接器保存后 DNS 可能改指内网，这里是最后一道闸
+    try {
+      await this.assertLiveUrl(row);
+    } catch (error) {
+      return failText(`连接器「${row.name}」不可用：${this.messageOf(error)}`);
+    }
     const client = new McpClient({
       transport: transportOf(row.transport),
       url: row.url,
@@ -632,12 +699,23 @@ export class ContentAgentConnectorService {
     });
     try {
       const outcome = await client.callTool(spec.remoteName, args);
+      // 远端返回的正文完全由第三方控制：加围栏当数据块喂给模型，不让它反过来当指令执行
       return outcome.isError
         ? {
-            text: `工具执行失败：连接器「${row.name}」返回错误：${outcome.text}`,
+            text: `工具执行失败：连接器「${row.name}」返回错误：${toSingleLine(
+              outcome.text,
+              2000,
+            )}`,
             ok: false,
           }
-        : { text: `[${row.name}] ${outcome.text}`, ok: true };
+        : {
+            text: fenceExternal(
+              `connector-${row.name}`,
+              outcome.text,
+              MAX_TOOL_RESULT_CHARS,
+            ),
+            ok: true,
+          };
     } catch (error) {
       return failText(
         `连接器「${row.name}」调用失败：${this.messageOf(error)}`,
@@ -655,7 +733,7 @@ export class ContentAgentConnectorService {
     const runner = this.builtin.current;
     if (!runner) return failText('本站 MCP Server 暂时不可用');
     try {
-      // 定时任务的邮箱范围随上下文进 MCP：邮件工具按它挡越界调用，不靠模型自觉
+      // 定时任务的邮箱范围与「本轮能不能写」随上下文进 MCP：越界与无人值守写动作都由闸挡，不靠模型自觉
       const scope = currentAgentScope();
       const mailboxIds = scope?.mailboxIds;
       const result = await runAsAgent(
@@ -664,6 +742,7 @@ export class ContentAgentConnectorService {
           requestId: `agent-${user.userId}-${Date.now()}`,
           mailboxIds: mailboxIds?.length ? mailboxIds : undefined,
           trigger: scope?.trigger ?? 'chat',
+          allowWrite: scope?.allowWrite === true,
         },
         () =>
           runner(user, `agent-${user.userId}-${Date.now()}`, remoteName, args),

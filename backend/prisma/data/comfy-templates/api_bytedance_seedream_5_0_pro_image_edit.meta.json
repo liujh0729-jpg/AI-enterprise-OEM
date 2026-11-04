@@ -1,0 +1,24 @@
+{
+  "name": "api_bytedance_seedream_5_0_pro_image_edit",
+  "title": "Seedream 5.0 Pro: Image Edit",
+  "summary": "Edit images with precision using Seedream 5.0 Pro, targeting specific regions while preserving lighting, depth, and texture. The workflow takes 1 input image and produces 1 output image. Ideal for product photography edits, portrait consistency adjustments, and creating structured layouts with multilingual text.",
+  "description": "Edit images with precision using Seedream 5.0 Pro, targeting specific regions while preserving lighting, depth, and texture. The workflow takes 1 input image and produces 1 output image. Ideal for product photography edits, portrait consistency adjustments, and creating structured layouts with multilingual text.",
+  "category": "image",
+  "groupLabel": "图生图",
+  "tags": [
+    "API",
+    "Image Edit",
+    "Seedream 5.0 Pro"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「SaveImageAdvanced」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/interior_college.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_bytedance_seedream_5_0_pro_image_edit",
+  "author": "ComfyUI",
+  "usage": 2968,
+  "nodes": 0,
+  "sourceFile": "api_bytedance_seedream_5_0_pro_image_edit.json"
+}

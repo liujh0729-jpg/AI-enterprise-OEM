@@ -1,0 +1,24 @@
+{
+  "name": "utility_seedvr2_3b_int8_upscale_image",
+  "title": "Image Upscale: SeedVR2 3B Int8",
+  "summary": "Upscale images using SeedVR2 3B Int8, a one-step diffusion-based video restoration model that produces high-quality results with improved temporal consistency. Ideal for restoring degraded footage, upscaling low-resolution videos, and enhancing archival media.",
+  "description": "Upscale images using SeedVR2 3B Int8, a one-step diffusion-based video restoration model that produces high-quality results with improved temporal consistency. Ideal for restoring degraded footage, upscaling low-resolution videos, and enhancing archival media.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "Image Upscale",
+    "Int8",
+    "SeedVR2"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/watch_macro_shot.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=utility_seedvr2_3b_int8_upscale_image",
+  "author": "ComfyUI",
+  "usage": 238,
+  "nodes": 0,
+  "sourceFile": "utility_seedvr2_3b_int8_upscale_image.json"
+}

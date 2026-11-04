@@ -1,0 +1,24 @@
+{
+  "name": "api_magnific_image_upscale_creative",
+  "title": "Image Upscale: Magnific Creative",
+  "summary": "Upload an image and set the magnification level. Generate an upscaled version of your image with support for up to 16x enlargement.",
+  "description": "Upload an image and set the magnification level. Generate an upscaled version of your image with support for up to 16x enlargement.",
+  "category": "tools",
+  "groupLabel": "Image Tools",
+  "tags": [
+    "API",
+    "Image Upscale",
+    "Magnific"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "节点「MagnificImageUpscalerCreativeNode」的定义取不到（无 object_info 且不在核心节点表内）",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/input/1950_new_york.png",
+  "comfyUrl": "https://cloud.comfy.org/?template=api_magnific_image_upscale_creative",
+  "author": "ComfyUI",
+  "usage": 317,
+  "nodes": 0,
+  "sourceFile": "api_magnific_image_upscale_creative.json"
+}

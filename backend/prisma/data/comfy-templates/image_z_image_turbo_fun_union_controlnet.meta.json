@@ -1,0 +1,24 @@
+{
+  "name": "image_z_image_turbo_fun_union_controlnet",
+  "title": "Z-Image-Turbo Fun Union ControlNet",
+  "summary": "Multi-control ControlNet supporting Canny, HED, Depth, Pose, and MLSD for Z-Image-Turbo.",
+  "description": "Multi-control ControlNet supporting Canny, HED, Depth, Pose, and MLSD for Z-Image-Turbo.",
+  "category": "image",
+  "groupLabel": "Image",
+  "tags": [
+    "Image",
+    "ControlNet",
+    "Z-Image-Turbo"
+  ],
+  "mediaType": "image",
+  "format": "ui",
+  "convertReason": "含 1 个子图（subgraph），需要图内联",
+  "slots": [],
+  "coverFile": "",
+  "coverUrl": "",
+  "comfyUrl": "https://cloud.comfy.org/?template=image_z_image_turbo_fun_union_controlnet",
+  "author": "ComfyUI",
+  "usage": 342,
+  "nodes": 0,
+  "sourceFile": "image_z_image_turbo_fun_union_controlnet.json"
+}

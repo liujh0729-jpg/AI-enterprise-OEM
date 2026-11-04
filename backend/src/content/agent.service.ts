@@ -514,6 +514,15 @@ export class ContentAgentService {
     return this.skills.remove(user, id);
   }
 
+  /** 技能的历史版本（同名重传前的旧内容清单）与回滚 */
+  skillRevisions(user: CurrentUser, id: string) {
+    return this.skills.revisions(user, id);
+  }
+
+  restoreSkill(user: CurrentUser, id: string, body: Record<string, unknown>) {
+    return this.skills.restore(user, id, body);
+  }
+
   importSkill(user: CurrentUser, bytes: Uint8Array, originalName: string) {
     return this.skills.importZip(user, bytes, originalName);
   }
@@ -528,6 +537,15 @@ export class ContentAgentService {
 
   removePlugin(user: CurrentUser, id: string) {
     return this.plugins.remove(user, id);
+  }
+
+  /** 插件的历史版本（被覆盖安装前的旧内容清单）与回滚 */
+  pluginRevisions(user: CurrentUser, id: string) {
+    return this.plugins.revisions(user, id);
+  }
+
+  restorePlugin(user: CurrentUser, id: string, body: Record<string, unknown>) {
+    return this.plugins.restore(user, id, body);
   }
 
   importPlugin(user: CurrentUser, bytes: Uint8Array, originalName: string) {
@@ -657,7 +675,14 @@ export class ContentAgentService {
     });
     try {
       const result = await runWithAgentScope(
-        { connectorIds, mailboxIds: [], pluginIds, trigger: 'chat' },
+        {
+          connectorIds,
+          mailboxIds: [],
+          pluginIds,
+          trigger: 'chat',
+          // 对话里用户就在屏幕前，下一步不对可以立刻叫停：写动作按已勾选的权限执行
+          allowWrite: true,
+        },
         () =>
           this.engine.run({
             user,
@@ -772,6 +797,8 @@ export class ContentAgentService {
       references?: unknown;
       /** 任务指定的数字分身（0＝自动） */
       personaId?: number;
+      /** 无人值守是否允许写动作（只有定时任务上显式勾了才 true） */
+      allowWrite?: boolean;
       signal?: AbortSignal;
     } = {},
   ) {
@@ -793,6 +820,8 @@ export class ContentAgentService {
       mailboxIds: numericIds(options.mailboxIds, 20),
       pluginIds: numericIds(options.pluginIds, 30),
       trigger: 'schedule',
+      // 无人值守默认不放开写动作：只有任务自带上 allowWrite=true（保存时二次验密）才执行修改类动作
+      allowWrite: options.allowWrite === true,
     };
     // 任务限定了邮箱时，把邮箱「知识绑定」的资料库并进本轮知识范围：
     // 不同邮箱各自的知识/话术互不串用。

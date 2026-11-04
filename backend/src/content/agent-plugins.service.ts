@@ -1,13 +1,20 @@
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { RateWindow } from '../common/rate-window';
 import { stripInvisible, toSingleLine } from '../common/text-safety';
 import { CurrentUser } from '../auth/current-user';
+import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   parseSkillMarkdown,
   readZipTextFiles,
   stripCommonRoot,
 } from './skill-package';
+import {
+  listAgentRevisions,
+  readAgentRevision,
+  saveAgentRevision,
+} from './agent-revisions';
 
 export type PluginFile = { path: string; content: string };
 
@@ -22,6 +29,14 @@ export const PLUGIN_SOURCE_UPLOAD = 'upload';
 export const PLUGIN_SOURCE_SKILLHUB = 'skillhub';
 /** 一个插件最多展开多少条命令（包内 commands/*.md）。 */
 const COMMAND_MAX = 40;
+/** 每账号插件上限：插件摘要每轮都进系统提示，不封顶就能把上下文撑大。 */
+const MAX_PLUGINS = 100;
+/** 系统提示里最多列多少条插件摘要，以及这些摘要合计多少字。 */
+const SUMMARY_MAX = 40;
+const SUMMARY_BUDGET = 4000;
+/** 上传解包与目录安装都按账号限流。 */
+const IMPORT_MAX = 20;
+const IMPORT_WINDOW_MS = 60_000;
 
 /** 插件包里的 commands/*.md：命令名取文件名，说明与正文按 SKILL.md 同一套 frontmatter 解析。 */
 export function parsePluginCommands(files: PluginFile[]): PluginCommand[] {
@@ -79,7 +94,12 @@ export function expandPluginCommandBody(body: string, args: string) {
  * 归属严格按登录账号，同企业其他账号看不到。
  */
 export class ContentAgentPluginService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly importLimiter = new RateWindow(IMPORT_MAX, IMPORT_WINDOW_MS);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly identity: IdentityService,
+  ) {}
 
   private static fileList(raw: unknown) {
     if (!Array.isArray(raw)) return [] as PluginFile[];
@@ -135,6 +155,7 @@ export class ContentAgentPluginService {
     const rows = await this.prisma.contentAgentPlugin.findMany({
       where: { userId: user.userId },
       orderBy: { id: 'asc' },
+      take: MAX_PLUGINS,
     });
     return rows.map((row) => this.shape(row));
   }
@@ -144,20 +165,45 @@ export class ContentAgentPluginService {
    * 带 ids（输入区 + 浮层里勾选的插件）时只列这些；没勾＝列全部启用中的插件。
    */
   async promptSummaries(userId: string, ids?: number[]) {
-    const rows = await this.enabledPlugins(userId, ids);
-    return rows
-      .map((row) => {
-        const commands = ContentAgentPluginService.commandList(
-          ContentAgentPluginService.fileList(row.files),
-        );
-        const hint = commands.length
-          ? `（插件命令：${commands.map((command) => command.name).join('、')}）`
-          : '';
-        return `- ${toSingleLine(row.name, 60)}${
-          row.description ? `：${toSingleLine(row.description, 200)}` : ''
-        }${hint}`;
-      })
-      .join('\n');
+    const scoped = (ids || []).filter((id) => Number.isInteger(id) && id > 0);
+    // 摘要只需要名字、说明与命令名：不把正文整批拉进内存，也不按条数无限拼提示
+    const rows = await this.prisma.contentAgentPlugin.findMany({
+      where: {
+        userId,
+        enabled: true,
+        ...(scoped.length ? { id: { in: scoped } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      select: { name: true, description: true, files: true },
+      // 多取一条只为知道「还有没有」，好诚实告诉模型剩下的怎么取
+      take: SUMMARY_MAX + 1,
+    });
+    const listed = rows.slice(0, SUMMARY_MAX);
+    let budget = SUMMARY_BUDGET;
+    const lines: string[] = [];
+    for (const row of listed) {
+      const commands = ContentAgentPluginService.commandList(
+        ContentAgentPluginService.fileList(row.files),
+      );
+      const hint = commands.length
+        ? `（插件命令：${commands
+            .slice(0, 20)
+            .map((command) => command.name)
+            .join('、')}）`
+        : '';
+      const line = `- ${toSingleLine(row.name, 60)}${
+        row.description ? `：${toSingleLine(row.description, 200)}` : ''
+      }${hint}`;
+      if (line.length > budget) break;
+      budget -= line.length + 1;
+      lines.push(line);
+    }
+    if (lines.length < listed.length || rows.length > listed.length) {
+      lines.push(
+        `（仅列出前 ${lines.length} 个插件，其余未列出的插件仍可用 load_plugin 按名字取）`,
+      );
+    }
+    return lines.join('\n');
   }
 
   /** 启用中的插件：带 ids（本轮/本任务勾选的）时只取这几个，否则取全部。 */
@@ -170,6 +216,8 @@ export class ContentAgentPluginService {
         ...(scoped.length ? { id: { in: scoped } } : {}),
       },
       orderBy: { id: 'asc' },
+      // 插件正文与命令都在内存里展开：条数不封顶，一轮提示就能把进程内存和上下文一起打满
+      take: MAX_PLUGINS,
     });
   }
 
@@ -300,6 +348,8 @@ export class ContentAgentPluginService {
    * 其余文本文件（skills/、commands/ 等）原样存进 files。同名插件重传即覆盖更新。
    */
   async importZip(user: CurrentUser, bytes: Uint8Array, originalName: string) {
+    // 解压与解析都在本进程里跑：不拦频率，连续传大包就能把 CPU 占满
+    this.importLimiter.consume(user.userId, '插件包上传过于频繁，请稍后再试');
     const packageFiles = stripCommonRoot(readZipTextFiles(Buffer.from(bytes)));
     const manifestFile =
       packageFiles.find((file) =>
@@ -369,6 +419,7 @@ export class ContentAgentPluginService {
       where: { userId: user.userId, name: finalName },
     });
     if (existing) {
+      await this.snapshotRevision(user.userId, existing);
       const row = await this.prisma.contentAgentPlugin.update({
         where: { id: existing.id },
         data: {
@@ -379,8 +430,14 @@ export class ContentAgentPluginService {
           sourceSlug: '',
         },
       });
+      await this.identity.audit(
+        user.userId,
+        'Agent插件覆盖更新',
+        `「${row.name}」由插件包 ${originalName.slice(0, 80)} 重新导入`,
+      );
       return this.shape(row);
     }
+    await this.assertQuota(user);
     const row = await this.prisma.contentAgentPlugin.create({
       data: {
         userId: user.userId,
@@ -391,6 +448,11 @@ export class ContentAgentPluginService {
         source: PLUGIN_SOURCE_UPLOAD,
       },
     });
+    await this.identity.audit(
+      user.userId,
+      'Agent插件新增',
+      `「${row.name}」来自插件包 ${originalName.slice(0, 80)}`,
+    );
     return this.shape(row);
   }
 
@@ -404,6 +466,8 @@ export class ContentAgentPluginService {
       sourceSlug: string;
     },
   ) {
+    // 目录安装是一次外呼 + 写库：同样按账号限流，防连点刷上游与刷库
+    this.importLimiter.consume(user.userId, '插件安装过于频繁，请稍后再试');
     const name = toSingleLine(input.name, 60);
     if (!name) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '插件名称无效');
@@ -415,6 +479,7 @@ export class ContentAgentPluginService {
       where: { userId: user.userId, name },
     });
     if (existing) {
+      await this.snapshotRevision(user.userId, existing);
       const row = await this.prisma.contentAgentPlugin.update({
         where: { id: existing.id },
         data: {
@@ -426,8 +491,14 @@ export class ContentAgentPluginService {
           enabled: true,
         },
       });
+      await this.identity.audit(
+        user.userId,
+        'Agent插件覆盖更新',
+        `「${row.name}」被 SkillHub ${sourceSlug || '插件'} 重新安装覆盖`,
+      );
       return this.shape(row);
     }
+    await this.assertQuota(user);
     const row = await this.prisma.contentAgentPlugin.create({
       data: {
         userId: user.userId,
@@ -439,7 +510,51 @@ export class ContentAgentPluginService {
         sourceSlug,
       },
     });
+    await this.identity.audit(
+      user.userId,
+      'Agent插件安装',
+      `「${row.name}」来自 SkillHub ${sourceSlug || '插件目录'}`,
+    );
     return this.shape(row);
+  }
+
+  /** 新插件入库前的配额检查：插件内容与命令全部来自第三方，不能无上限堆积。 */
+  private async assertQuota(user: CurrentUser) {
+    const count = await this.prisma.contentAgentPlugin.count({
+      where: { userId: user.userId },
+    });
+    if (count >= MAX_PLUGINS) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        `插件最多 ${MAX_PLUGINS} 个，请先停用或删除不再使用的插件`,
+      );
+    }
+  }
+
+  /** 同名覆盖前把旧内容存一份快照：恶意包静默替换后仍能查证与回滚。 */
+  private async snapshotRevision(
+    userId: string,
+    row: {
+      id: number;
+      name: string;
+      description: string;
+      content: string;
+      files: unknown;
+      source: string;
+    },
+  ) {
+    await saveAgentRevision(this.prisma, {
+      userId,
+      kind: 'plugin',
+      itemId: row.id,
+      name: row.name,
+      snapshot: {
+        description: row.description,
+        content: row.content,
+        files: row.files,
+        source: row.source || PLUGIN_SOURCE_UPLOAD,
+      },
+    });
   }
 
   /** 只允许改启用开关：插件内容一律来自插件包或插件目录，不在页面手改。 */
@@ -462,6 +577,11 @@ export class ContentAgentPluginService {
       where: { id: pluginId },
       data: { enabled: Boolean(body.enabled) },
     });
+    await this.identity.audit(
+      user.userId,
+      'Agent插件启停',
+      `「${row.name}」${row.enabled ? '启用' : '停用'}`,
+    );
     return this.shape(row);
   }
 
@@ -477,6 +597,72 @@ export class ContentAgentPluginService {
       throw new BusinessException(ErrorCode.NOT_FOUND, '插件不存在');
     }
     await this.prisma.contentAgentPlugin.delete({ where: { id: pluginId } });
+    await this.identity.audit(
+      user.userId,
+      'Agent插件删除',
+      `「${existing.name}」（来源 ${existing.source || 'upload'}）`,
+    );
     return { removed: true };
+  }
+
+  /** 历史版本列表（不含正文）：插件被覆盖安装过多少次、每次多久，都能回溯。 */
+  async revisions(user: CurrentUser, id: string) {
+    const pluginId = Number(id);
+    if (!Number.isInteger(pluginId) || pluginId <= 0) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '插件编号无效');
+    }
+    const existing = await this.prisma.contentAgentPlugin.findFirst({
+      where: { id: pluginId, userId: user.userId },
+    });
+    if (!existing) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '插件不存在');
+    }
+    return listAgentRevisions(this.prisma, {
+      userId: user.userId,
+      kind: 'plugin',
+      itemId: existing.id,
+    });
+  }
+
+  /** 回到某个历史版本：回滚前把当前内容也存一份，回滚本身可逆。 */
+  async restore(user: CurrentUser, id: string, body: Record<string, unknown>) {
+    const pluginId = Number(id);
+    if (!Number.isInteger(pluginId) || pluginId <= 0) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '插件编号无效');
+    }
+    const revisionId = Number(body.revisionId);
+    if (!Number.isInteger(revisionId) || revisionId <= 0) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '历史版本编号无效');
+    }
+    const existing = await this.prisma.contentAgentPlugin.findFirst({
+      where: { id: pluginId, userId: user.userId },
+    });
+    if (!existing) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '插件不存在');
+    }
+    const revision = await readAgentRevision(this.prisma, {
+      userId: user.userId,
+      kind: 'plugin',
+      itemId: existing.id,
+      id: revisionId,
+    });
+    if (!revision) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '历史版本不存在');
+    }
+    await this.snapshotRevision(user.userId, existing);
+    const row = await this.prisma.contentAgentPlugin.update({
+      where: { id: existing.id },
+      data: {
+        description: revision.description,
+        content: revision.content,
+        files: revision.files as never,
+      },
+    });
+    await this.identity.audit(
+      user.userId,
+      'Agent插件回滚',
+      `「${row.name}」回到历史版本 #${revision.id}`,
+    );
+    return this.shape(row);
   }
 }
