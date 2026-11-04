@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -47,6 +47,8 @@ const LOGGER = 'backend/src/common/logger.ts';
 const SESSION = 'backend/src/auth/session.ts';
 const SCHEMA = 'backend/prisma/schema.prisma';
 const SCHEMA_PG = 'backend/prisma/schema.postgres.prisma';
+/** PostgreSQL 版是 `pnpm db:gen:pg` 从 schema.prisma 派生的生产物、按约定不入库；本地存在时顺带校验，CI 只验事实源。 */
+const SCHEMA_TARGETS = [SCHEMA, SCHEMA_PG].filter((file) => existsSync(join(root, file)));
 const MIGRATION = 'backend/prisma/migrations/0011_agent_security/migration.sql';
 const SCHEDULES_TAB = 'frontend/src/app/agent/_components/schedules-tab.tsx';
 const GRANTS_PANEL = 'frontend/src/app/agent/_components/grants-panel.tsx';
@@ -160,7 +162,7 @@ test('同名覆盖前留版本快照，可查可回滚，且两种方言都建�
   has(CONTRACT, /Content_restorePlugin:/, '插件回滚要在契约层登记端点');
   has(HANDLERS, /Content_restoreSkill:/, '技能回滚要接到控制器 handler');
   has(HANDLERS, /Content_restorePlugin:/, '插件回滚要接到控制器 handler');
-  for (const file of [SCHEMA, SCHEMA_PG]) {
+  for (const file of SCHEMA_TARGETS) {
     has(file, /model ContentAgentRevision/, `${file} 缺 ContentAgentRevision`);
     has(file, /allowWrite\s+Boolean\s+@default\(false\)/, `${file} 的 allowWrite 默认必须是 false`);
   }

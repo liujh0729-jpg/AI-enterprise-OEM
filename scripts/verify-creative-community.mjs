@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -69,6 +69,8 @@ const CONTRACT = 'packages/contracts/src/community.ts';
 const ENDPOINTS = 'packages/contracts/src/endpoints.ts';
 const SCHEMA = 'backend/prisma/schema.prisma';
 const SCHEMA_PG = 'backend/prisma/schema.postgres.prisma';
+/** PostgreSQL 版是 `pnpm db:gen:pg` 从 schema.prisma 派生的生产物、按约定不入库；本地存在时顺带校验，CI 只验事实源。 */
+const SCHEMA_TARGETS = [SCHEMA, SCHEMA_PG].filter((file) => existsSync(join(root, file)));
 const MIGRATION = 'backend/prisma/migrations/0012_creative_community/migration.sql';
 const SEED = 'backend/prisma/seed-creative-community.ts';
 const SEED_ENTRY = 'backend/prisma/seed.ts';
@@ -244,7 +246,7 @@ test('契约端点与 handler 挂载两处一致，后台端点齐全', () => {
 });
 
 test('数据模型双方言一致，唯一约束随迁移落库', () => {
-  for (const file of [SCHEMA, SCHEMA_PG]) {
+  for (const file of SCHEMA_TARGETS) {
     for (const model of [
       'CommunityWorkflow',
       'CommunityRun',
