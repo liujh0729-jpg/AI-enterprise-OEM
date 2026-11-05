@@ -1658,6 +1658,268 @@ const tpReadQuery = z
   })
   .passthrough();
 
+// ---------- 跨境电商商品页优化（PDP） ----------
+
+/**
+ * 商品简报：用户只填确定的事实，留空的项由规划模型按品类推断，
+ * 推断结果必须在计划的 assumptions 里显式披露（不伪造认证、参数与功效）。
+ */
+export const ecomPdpBriefSchema = z.object({
+  productName: z.string().min(1).max(120),
+  category: z.string().max(64).default(""),
+  market: z.string().max(32).default("US"),
+  platform: z.string().max(32).default("Amazon"),
+  audience: z.string().max(200).default(""),
+  price: z.string().max(64).default(""),
+  sellingPoints: z.string().max(2000).default(""),
+  specs: z.string().max(2000).default(""),
+  evidence: z.string().max(2000).default(""),
+  promo: z.string().max(500).default(""),
+  difference: z.string().max(1000).default(""),
+  language: z.string().max(32).default("en-US"),
+  styleName: z.string().max(120).default(""),
+  colorPalette: z.string().max(200).default(""),
+  /** 严格合规：不编造参数、认证与医疗/绝对化功效；证据不足的卖点必须写成假设 */
+  compliance: z.boolean().default(true),
+  heroCount: z.coerce.number().int().min(0).max(10).default(5),
+  detailCount: z.coerce.number().int().min(0).max(20).default(8),
+  /** 产品参考图（identity reference），最多 6 张，生成时走网关 /images/edits */
+  referenceUrls: z.array(z.string().max(1000)).max(6).default([]),
+  /** 逐张内容说明：按「主图1：…／详情图1：…」逐行指定每张画面，规划按序号对应生成 */
+  shotPlan: z.string().max(4000).default(""),
+});
+
+export const ecomPdpAssetSchema = z.object({
+  id: z.number(),
+  kind: z.string(),
+  position: z.number(),
+  title: z.string(),
+  purpose: z.string(),
+  sceneKey: z.string(),
+  copy: z.string(),
+  prompt: z.string(),
+  size: z.string(),
+  status: z.string(),
+  url: z.string(),
+  assetId: z.string(),
+  error: z.string(),
+});
+
+export const ecomPdpReasonSchema = z.object({
+  need: z.string(),
+  feature: z.string(),
+  benefit: z.string(),
+  basis: z.string(),
+});
+
+export const ecomPdpStyleLockSchema = z.object({
+  styleName: z.string(),
+  colorPalette: z.string(),
+  backgroundSystem: z.string(),
+  lighting: z.string(),
+  cameraLanguage: z.string(),
+  typography: z.string(),
+  layoutRules: z.string(),
+  propRules: z.string(),
+  productRendering: z.string(),
+  negativeRules: z.string(),
+});
+
+export const ecomPdpPlanSchema = z.object({
+  driver: z.string(),
+  driverReason: z.string(),
+  buyerReasons: z.array(ecomPdpReasonSchema),
+  styleLock: ecomPdpStyleLockSchema,
+  assumptions: z.array(z.string()),
+  bannedClaims: z.array(z.string()),
+});
+
+export const ecomPdpPackSchema = z.object({
+  id: z.number(),
+  productName: z.string(),
+  category: z.string(),
+  market: z.string(),
+  status: z.string(),
+  heroCount: z.number(),
+  detailCount: z.number(),
+  doneCount: z.number(),
+  totalCount: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const ecomPdpPackDetailSchema = ecomPdpPackSchema.extend({
+  input: jsonObject,
+  plan: ecomPdpPlanSchema.nullable(),
+  assets: z.array(ecomPdpAssetSchema),
+});
+
+export const ecomPdpPackPageSchema = z.object({
+  list: z.array(ecomPdpPackSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
+export const ecomPdpMetaSchema = z.object({
+  textReady: z.boolean(),
+  imageReady: z.boolean(),
+  textLabel: z.string(),
+  imageLabel: z.string(),
+  hint: z.string(),
+});
+
+const ecomPdpParams = z.object({ id: z.string() });
+const ecomPdpAssetParams = z.object({ id: z.string(), assetId: z.string() });
+const ecomPdpAssetPatchSchema = z
+  .object({
+    title: z.string().max(191).optional(),
+    purpose: z.string().max(191).optional(),
+    copy: z.string().max(4000).optional(),
+    prompt: z.string().max(8000).optional(),
+    size: z.string().max(16).optional(),
+  })
+  .passthrough();
+const ecomPdpGenerateBody = z
+  .object({
+    prompt: z.string().max(8000).default(""),
+    size: z.string().max(16).default(""),
+  })
+  .passthrough();
+
+// ---------- 国内电商商品页优化（淘宝/天猫、京东、拼多多、抖音、1688） ----------
+
+/**
+ * 商品简报：国内平台以中文文案与广告法合规为前提，价格与促销只作规划参考，
+ * 图面不渲染具体价格（由平台价格叠加区展示，避免与实际不一致）。
+ */
+export const domesticPdpBriefSchema = z.object({
+  productName: z.string().min(1).max(120),
+  category: z.string().max(64).default(""),
+  platform: z.string().max(32).default("淘宝/天猫"),
+  /** 文案语气：brand 品牌质感 / pro 专业参数 / grass 种草分享 / promo 促销冲量 */
+  tone: z.string().max(32).default("brand"),
+  audience: z.string().max(200).default(""),
+  price: z.string().max(64).default(""),
+  sellingPoints: z.string().max(2000).default(""),
+  specs: z.string().max(2000).default(""),
+  evidence: z.string().max(2000).default(""),
+  promo: z.string().max(500).default(""),
+  difference: z.string().max(1000).default(""),
+  styleName: z.string().max(120).default(""),
+  colorPalette: z.string().max(200).default(""),
+  /** 严格合规：按广告法过滤绝对化用语、医疗功效与无依据的认证/销量/评价 */
+  compliance: z.boolean().default(true),
+  heroCount: z.coerce.number().int().min(0).max(10).default(5),
+  detailCount: z.coerce.number().int().min(0).max(20).default(8),
+  /** 产品参考图（identity reference），最多 6 张，生成时走网关 /images/edits */
+  referenceUrls: z.array(z.string().max(1000)).max(6).default([]),
+  /** 逐张内容说明：按「主图1：…／详情图1：…」逐行指定每张画面，规划按序号对应生成 */
+  shotPlan: z.string().max(4000).default(""),
+});
+
+export const domesticPdpAssetSchema = z.object({
+  id: z.number(),
+  kind: z.string(),
+  position: z.number(),
+  title: z.string(),
+  purpose: z.string(),
+  sceneKey: z.string(),
+  copy: z.string(),
+  prompt: z.string(),
+  size: z.string(),
+  status: z.string(),
+  url: z.string(),
+  assetId: z.string(),
+  error: z.string(),
+});
+
+export const domesticPdpReasonSchema = z.object({
+  need: z.string(),
+  feature: z.string(),
+  benefit: z.string(),
+  basis: z.string(),
+});
+
+export const domesticPdpStyleLockSchema = z.object({
+  styleName: z.string(),
+  colorPalette: z.string(),
+  backgroundSystem: z.string(),
+  lighting: z.string(),
+  cameraLanguage: z.string(),
+  typography: z.string(),
+  layoutRules: z.string(),
+  propRules: z.string(),
+  productRendering: z.string(),
+  negativeRules: z.string(),
+});
+
+export const domesticPdpPlanSchema = z.object({
+  driver: z.string(),
+  driverReason: z.string(),
+  buyerReasons: z.array(domesticPdpReasonSchema),
+  styleLock: domesticPdpStyleLockSchema,
+  assumptions: z.array(z.string()),
+  bannedClaims: z.array(z.string()),
+});
+
+export const domesticPdpPackSchema = z.object({
+  id: z.number(),
+  productName: z.string(),
+  category: z.string(),
+  platform: z.string(),
+  tone: z.string(),
+  status: z.string(),
+  heroCount: z.number(),
+  detailCount: z.number(),
+  doneCount: z.number(),
+  totalCount: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const domesticPdpPackDetailSchema = domesticPdpPackSchema.extend({
+  input: jsonObject,
+  plan: domesticPdpPlanSchema.nullable(),
+  assets: z.array(domesticPdpAssetSchema),
+});
+
+export const domesticPdpPackPageSchema = z.object({
+  list: z.array(domesticPdpPackSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
+export const domesticPdpMetaSchema = z.object({
+  textReady: z.boolean(),
+  imageReady: z.boolean(),
+  textLabel: z.string(),
+  imageLabel: z.string(),
+  hint: z.string(),
+});
+
+const domesticPdpParams = z.object({ id: z.string() });
+const domesticPdpAssetParams = z.object({
+  id: z.string(),
+  assetId: z.string(),
+});
+const domesticPdpAssetPatchSchema = z
+  .object({
+    title: z.string().max(191).optional(),
+    purpose: z.string().max(191).optional(),
+    copy: z.string().max(4000).optional(),
+    prompt: z.string().max(8000).optional(),
+    size: z.string().max(16).optional(),
+  })
+  .passthrough();
+const domesticPdpGenerateBody = z
+  .object({
+    prompt: z.string().max(8000).default(""),
+    size: z.string().max(16).default(""),
+  })
+  .passthrough();
+
 /** 批量动作的共同字段：账号 + 多维表格来源 + 列映射 + 二次确认 */
 const tpBatchBody = {
   accountId: z.coerce.number().int().nonnegative().default(0),
@@ -3665,6 +3927,139 @@ export const automationEndpoints = {
       })
       .passthrough(),
     response: envelope(tpMappingSchema),
+  },
+
+  // 跨境电商商品页优化（PDP）：简报 → 规划（文本槽位）→ 逐张提示词确认 → 网关出图（图片槽位）
+  EcomPdp_meta: {
+    method: "get" as const,
+    path: "/enterprise/ecom-pdp/meta",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(ecomPdpMetaSchema),
+  },
+  EcomPdp_page: {
+    method: "get" as const,
+    path: "/enterprise/ecom-pdp/packs",
+    params: z.object({}),
+    query: pageQuery(20),
+    body: z.undefined(),
+    response: envelope(ecomPdpPackPageSchema),
+  },
+  EcomPdp_detail: {
+    method: "get" as const,
+    path: "/enterprise/ecom-pdp/packs/:id",
+    params: ecomPdpParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(ecomPdpPackDetailSchema),
+  },
+  EcomPdp_create: {
+    method: "post" as const,
+    path: "/enterprise/ecom-pdp/packs",
+    params: z.object({}),
+    query: emptyQuery,
+    body: ecomPdpBriefSchema,
+    response: envelope(ecomPdpPackDetailSchema),
+  },
+  EcomPdp_plan: {
+    method: "post" as const,
+    path: "/enterprise/ecom-pdp/packs/:id/plan",
+    params: ecomPdpParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(ecomPdpPackDetailSchema),
+  },
+  EcomPdp_updateAsset: {
+    method: "patch" as const,
+    path: "/enterprise/ecom-pdp/packs/:id/assets/:assetId",
+    params: ecomPdpAssetParams,
+    query: emptyQuery,
+    body: ecomPdpAssetPatchSchema,
+    response: envelope(ecomPdpPackDetailSchema),
+  },
+  EcomPdp_generate: {
+    method: "post" as const,
+    path: "/enterprise/ecom-pdp/packs/:id/assets/:assetId/generate",
+    params: ecomPdpAssetParams,
+    query: emptyQuery,
+    body: ecomPdpGenerateBody,
+    response: envelope(ecomPdpPackDetailSchema),
+  },
+  EcomPdp_remove: {
+    method: "delete" as const,
+    path: "/enterprise/ecom-pdp/packs/:id",
+    params: ecomPdpParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ id: z.number(), deleted: z.boolean() })),
+  },
+
+  // 国内电商商品页优化（淘宝/天猫、京东、拼多多、抖音）：简报 → 规划（文本槽位）→
+  // 逐张提示词确认 → 网关出图（图片槽位）
+  DomesticPdp_meta: {
+    method: "get" as const,
+    path: "/enterprise/domestic-pdp/meta",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(domesticPdpMetaSchema),
+  },
+  DomesticPdp_page: {
+    method: "get" as const,
+    path: "/enterprise/domestic-pdp/packs",
+    params: z.object({}),
+    query: pageQuery(20),
+    body: z.undefined(),
+    response: envelope(domesticPdpPackPageSchema),
+  },
+  DomesticPdp_detail: {
+    method: "get" as const,
+    path: "/enterprise/domestic-pdp/packs/:id",
+    params: domesticPdpParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(domesticPdpPackDetailSchema),
+  },
+  DomesticPdp_create: {
+    method: "post" as const,
+    path: "/enterprise/domestic-pdp/packs",
+    params: z.object({}),
+    query: emptyQuery,
+    body: domesticPdpBriefSchema,
+    response: envelope(domesticPdpPackDetailSchema),
+  },
+  DomesticPdp_plan: {
+    method: "post" as const,
+    path: "/enterprise/domestic-pdp/packs/:id/plan",
+    params: domesticPdpParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(domesticPdpPackDetailSchema),
+  },
+  DomesticPdp_updateAsset: {
+    method: "patch" as const,
+    path: "/enterprise/domestic-pdp/packs/:id/assets/:assetId",
+    params: domesticPdpAssetParams,
+    query: emptyQuery,
+    body: domesticPdpAssetPatchSchema,
+    response: envelope(domesticPdpPackDetailSchema),
+  },
+  DomesticPdp_generate: {
+    method: "post" as const,
+    path: "/enterprise/domestic-pdp/packs/:id/assets/:assetId/generate",
+    params: domesticPdpAssetParams,
+    query: emptyQuery,
+    body: domesticPdpGenerateBody,
+    response: envelope(domesticPdpPackDetailSchema),
+  },
+  DomesticPdp_remove: {
+    method: "delete" as const,
+    path: "/enterprise/domestic-pdp/packs/:id",
+    params: domesticPdpParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ id: z.number(), deleted: z.boolean() })),
   },
 } as const;
 

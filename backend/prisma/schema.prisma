@@ -6496,3 +6496,116 @@ model ComfyCredential {
 
   @@map("comfy_credentials")
 }
+
+/// 跨境电商商品页优化：一次「商品简报 → 卖点规划 → 主图/详情页图包」的运行台账
+model EcomPdpPack {
+  id          Int      @id @default(autoincrement())
+  userId      String   @map("user_id") @db.VarChar(64)
+  productName String   @map("product_name") @db.VarChar(191)
+  category    String   @default("") @db.VarChar(64)
+  market      String   @default("US") @db.VarChar(32)
+  /// draft | planning | planned | generating | completed | failed
+  status      String   @default("draft") @db.VarChar(16)
+  /// 商品简报全量（含参考图与主图/详情页数量）
+  input       Json     @default("{}")
+  /// 规划结果：转化驱动 / Buyer Reason Card / Style Lock / 假设与禁用表述
+  plan        Json     @default("{}")
+  error       String   @default("") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  assets EcomPdpAsset[]
+
+  @@index([userId, updatedAt])
+  @@map("ecom_pdp_packs")
+}
+
+/// 图包里的一张图：主图（hero）或详情页（detail），提示词可逐张改后再生成
+model EcomPdpAsset {
+  id        Int      @id @default(autoincrement())
+  packId    Int      @map("pack_id")
+  /// hero | detail
+  kind      String   @db.VarChar(16)
+  position  Int
+  title     String   @default("") @db.VarChar(191)
+  purpose   String   @default("") @db.VarChar(191)
+  /// 场景模板键（把参考仓库的 25 个场景归并后的注册表键）
+  sceneKey  String   @default("") @map("scene_key") @db.VarChar(64)
+  /// 图面文案（英文基线 + 本地化层），逐条一行
+  copy      String   @default("") @db.Text
+  /// 完整出图提示词（Style Lock 前缀 + 场景正文 + 负面清单）
+  prompt    String   @default("") @db.Text
+  size      String   @default("") @db.VarChar(16)
+  /// pending | generating | done | failed
+  status    String   @default("pending") @db.VarChar(16)
+  url       String   @default("") @db.Text
+  /// 平台数字资产 id（登记失败为空，不影响出图）
+  assetId   String   @default("") @map("asset_id") @db.VarChar(64)
+  error     String   @default("") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pack EcomPdpPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@unique([packId, kind, position])
+  @@index([packId])
+  @@map("ecom_pdp_assets")
+}
+
+/// 国内电商商品页优化：一次「商品简报 → 卖点规划 → 主图/详情页图包」的运行台账
+model DomesticPdpPack {
+  id          Int      @id @default(autoincrement())
+  userId      String   @map("user_id") @db.VarChar(64)
+  productName String   @map("product_name") @db.VarChar(191)
+  category    String   @default("") @db.VarChar(64)
+  /// 淘宝/天猫、京东、拼多多、抖音商城、1688
+  platform    String   @default("") @db.VarChar(32)
+  /// brand | pro | grass | promo
+  tone        String   @default("brand") @db.VarChar(16)
+  /// draft | planning | planned | generating | completed | failed
+  status      String   @default("draft") @db.VarChar(16)
+  /// 商品简报全量（含参考图与主图/详情页数量）
+  input       Json     @default("{}")
+  /// 规划结果：转化驱动 / 购买理由卡 / Style Lock / 假设与禁用表述
+  plan        Json     @default("{}")
+  error       String   @default("") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  assets DomesticPdpAsset[]
+
+  @@index([userId, updatedAt])
+  @@map("domestic_pdp_packs")
+}
+
+/// 国内图包里的一张图：主图（hero）或详情页（detail），提示词可逐张改后再生成
+model DomesticPdpAsset {
+  id        Int      @id @default(autoincrement())
+  packId    Int      @map("pack_id")
+  /// hero | detail
+  kind      String   @db.VarChar(16)
+  position  Int
+  title     String   @default("") @db.VarChar(191)
+  purpose   String   @default("") @db.VarChar(191)
+  /// 场景模板键（国内电商场景注册表：白底 / 卖点 / 场景 / 参数 / 信任…）
+  sceneKey  String   @default("") @map("scene_key") @db.VarChar(64)
+  /// 图面文案（中文，逐条一行）
+  copy      String   @default("") @db.Text
+  /// 完整出图提示词（Style Lock 前缀 + 场景正文 + 中文文案 + 负面清单）
+  prompt    String   @default("") @db.Text
+  size      String   @default("") @db.VarChar(16)
+  /// pending | generating | done | failed
+  status    String   @default("pending") @db.VarChar(16)
+  url       String   @default("") @db.Text
+  /// 平台数字资产 id（登记失败为空，不影响出图）
+  assetId   String   @default("") @map("asset_id") @db.VarChar(64)
+  error     String   @default("") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pack DomesticPdpPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@unique([packId, kind, position])
+  @@index([packId])
+  @@map("domestic_pdp_assets")
+}

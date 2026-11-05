@@ -94,6 +94,10 @@ import { LeadProspectingService } from '../lead-prospecting/lead-prospecting.ser
 import { LeadProspectingController } from '../lead-prospecting/lead-prospecting.controller';
 import { BigdataQueryService } from '../bigdata/bigdata-query.service';
 import { BigdataQueryController } from '../bigdata/bigdata-query.controller';
+import { EcomPdpService } from '../ecom-pdp/ecom-pdp.service';
+import { EcomPdpController } from '../ecom-pdp/ecom-pdp.controller';
+import { DomesticPdpService } from '../domestic-pdp/domestic-pdp.service';
+import { DomesticPdpController } from '../domestic-pdp/domestic-pdp.controller';
 import { AliyunCallCrypto } from '../aliyun-call/aliyun-call-crypto';
 import { AliyunCallService } from '../aliyun-call/aliyun-call.service';
 import { AliyunCallController } from '../aliyun-call/aliyun-call.controller';
@@ -591,6 +595,20 @@ export function createServices() {
     contentAssetService,
     aipddAssetClient,
   );
+  // 跨境电商商品页优化：规划走文本槽位、出图走图片槽位，全部经本系统模型网关。
+  const ecomPdpService = new EcomPdpService(
+    prismaService,
+    contentModelSettingService,
+    contentMediaService,
+  );
+  const ecomPdpController = new EcomPdpController(ecomPdpService);
+  // 国内电商商品页优化：同一套模型网关装配，文案与合规规则走 domestic-pdp 知识层。
+  const domesticPdpService = new DomesticPdpService(
+    prismaService,
+    contentModelSettingService,
+    contentMediaService,
+  );
+  const domesticPdpController = new DomesticPdpController(domesticPdpService);
   const contentAgentExpertService = new ContentAgentExpertService(
     prismaService,
     contentMediaService,
@@ -1108,6 +1126,8 @@ export function createServices() {
       aiCallController,
       aiCallOpenController,
       leadProspectingController,
+      ecomPdpController,
+      domesticPdpController,
       bigdataQueryController,
       aliyunCallController,
       aliyunMailController,

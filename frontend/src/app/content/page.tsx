@@ -3,8 +3,10 @@
 import {
   ArrowLeftOutlined,
   InboxOutlined,
+  PictureOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
+  ShopOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
 import {
@@ -31,7 +33,9 @@ import {
 import { contentApi, uploadContentMedia } from "@/api/content";
 import { Notice, PageHero, Panel } from "@/components/ui/panel";
 import { ToolCard, ToolCardGrid } from "@/components/ui/tool-card";
+import { DomesticPdpTab } from "./_components/domestic-pdp-tab";
 import { DramaAgentGuide } from "./_components/drama-agent-guide";
+import { EcomPdpTab } from "./_components/ecom-pdp-tab";
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING: "排队中",
@@ -110,17 +114,18 @@ function initialInput(tool: ContentTool) {
 
 /**
  * 内容创作小工具（「工作台 → 内容创作」板块下的首个入口 · 与营销工具同款）：一屏工具卡片，点卡片进入该工具。
- * 表单控件由契约里的 CONTENT_TOOLS 生成；提交即建任务，长任务轮询任务表。
- * 产物一律由后端登记进本账号的 AIPDD 数字资产。
+ * 表单控件由契约里的 CONTENT_TOOLS 生成；跨境电商 / 国内电商商品页优化是独立面板，同样以卡片进入。
+ * 提交即建任务，长任务轮询任务表；产物一律由后端登记进本账号的 AIPDD 数字资产。
  */
 export default function ContentPage() {
   const [activeKey, setActiveKey] = useState("");
+  const [pdpKey, setPdpKey] = useState<"" | "ecom-pdp" | "domestic-pdp">("");
   const [dramaOpen, setDramaOpen] = useState(false);
   const [mediaKitReady, setMediaKitReady] = useState<boolean | null>(null);
 
   const tools = useMemo(() => Object.values(CONTENT_TOOLS), []);
   const active = activeKey ? CONTENT_TOOLS[activeKey] : null;
-  const detailOpen = Boolean(active) || dramaOpen;
+  const detailOpen = Boolean(active) || Boolean(pdpKey) || dramaOpen;
 
   useEffect(() => {
     contentApi
@@ -139,13 +144,14 @@ export default function ContentPage() {
     <div>
       <PageHero
         title="内容创作小工具"
-        desc="一个卡片一个功能：写文案、生成图片/视频、配音配乐、去水印超分；末尾的「视频创作工具」是装在自己电脑上的外部项目，点卡片先看简介与网关配置。产物自动存进本账号的 AIPDD 数字资产；模型与 Key 在「开放集成 → 模型设置」里配置"
+        desc="一个卡片一个功能：写文案、生成图片/视频、配音配乐、去水印超分；跨境电商 / 国内电商商品页优化（商品简报 → 转化诊断与理由卡 → 风格锁 → 逐张确认文案与提示词后出图，国内版按广告法合规、白底首图预留平台价格区与 logo 区）；末尾的「视频创作工具」是装在自己电脑上的外部项目，点卡片先看简介与网关配置。产物自动存进本账号的 AIPDD 数字资产；模型与 Key 在「开放集成 → 模型设置」里配置"
         extra={
           detailOpen ? (
             <Button
               icon={<ArrowLeftOutlined aria-hidden />}
               onClick={() => {
                 setActiveKey("");
+                setPdpKey("");
                 setDramaOpen(false);
               }}
             >
@@ -174,6 +180,18 @@ export default function ContentPage() {
               />
             ))}
             <ToolCard
+              icon={<PictureOutlined aria-hidden style={{ fontSize: 20 }} />}
+              title="跨境电商商品页优化"
+              description="填商品简报，AI 先做转化诊断与买家理由卡、锁定整套视觉风格，再逐张给出主图 / 详情页的图面文案与出图提示词；确认后走本系统模型网关出图，有产品参考图时锁定产品身份。"
+              onClick={() => setPdpKey("ecom-pdp")}
+            />
+            <ToolCard
+              icon={<ShopOutlined aria-hidden style={{ fontSize: 20 }} />}
+              title="国内电商商品页优化"
+              description="面向淘宝/天猫、京东、拼多多、抖音商城与 1688：按广告法合规做转化诊断与购买理由卡，白底首图预留平台价格区与 logo 区、图面不写价格，逐张确认中文文案后走模型网关出图。"
+              onClick={() => setPdpKey("domestic-pdp")}
+            />
+            <ToolCard
               icon={<VideoCameraOutlined aria-hidden style={{ fontSize: 20 }} />}
               title="视频创作工具"
               tag={<Tag>本地部署</Tag>}
@@ -184,6 +202,10 @@ export default function ContentPage() {
         </>
       ) : dramaOpen ? (
         <DramaAgentGuide />
+      ) : pdpKey === "ecom-pdp" ? (
+        <EcomPdpTab />
+      ) : pdpKey === "domestic-pdp" ? (
+        <DomesticPdpTab />
       ) : active ? (
         <ContentToolPanel tool={active} />
       ) : null}

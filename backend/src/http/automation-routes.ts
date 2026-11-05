@@ -65,6 +65,12 @@ const UPSTREAM_TOKEN_OPERATIONS = new Set<string>([
   'Lead_chat',
   'Lead_createTask',
   'Lead_startTask',
+  // 跨境电商商品页优化：规划与出图都要经模型网关取用户绑定的上游凭证
+  'EcomPdp_plan',
+  'EcomPdp_generate',
+  // 国内电商商品页优化：同样要经模型网关取用户绑定的上游凭证
+  'DomesticPdp_plan',
+  'DomesticPdp_generate',
   'Bigdata_settings',
   'Bigdata_saveSettings',
   'Bigdata_models',
@@ -399,6 +405,60 @@ export function registerAutomationRoutes(
       ),
     Lead_removeTask: async (i) =>
       c.leadProspectingController.removeTask(i.user, i.param['id']),
+
+    // ---------- 跨境电商商品页优化（PDP） ----------
+    EcomPdp_meta: async (i) => c.ecomPdpController.meta(i.user),
+    EcomPdp_page: async (i) => c.ecomPdpController.list(i.user, i.query),
+    EcomPdp_detail: async (i) =>
+      c.ecomPdpController.detail(i.user, i.param['id']),
+    EcomPdp_create: async (i) => c.ecomPdpController.create(i.user, i.json),
+    EcomPdp_plan: async (i) =>
+      c.ecomPdpController.plan(i.user, i.param['id'], i.token),
+    EcomPdp_updateAsset: async (i) =>
+      c.ecomPdpController.updateAsset(
+        i.user,
+        i.param['id'],
+        i.param['assetId'],
+        i.json,
+      ),
+    EcomPdp_generate: async (i) =>
+      c.ecomPdpController.generate(
+        i.user,
+        i.param['id'],
+        i.param['assetId'],
+        i.json,
+        i.token,
+      ),
+    EcomPdp_remove: async (i) =>
+      c.ecomPdpController.remove(i.user, i.param['id']),
+
+    // ---------- 国内电商商品页优化（淘宝/天猫、京东、拼多多、抖音） ----------
+    DomesticPdp_meta: async (i) => c.domesticPdpController.meta(i.user),
+    DomesticPdp_page: async (i) =>
+      c.domesticPdpController.list(i.user, i.query),
+    DomesticPdp_detail: async (i) =>
+      c.domesticPdpController.detail(i.user, i.param['id']),
+    DomesticPdp_create: async (i) =>
+      c.domesticPdpController.create(i.user, i.json),
+    DomesticPdp_plan: async (i) =>
+      c.domesticPdpController.plan(i.user, i.param['id'], i.token),
+    DomesticPdp_updateAsset: async (i) =>
+      c.domesticPdpController.updateAsset(
+        i.user,
+        i.param['id'],
+        i.param['assetId'],
+        i.json,
+      ),
+    DomesticPdp_generate: async (i) =>
+      c.domesticPdpController.generate(
+        i.user,
+        i.param['id'],
+        i.param['assetId'],
+        i.json,
+        i.token,
+      ),
+    DomesticPdp_remove: async (i) =>
+      c.domesticPdpController.remove(i.user, i.param['id']),
 
     // ---------- 大数据查询（营销工具：五个独立数据集） ----------
     Bigdata_settings: async (i) =>
