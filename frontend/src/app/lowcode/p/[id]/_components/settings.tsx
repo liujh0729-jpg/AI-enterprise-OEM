@@ -68,7 +68,7 @@ export function SettingsDrawer({
 }) {
   const [tab, setTab] = useState("project");
   return (
-    <Drawer open={open} onClose={onClose} width={960} title="应用设置" destroyOnHidden>
+    <Drawer open={open} onClose={onClose} size={960} title="应用设置" destroyOnHidden>
       <TabStrip items={SETTING_TABS} value={tab} onChange={setTab} />
       <div style={{ marginTop: 16 }}>
         {tab === "project" ? <ProjectPanel projectId={projectId} detail={detail} onReload={onReload} onClose={onClose} /> : null}

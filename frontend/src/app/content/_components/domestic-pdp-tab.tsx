@@ -310,6 +310,7 @@ export function DomesticPdpTab() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createFormKey, setCreateFormKey] = useState(0);
   const [creating, setCreating] = useState(false);
   const [references, setReferences] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -371,8 +372,9 @@ export function DomesticPdpTab() {
   );
 
   const openCreate = () => {
-    form.resetFields();
     setReferences([]);
+    // 弹窗未挂载时调用 form 方法会触发「useForm 未连接」告警，改为重建表单回到初始值
+    setCreateFormKey((key) => key + 1);
     setCreateOpen(true);
   };
 
@@ -641,9 +643,10 @@ export function DomesticPdpTab() {
         confirmLoading={creating}
         okText="创建"
         width={880}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
+          key={createFormKey}
           form={form}
           layout="vertical"
           initialValues={{

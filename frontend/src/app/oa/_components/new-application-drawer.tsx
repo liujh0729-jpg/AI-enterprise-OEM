@@ -188,7 +188,7 @@ export function NewApplicationDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      width={760}
+      size={760}
       title={application ? `编辑草稿 ${application.number}` : "新建申请"}
       destroyOnHidden
       styles={{ body: { background: "var(--bg, #f7f8fa)" } }}

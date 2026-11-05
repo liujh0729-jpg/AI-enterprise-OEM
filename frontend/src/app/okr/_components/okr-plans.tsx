@@ -524,7 +524,7 @@ export function OkrPlansTab({
         onOk={() => void saveDraft()}
         okText="保存"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Space orientation="vertical" style={{ width: "100%" }} size={10}>
           <Input

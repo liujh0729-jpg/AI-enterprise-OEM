@@ -1117,7 +1117,7 @@ export function TemplatesPanel({
       <Drawer
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
-        width={880}
+        size={880}
         destroyOnHidden
         title={draft.id ? `编辑模板 · ${draft.name}` : "新建模板"}
         styles={{ body: { background: "var(--bg, #f7f8fa)" } }}

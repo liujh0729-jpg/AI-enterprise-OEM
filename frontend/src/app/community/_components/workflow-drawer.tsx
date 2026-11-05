@@ -241,7 +241,7 @@ export function WorkflowDrawer({
     <Drawer
       open={Boolean(code)}
       onClose={onClose}
-      width={720}
+      size={720}
       title={detail?.title || "工作流详情"}
       extra={
         detail ? (

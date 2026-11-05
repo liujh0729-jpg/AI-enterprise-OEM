@@ -377,7 +377,7 @@ export function OkrReportsTab({ ctx }: { ctx: OkrContextData }) {
         open={editorOpen}
         onCancel={() => setEditorOpen(false)}
         width={760}
-        destroyOnClose
+        destroyOnHidden
         footer={
           <Space>
             <Button onClick={() => setEditorOpen(false)}>关闭</Button>

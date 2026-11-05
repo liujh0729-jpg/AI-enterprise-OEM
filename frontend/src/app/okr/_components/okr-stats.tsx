@@ -367,7 +367,7 @@ export function OkrStatsTab({ ctx }: { ctx: OkrContextData }) {
         open={scoreOpen}
         onCancel={() => setScoreOpen(false)}
         width={560}
-        destroyOnClose
+        destroyOnHidden
         footer={
           <Space>
             <Button onClick={() => setScoreOpen(false)}>取消</Button>
