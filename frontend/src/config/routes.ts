@@ -364,6 +364,11 @@ export const PAGE_META: Record<
   { title: string; description: string }
 > = {
   "/": { title: "高管驾驶舱", description: "身份与资质、我的待办与业务台账。" },
+  "/help": {
+    title: "帮助中心",
+    description:
+      "按章节了解系统怎么用的知识库：快速开始、工作台工具、内容与营销、多平台分发、业务服务与管理设置；同一份知识以 MCP 只读工具开放，可直接问 Agent 获得官方用法。",
+  },
   "/data-table": {
     title: "多维表格",
     description:

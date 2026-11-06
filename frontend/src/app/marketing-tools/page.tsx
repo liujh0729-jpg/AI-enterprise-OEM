@@ -11,6 +11,7 @@ import {
   PhoneOutlined,
   QrcodeOutlined,
   RobotOutlined,
+  SendOutlined,
   ShoppingOutlined,
   SolutionOutlined,
   StarOutlined,
@@ -30,6 +31,7 @@ import { AliyunCallTab } from "./_components/aliyun-call-tab";
 import { AliyunMailTab } from "./_components/aliyun-mail-tab";
 import { BigdataQueryTab } from "./_components/bigdata-query-tab";
 import { ConnectionsTab } from "./_components/connections-tab";
+import { DistributionTab } from "./_components/distribution-tab";
 import { GeoTab } from "./_components/geo-tab";
 import { LeadProspectingTab } from "./_components/lead-prospecting-tab";
 import { LivecodeTab } from "./_components/livecode-tab";
@@ -48,6 +50,7 @@ type ToolKey =
   | "tp-wework"
   | "tp-member"
   | "leads"
+  | "distribution"
   | "salesbuddy"
   | BigdataDatasetKey;
 
@@ -113,6 +116,12 @@ const TOOLS: ToolCard[] = [
     desc: "可见度报告、监控问题库、采集批次与选题池，可开启每周自动采集；另含发稿平台推荐（按语言、付费/免费筛选）与 GEO 建站入口。",
   },
   {
+    key: "distribution",
+    name: "多平台内容分发",
+    icon: <SendOutlined aria-hidden />,
+    desc: "一条内容同发 13 家图文/文章渠道：配套 AIPDD 浏览器插件在你已登录的浏览器里自动填充发布，逐平台结果回写台账，页内附插件下载安装说明。",
+  },
+  {
     key: "livecode",
     name: "活码引流",
     icon: <QrcodeOutlined aria-hidden />,
@@ -166,7 +175,7 @@ export default function MarketingToolsPage() {
     <>
       <PageHero
         title="营销工具"
-        desc={`营销获客与内容自动化工具箱，${TOOLS.length} 个工具可单独使用：达人建联（按类目 / 平台 / 粉丝数筛选达人并查看联系方式）· 阿里云智能外呼（选多维表格、映射列后把名单导入阿里云智能外呼，可新建任务组或往已有任务组追加号码）· 阿里云邮件推送（选多维表格、映射邮箱列与模板变量后同步到阿里云收件人列表，模板、域名与群发仍在阿里云控制台完成）· GEO-AI引擎优化（品牌在 AI 问答中的可见度报告与选题池，另含按语言与付费/免费筛选的发稿平台推荐与 GEO 建站入口，新窗口打开 AIworkin GEO 独立站看板）· 活码引流（固定入口 + 多个子码按随机/顺序/权重分发，支持限额、同访客粘性与渠道统计，短链用你自己的域名）· 腾讯企点·客户数据 / 企微运营 / 会员与触达（自带企点凭据，客户与分群、企微活码与群发、会员积分与短信邮件触达，客户可写进本系统 CRM；Customer AI 与社媒聆听等只在控制台）· Google 潜客线索挖掘（与 AI 对话明确挖掘条件，线索逐批写入多维表格）· ${BIGDATA_TOOLS.map((tool) => tool.name).join(" / ")}（自然语言提数据需求，AI 解析后查询并写入各自的多维表格）· AI销售管理-SalesBuddy（AI 销售管理，点击直接新窗口打开 salesbuddy.top 网站）。潜客线索与大数据查询任务只按登录账号归属，且按数据集彼此独立；GEO 项目按创建账号与所属企业可见；阿里云外呼与邮件推送的 Key 也按登录账号各自配置。`}
+        desc={`营销获客与内容自动化工具箱，${TOOLS.length} 个工具可单独使用：达人建联（按类目 / 平台 / 粉丝数筛选达人并查看联系方式）· 阿里云智能外呼（选多维表格、映射列后把名单导入阿里云智能外呼，可新建任务组或往已有任务组追加号码）· 阿里云邮件推送（选多维表格、映射邮箱列与模板变量后同步到阿里云收件人列表，模板、域名与群发仍在阿里云控制台完成）· GEO-AI引擎优化（品牌在 AI 问答中的可见度报告与选题池，另含按语言与付费/免费筛选的发稿平台推荐与 GEO 建站入口，新窗口打开 AIworkin GEO 独立站看板）· 多平台内容分发（一条内容同发 13 家图文/文章渠道，配套 AIPDD Enterprise 浏览器插件在已登录的浏览器里自动填充发布，逐平台结果回写台账）· 活码引流（固定入口 + 多个子码按随机/顺序/权重分发，支持限额、同访客粘性与渠道统计，短链用你自己的域名）· 腾讯企点·客户数据 / 企微运营 / 会员与触达（自带企点凭据，客户与分群、企微活码与群发、会员积分与短信邮件触达，客户可写进本系统 CRM；Customer AI 与社媒聆听等只在控制台）· Google 潜客线索挖掘（与 AI 对话明确挖掘条件，线索逐批写入多维表格）· ${BIGDATA_TOOLS.map((tool) => tool.name).join(" / ")}（自然语言提数据需求，AI 解析后查询并写入各自的多维表格）· AI销售管理-SalesBuddy（AI 销售管理，点击直接新窗口打开 salesbuddy.top 网站）。潜客线索与大数据查询任务只按登录账号归属，且按数据集彼此独立；GEO 项目按创建账号与所属企业可见；阿里云外呼与邮件推送的 Key 也按登录账号各自配置。`}
         extra={
           tab !== "overview" ? (
             <Button
@@ -216,6 +225,8 @@ export default function MarketingToolsPage() {
             <LivecodeTab />
           ) : tab === "leads" ? (
             <LeadProspectingTab />
+          ) : tab === "distribution" ? (
+            <DistributionTab />
           ) : isBigdataTool(tab) ? (
             // key＝数据集：切换工具时整块重挂，设置 / 对话 / 任务状态不跨数据集残留
             <BigdataQueryTab key={tab} dataset={tab} />

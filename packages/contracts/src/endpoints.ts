@@ -30,6 +30,8 @@ import { lowcodeEndpoints } from "./lowcode";
 import { okrEndpoints } from "./okr";
 import { oaEndpoints } from "./oa";
 import { questionHallEndpoints } from "./question-hall";
+import { distributionEndpoints } from "./distribution";
+import { helpEndpoints } from "./help";
 import { imEndpoints } from "./im";
 import { skillHubEndpoints } from "./skillhub";
 import { communityEndpoints, communityAdminEndpoints } from "./community";
@@ -15482,6 +15484,8 @@ type ModuleEndpoints = typeof adminPageEndpoints &
   typeof okrEndpoints &
   typeof oaEndpoints &
   typeof questionHallEndpoints &
+  typeof distributionEndpoints &
+  typeof helpEndpoints &
   typeof imEndpoints &
   typeof skillHubEndpoints &
   typeof communityEndpoints &
@@ -15502,6 +15506,8 @@ export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...okrEndpoints,
   ...oaEndpoints,
   ...questionHallEndpoints,
+  ...distributionEndpoints,
+  ...helpEndpoints,
   ...imEndpoints,
   ...skillHubEndpoints,
   ...communityEndpoints,

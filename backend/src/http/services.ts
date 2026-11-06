@@ -98,6 +98,10 @@ import { EcomPdpService } from '../ecom-pdp/ecom-pdp.service';
 import { EcomPdpController } from '../ecom-pdp/ecom-pdp.controller';
 import { DomesticPdpService } from '../domestic-pdp/domestic-pdp.service';
 import { DomesticPdpController } from '../domestic-pdp/domestic-pdp.controller';
+import { DistributionService } from '../distribution/distribution.service';
+import { DistributionController } from '../distribution/distribution.controller';
+import { HelpService } from '../help/help.service';
+import { HelpController } from '../help/help.controller';
 import { AliyunCallCrypto } from '../aliyun-call/aliyun-call-crypto';
 import { AliyunCallService } from '../aliyun-call/aliyun-call.service';
 import { AliyunCallController } from '../aliyun-call/aliyun-call.controller';
@@ -609,6 +613,12 @@ export function createServices() {
     contentMediaService,
   );
   const domesticPdpController = new DomesticPdpController(domesticPdpService);
+  // 多平台内容分发：台账与结果落库在本系统，实际发布由 AIPDD Enterprise 浏览器插件在本地完成。
+  const distributionService = new DistributionService(prismaService);
+  const distributionController = new DistributionController(distributionService);
+  // 帮助中心：章节知识库内置随代码版本化，前端 /help 与 MCP（Help_*）读同一份。
+  const helpService = new HelpService();
+  const helpController = new HelpController(helpService);
   const contentAgentExpertService = new ContentAgentExpertService(
     prismaService,
     contentMediaService,
@@ -1128,6 +1138,8 @@ export function createServices() {
       leadProspectingController,
       ecomPdpController,
       domesticPdpController,
+      distributionController,
+      helpController,
       bigdataQueryController,
       aliyunCallController,
       aliyunMailController,

@@ -29,6 +29,7 @@ verification-screenshots/
 # 本地调试产物（probe 脚本 / 截图 / 编译探针），不属于发布内容
 scripts/tmp/
 packages/tmp/
+.tmp-analysis/
 
 # PostgreSQL schema 为派生产物（由 scripts/gen-prisma-schema.mjs 从 schema.prisma 生成），不入库以免与事实源漂移
 backend/prisma/schema.postgres.prisma

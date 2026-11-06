@@ -22,9 +22,11 @@ result = result.replace(
 
 // 2) 原生类型改写：Prisma 在 PostgreSQL 下不认识以下 MySQL 独有标注。
 //    - @db.TinyInt    → @db.SmallInt（PG 无 tinyint）
+//    - @db.MediumText → @db.Text（PG 无 mediumtext，Text 本身无长度上限）
 //    - @db.DateTime(n)/@db.DateTime → @db.Timestamp(n)/@db.Timestamp(3)
 result = result
   .replace(/@db\.TinyInt\b/g, '@db.SmallInt')
+  .replace(/@db\.MediumText\b/g, '@db.Text')
   .replace(/@db\.DateTime\((\d+)\)/g, '@db.Timestamp($1)')
   .replace(/@db\.DateTime\b(?![(.])/g, '@db.Timestamp(3)');
 
@@ -38,6 +40,7 @@ const countOf = (re) => (result.match(re) || []).length;
 console.log('已生成 ' + outFile);
 console.log(
   '  provider=postgresql, @db.SmallInt×' + countOf(/@db\.SmallInt/g)
+    + ', @db.Text×' + countOf(/@db\.Text\b/g)
     + ', @db.Timestamp×' + countOf(/@db\.Timestamp/g)
     + '（原 MySQL 独有类型已映射）',
 );

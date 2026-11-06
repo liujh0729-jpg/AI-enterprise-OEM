@@ -26,6 +26,7 @@ import {
   NotificationOutlined,
   PayCircleOutlined,
   PlayCircleOutlined,
+  QuestionCircleOutlined,
   RocketOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
@@ -46,7 +47,7 @@ import {
   type ProLayoutProps,
   type ProSettings,
 } from "@ant-design/pro-components";
-import { App, Button, Dropdown, Result, Spin } from "antd";
+import { App, Button, Dropdown, Result, Spin, Tooltip } from "antd";
 import Link from "next/link";
 import { NotificationBell } from "@/components/notification-bell";
 import { PointsBalanceChip } from "@/components/points-balance-chip";
@@ -283,6 +284,16 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
           <PointsBalanceChip key="points" />,
           <LanguageSwitcher key="lang" compact />,
           <NotificationBell key="notifications" />,
+          <Tooltip title={t("帮助中心")} key="help">
+            <Button
+              type="text"
+              size="small"
+              icon={<QuestionCircleOutlined />}
+              style={{ opacity: 0.65 }}
+              onClick={() => router.push("/help")}
+              aria-label={t("帮助中心")}
+            />
+          </Tooltip>,
           <Button
             key="settings"
             type="text"
@@ -351,6 +362,13 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
                     label: t("返回高管驾驶舱"),
                     onClick: () => router.push("/"),
                   }, { type: "divider" as const }] : []),
+                  {
+                    key: "help",
+                    icon: <QuestionCircleOutlined />,
+                    label: t("帮助中心"),
+                    onClick: () => router.push("/help"),
+                  },
+                  { type: "divider" },
                   {
                     key: "identity",
                     icon: <UserOutlined />,

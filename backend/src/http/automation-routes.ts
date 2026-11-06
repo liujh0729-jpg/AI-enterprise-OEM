@@ -460,6 +460,28 @@ export function registerAutomationRoutes(
     DomesticPdp_remove: async (i) =>
       c.domesticPdpController.remove(i.user, i.param['id']),
 
+    // ---------- 多平台内容分发（营销工具：AIPDD Enterprise 插件本地发布） ----------
+    Distribution_meta: async (i) => c.distributionController.meta(i.user),
+    Distribution_page: async (i) =>
+      c.distributionController.list(i.user, i.query),
+    Distribution_detail: async (i) =>
+      c.distributionController.detail(i.user, i.param['id']),
+    Distribution_create: async (i) =>
+      c.distributionController.create(i.user, i.json),
+    Distribution_update: async (i) =>
+      c.distributionController.update(i.user, i.param['id'], i.json),
+    Distribution_remove: async (i) =>
+      c.distributionController.remove(i.user, i.param['id']),
+    Distribution_mark: async (i) =>
+      c.distributionController.mark(i.user, i.param['id']),
+    Distribution_reportLogs: async (i) =>
+      c.distributionController.reportLogs(i.user, i.param['id'], i.json),
+
+    // ---------- 帮助中心（章节知识库：前端 /help 与 MCP 读同一份） ----------
+    Help_chapters: async (i) => c.helpController.chapters(i.user),
+    Help_topic: async (i) => c.helpController.topic(i.user, i.param['code']),
+    Help_search: async (i) => c.helpController.search(i.user, i.query),
+
     // ---------- 大数据查询（营销工具：五个独立数据集） ----------
     Bigdata_settings: async (i) =>
       c.bigdataQueryController.settings(i.user, i.param['dataset'], i.token),

@@ -6609,3 +6609,54 @@ model DomesticPdpAsset {
   @@index([packId])
   @@map("domestic_pdp_assets")
 }
+
+/// 多平台内容分发（营销工具）：内容台账按登录账号归属，实际发布由浏览器插件在本地完成
+model DistributionContent {
+  id            Int       @id @default(autoincrement())
+  /// 归属登录账号（与潜客线索 / 大数据任务同口径：只按账号隔离）
+  userId        String    @map("user_id") @db.VarChar(64)
+  title         String    @db.VarChar(200)
+  /// 正文：受限 HTML（富文本），旧数据为纯文本；MediumText 因样式标记会显著放大字节数
+  content       String    @db.MediumText
+  /// MOMENT（动态/图文） | ARTICLE（文章）
+  mediaType     String    @default("MOMENT") @map("media_type") @db.VarChar(16)
+  /// 图片清单：[{ name, url }]（发布时由插件按 URL 拉取，JSON 无默认值，创建时必传）
+  images        Json
+  /// 勾选的平台编码（契约 DISTRIBUTION_PLATFORMS 注册表内）
+  platformCodes Json      @map("platform_codes")
+  /// 插件是否自动点发布（默认关：只填充，人工确认后发布）
+  autoPublish   Boolean   @default(false) @map("auto_publish")
+  /// DRAFT（未分发） | DISTRIBUTED（已分发）
+  status        String    @default("DRAFT") @db.VarChar(16)
+  tags          String    @default("") @db.VarChar(200)
+  lastDistributedAt DateTime? @map("last_distributed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  logs DistributionPublishLog[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, mediaType, status])
+  @@map("distribution_contents")
+}
+
+/// 逐平台发布结果：页面收到插件回调后上报（EXTENSION），或人工补记（MANUAL）
+model DistributionPublishLog {
+  id           Int      @id @default(autoincrement())
+  contentId    Int      @map("content_id")
+  userId       String   @map("user_id") @db.VarChar(64)
+  platformCode String   @map("platform_code") @db.VarChar(32)
+  platformName String   @default("") @map("platform_name") @db.VarChar(64)
+  /// FILLED（已填充待确认） | SUCCESS（已发布） | FAILED（失败）
+  status       String   @db.VarChar(16)
+  publishedUrl String   @default("") @map("published_url") @db.VarChar(500)
+  errorMsg     String   @default("") @map("error_msg") @db.VarChar(500)
+  /// EXTENSION | MANUAL
+  source       String   @default("EXTENSION") @db.VarChar(16)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  content DistributionContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([contentId, createdAt])
+  @@map("distribution_publish_logs")
+}
