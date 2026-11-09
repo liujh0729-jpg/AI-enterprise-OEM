@@ -12,6 +12,7 @@ import {
   QR_SELECT_MODE_LABELS,
 } from '@enterprise/contracts';
 import { pageOf, pageParam, text } from '../common/api';
+import type { Prisma } from '../../generated/prisma';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
@@ -713,7 +714,7 @@ export class LivecodeService {
         ...(body.status === 'ACTIVE' || body.status === 'PAUSED'
           ? { status: body.status }
           : {}),
-      } as never,
+      } satisfies Prisma.MarketingQrCodeUncheckedUpdateInput,
     });
     return this.get(user, id);
   }
@@ -972,7 +973,7 @@ export class LivecodeService {
         ...(body.status === 'ACTIVE' || body.status === 'PAUSED'
           ? { status: body.status }
           : {}),
-      } as never,
+      } satisfies Prisma.MarketingQrChildUncheckedUpdateInput,
     });
     return this.childView(row);
   }

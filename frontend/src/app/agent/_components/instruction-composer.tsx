@@ -11,6 +11,7 @@ import {
   ApiOutlined,
   BlockOutlined,
   FileAddOutlined,
+  PictureOutlined,
   PlusOutlined,
   TeamOutlined,
   ToolOutlined,
@@ -19,19 +20,11 @@ import { App, Button, Checkbox, Input, Popover, Spin, Tag } from "antd";
 import type { CSSProperties } from "react";
 import { useRef, useState } from "react";
 import { uploadContentMedia } from "@/api/content";
-
-const MEDIA_LABEL = { image: "图片", video: "视频", audio: "音频" } as const;
-
-/** 参考文件按类型从 1 编号（图片1 / 视频1 / 音频1），删掉中间的也不重排。 */
-function nextLabel(
-  references: ContentAgentReference[],
-  media: ContentAgentReference["media"],
-) {
-  const used = references
-    .filter((item) => item.media === media)
-    .map((item) => Number((/^[^\d]*(\d+)$/.exec(item.label) || [])[1]) || 0);
-  return `${MEDIA_LABEL[media]}${Math.max(0, ...used) + 1}`;
-}
+import {
+  AssetReferencePicker,
+  nextReferenceLabel,
+  referencesFromAssets,
+} from "@/components/content/asset-reference-picker";
 
 const ROW_STYLE: CSSProperties = {
   display: "flex",
@@ -92,9 +85,10 @@ export function InstructionComposer({
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<
-    "root" | "skills" | "plugins" | "experts" | "connectors"
+    "root" | "references" | "skills" | "plugins" | "experts" | "connectors"
   >("root");
   const [uploading, setUploading] = useState(false);
+  const [assetOpen, setAssetOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const toggle = (ids: number[], id: number, checked: boolean) =>
@@ -116,7 +110,7 @@ export function InstructionComposer({
             continue;
           }
           next.push({
-            label: nextLabel(next, media),
+            label: nextReferenceLabel(next, media),
             fileName: uploaded.name || file.name,
             url: uploaded.url,
             media,
@@ -178,10 +172,7 @@ export function InstructionComposer({
         <button
           type="button"
           style={ROW_STYLE}
-          onClick={() => {
-            setOpen(false);
-            fileRef.current?.click();
-          }}
+          onClick={() => setPanel("references")}
         >
           <FileAddOutlined aria-hidden />
           <span>添加参考文件</span>
@@ -200,6 +191,41 @@ export function InstructionComposer({
             {connectorIds.length ? `已选 ${connectorIds.length}` : "全部启用"}
           </span>
         </button>
+      </div>
+    ) : panel === "references" ? (
+      <div style={{ display: "grid", gap: 2, width: 280 }}>
+        <button
+          type="button"
+          style={ROW_STYLE}
+          disabled={uploading}
+          onClick={() => {
+            setOpen(false);
+            fileRef.current?.click();
+          }}
+        >
+          <FileAddOutlined aria-hidden />
+          <span>从本地上传</span>
+          <span className="text-12 muted" style={{ marginLeft: "auto" }}>
+            {uploading ? "上传中…" : "图片 / 视频 / 音频"}
+          </span>
+        </button>
+        <button
+          type="button"
+          style={ROW_STYLE}
+          onClick={() => {
+            setOpen(false);
+            setAssetOpen(true);
+          }}
+        >
+          <PictureOutlined aria-hidden />
+          <span>从数字资产选择</span>
+          <span className="text-12 muted" style={{ marginLeft: "auto" }}>
+            复用已传素材
+          </span>
+        </button>
+        <span className="text-12 muted" style={{ padding: "2px 8px" }}>
+          {`本轮已有 ${references.length} 个参考文件；按类型自动编号。`}
+        </span>
       </div>
     ) : panel === "skills" ? (
       <div style={{ display: "grid", gap: 8, width: 300 }}>
@@ -502,6 +528,16 @@ export function InstructionComposer({
           multiple
           hidden
           onChange={(event) => void addFiles(event.target.files)}
+        />
+        <AssetReferencePicker
+          open={assetOpen}
+          existingUrls={references.map((item) => item.url)}
+          onCancel={() => setAssetOpen(false)}
+          onPick={(assets) => {
+            onReferences(referencesFromAssets(references, assets));
+            setAssetOpen(false);
+            setPanel("root");
+          }}
         />
       </div>
     </div>

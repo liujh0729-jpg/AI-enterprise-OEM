@@ -1,9 +1,10 @@
 "use client";
 
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import { App, Button, Drawer, Form, Input, Space, Spin, Tag } from "antd";
-import { useEffect, useState } from "react";
+import { Alert, App, Button, Drawer, Form, Input, Space, Spin, Tag } from "antd";
+import { useCallback, useEffect, useState } from "react";
 import { oaApi } from "@/api/oa";
+import { aiApi } from "@/api/ai";
 import {
   type OaApplication,
   type OaAttachment,
@@ -72,17 +73,25 @@ export function NewApplicationDrawer({
   const [ccUserIds, setCcUserIds] = useState<string[]>([]);
   const [links, setLinks] = useState<OaLinkSearchItem[]>([]);
   const [attachments, setAttachments] = useState<OaAttachment[]>([]);
+  const [draftText, setDraftText] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [draftNote, setDraftNote] = useState<{
+    templateName: string;
+    reason: string;
+    missing: string[];
+    mode: string;
+  } | null>(null);
 
   /** 深链带进来的金额预填主金额（与 oaAmountOf 同序：第一个金额字段）。 */
-  const prefillAmount = (fields: OaField[], values: Record<string, unknown>) => {
+  const prefillAmount = useCallback((fields: OaField[], values: Record<string, unknown>) => {
     if (application) return;
     const amount = presetLinks?.[0]?.amount || 0;
     const key = fields.find((item) => item.type === "amount")?.key;
     if (!(amount > 0) || !key || values[key] !== undefined) return;
     form.setFieldValue(key, amount);
-  };
+  }, [application, presetLinks, form]);
 
-  const loadTemplate = async (id: number) => {
+  const loadTemplate = useCallback(async (id: number) => {
     setLoading(true);
     try {
       const data = await oaApi.templateDetail({
@@ -101,10 +110,12 @@ export function NewApplicationDrawer({
     } finally {
       setLoading(false);
     }
-  };
+  }, [org, application, form, message, prefillAmount]);
 
   useEffect(() => {
     if (!open) return;
+    setDraftText("");
+    setDraftNote(null);
     if (application) {
       setTitle(application.title);
       setCcUserIds(application.cc.map((item) => item.userId));
@@ -119,12 +130,46 @@ export function NewApplicationDrawer({
     setAttachments([]);
     if (presetTemplateId) void loadTemplate(presetTemplateId);
     else setTemplate(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在抽屉打开/切换单据时初始化
-  }, [open, application?.id, presetTemplateId]);
+  }, [open, application, presetTemplateId, presetTitle, presetLinks, loadTemplate]);
 
   const backToTemplates = () => {
     setTemplate(null);
     form.resetFields();
+    setDraftNote(null);
+  };
+
+  /** AI 起草：把一句话映射到模板并预填字段，只出草稿，用户核对后再存/交。 */
+  const aiDraft = async () => {
+    const text = draftText.trim();
+    if (!text) {
+      message.warning("先用一句话描述你要申请的事项");
+      return;
+    }
+    setDrafting(true);
+    try {
+      const draft = await aiApi.oaDraftApplication({
+        body: { text, ...org },
+      });
+      if (!draft) throw new Error("AI 起草没有返回结果");
+      const data = await oaApi.templateDetail({
+        params: { id: String(draft.templateId) },
+        query: org,
+      });
+      if (!data) throw new Error("匹配到的模板已不存在");
+      setTemplate(data);
+      form.setFieldsValue(oaInitialValues(data.fields, draft.formData));
+      setTitle(draft.title);
+      setDraftNote({
+        templateName: draft.templateName,
+        reason: draft.reason,
+        missing: draft.missing,
+        mode: draft.mode,
+      });
+    } catch (error) {
+      message.error(oaError(error));
+    } finally {
+      setDrafting(false);
+    }
   };
 
   const persist = async (submitted: boolean) => {
@@ -219,25 +264,64 @@ export function NewApplicationDrawer({
       ) : !template ? (
         <Panel title="选择申请模板">
           {enabled.length ? (
-            <ToolCardGrid>
-              {enabled.map((item) => (
-                <ToolCard
-                  key={item.id}
-                  title={item.name}
-                  tag={<Tag>{item.categoryLabel}</Tag>}
-                  description={item.description || "按模板配置的表单与流程发起。"}
-                  meta={`${item.nodeCount} 个审批节点 · 单号前缀 ${item.numberPrefix}`}
-                  onClick={() => void loadTemplate(item.id)}
+            <>
+              <div style={{ marginBottom: 12 }}>
+                <Input.TextArea
+                  value={draftText}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder="用一句话描述你要申请的事项，例如：3 月 5 日到 6 日请两天年假回老家"
+                  onChange={(event) => setDraftText(event.target.value)}
                 />
-              ))}
-            </ToolCardGrid>
+                <div style={{ marginTop: 8, textAlign: "right" }}>
+                  <Button
+                    type="primary"
+                    loading={drafting}
+                    onClick={() => void aiDraft()}
+                  >
+                    AI 起草
+                  </Button>
+                </div>
+              </div>
+              <ToolCardGrid>
+                {enabled.map((item) => (
+                  <ToolCard
+                    key={item.id}
+                    title={item.name}
+                    tag={<Tag>{item.categoryLabel}</Tag>}
+                    description={item.description || "按模板配置的表单与流程发起。"}
+                    meta={`${item.nodeCount} 个审批节点 · 单号前缀 ${item.numberPrefix}`}
+                    onClick={() => void loadTemplate(item.id)}
+                  />
+                ))}
+              </ToolCardGrid>
+            </>
           ) : (
             <EmptyState text="该组织还没有启用的申请模板，请先在「模板与流程」里配置" />
           )}
         </Panel>
       ) : (
         <Form form={form} component={false}>
-          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={12} style={{ width: "100%" }}>
+            {draftNote ? (
+              <Alert
+                type="info"
+                showIcon
+                closable
+                onClose={() => setDraftNote(null)}
+                message={`AI 已按「${draftNote.templateName}」起草${
+                  draftNote.mode === "llm" ? "" : "（未配置文本模型，按关键词匹配）"
+                }`}
+                description={[
+                  draftNote.reason,
+                  draftNote.missing.length
+                    ? `还需补全：${draftNote.missing.join("、")}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              />
+            ) : null}
             <Panel title="基本信息">
               <div className="form-2col">
                 <div style={{ gridColumn: "1 / -1" }}>

@@ -139,7 +139,7 @@ function MembersPanel({ tabs }: { tabs: ReactNode }) {
           actionLabel="保存会员"
           accountId={accountId}
           submit={async (payload) => {
-            await tpApi.lmSaveMember({ body: payload as never });
+            await tpApi.lmSaveMember({ body: payload });
             return "会员已保存";
           }}
           hint="字段名以企点「会员」接口为准（如会员ID、手机号、计划ID等）。"
@@ -150,7 +150,7 @@ function MembersPanel({ tabs }: { tabs: ReactNode }) {
           actionLabel="调整状态"
           accountId={accountId}
           submit={async (payload) => {
-            await tpApi.lmMemberStatus({ body: payload as never });
+            await tpApi.lmMemberStatus({ body: payload });
             return "会员状态已调整";
           }}
         />
@@ -190,7 +190,7 @@ function MembersPanel({ tabs }: { tabs: ReactNode }) {
             </div>
           }
           submit={async (body) =>
-            taskText(await tpApi.lmIssuePoints({ body: body as never }))
+            taskText(await tpApi.lmIssuePoints({ body }))
           }
         />
       </div>
@@ -255,7 +255,7 @@ function CouponsPanel({ tabs }: { tabs: ReactNode }) {
             </div>
           }
           submit={async (body) =>
-            taskText(await tpApi.lmCouponIssue({ body: body as never }))
+            taskText(await tpApi.lmCouponIssue({ body }))
           }
         />
         <Notice variant="info">
@@ -283,7 +283,7 @@ function MessagingPanel({ tabs }: { tabs: ReactNode }) {
       okText: "确认删除",
       danger: true,
       onOk: async () => {
-        await tpApi.maDeleteShortLink({ body: { accountId, linkId } as never });
+        await tpApi.maDeleteShortLink({ body: { accountId, linkId } });
       },
     });
   };
@@ -340,7 +340,7 @@ function MessagingPanel({ tabs }: { tabs: ReactNode }) {
           actionLabel="创建模板"
           accountId={accountId}
           submit={async (payload) => {
-            await tpApi.maCreateTemplate({ body: payload as never });
+            await tpApi.maCreateTemplate({ body: payload });
             return "模板已创建";
           }}
           hint="字段名以企点「创建模板」接口为准；短信与邮件的模板字段不同，按接口文档填。"
@@ -365,7 +365,7 @@ function MessagingPanel({ tabs }: { tabs: ReactNode }) {
           actionLabel="保存短链"
           accountId={accountId}
           submit={async (payload) => {
-            await tpApi.maSaveShortLink({ body: payload as never });
+            await tpApi.maSaveShortLink({ body: payload });
             return "短链已保存";
           }}
         />
@@ -411,7 +411,7 @@ function MessagingPanel({ tabs }: { tabs: ReactNode }) {
             </div>
           }
           submit={async (body) =>
-            taskText(await tpApi.maMassSend({ body: body as never }))
+            taskText(await tpApi.maMassSend({ body }))
           }
         />
       </div>
@@ -486,7 +486,7 @@ function RtaPanel({ tabs }: { tabs: ReactNode }) {
               params={{ crowdName, dataType, advertiserId }}
               paramsReady={Boolean(crowdName.trim())}
               submit={async (body) =>
-                taskText(await tpApi.rtaUploadAudience({ body: body as never }))
+                taskText(await tpApi.rtaUploadAudience({ body }))
               }
             />
           </>

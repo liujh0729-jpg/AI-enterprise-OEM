@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { BiScopeService, BiContext } from './bi.scope';
 import { BiQueryService } from './bi.query.service';
 import { INTERNAL_DATASETS, internalDataset } from './bi.internal';
@@ -137,19 +139,19 @@ export class BiDatasetService {
     const ctx = await this.scope.requireMember(user);
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
-    const where: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+    const where: Prisma.BiDatasetWhereInput = { ownerUserId: ctx.ownerUserId };
     if (query.groupId) where.groupId = Number(query.groupId);
     if (query.type) where.type = text(query.type);
     const keyword = text(query.keyword).trim();
     if (keyword) where.name = { contains: keyword };
     const [rows, total] = await Promise.all([
       this.prisma.biDataset.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.biDataset.count({ where: where as never }),
+      this.prisma.biDataset.count({ where }),
     ]);
     return {
       list: await this.views(rows, ctx),
@@ -276,7 +278,7 @@ export class BiDatasetService {
           type,
           internalKey: key,
           description: text(body.description).slice(0, 500),
-          config: { internalKey: key } as never,
+          config: toJsonInput({ internalKey: key }),
         },
       });
       await this.seedInternalFields(row.id, key);
@@ -379,7 +381,7 @@ export class BiDatasetService {
     const ctx = await this.scope.requireMember(user);
     this.scope.assertCan(ctx, 'editor');
     const row = await this.findOne(ctx, rawId);
-    const data: Record<string, unknown> = {};
+    const data: Prisma.BiDatasetUncheckedUpdateInput = {};
     if (body.name !== undefined) data.name = text(body.name).slice(0, 80);
     if (body.groupId !== undefined) data.groupId = Number(body.groupId) || 0;
     if (body.description !== undefined)
@@ -390,7 +392,7 @@ export class BiDatasetService {
     }
     await this.prisma.biDataset.update({
       where: { id: row.id },
-      data: data as never,
+      data,
     });
     return (await this.views([await this.findOne(ctx, rawId)], ctx))[0];
   }
@@ -532,11 +534,11 @@ export class BiDatasetService {
         datasetId: dataset.id,
         role,
         rowFilter: text(body.rowFilter).slice(0, 2000),
-        columnRules: (body.columnRules || {}) as never,
+        columnRules: toJsonInput(body.columnRules || {}),
       },
       update: {
         rowFilter: text(body.rowFilter).slice(0, 2000),
-        columnRules: (body.columnRules || {}) as never,
+        columnRules: toJsonInput(body.columnRules || {}),
       },
     });
     return {

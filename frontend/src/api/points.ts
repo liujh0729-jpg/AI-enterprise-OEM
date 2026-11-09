@@ -96,6 +96,37 @@ export interface UsageEventRow {
   billed: boolean;
   occurredAt: string;
   remark: string;
+  module: string;
+  operation: string;
+  model: string;
+  tokenInAmount: number;
+  tokenOutAmount: number;
+  pointsAmount: number;
+}
+
+/** 统一 AI 用量事实的汇总行（按板块 + 科目）。 */
+export interface AiUsageModuleRow {
+  module: string;
+  code: string;
+  calls: number;
+  quantityAmount: number;
+  tokenInAmount: number;
+  tokenOutAmount: number;
+  pointsAmount: number;
+}
+
+export interface AiUsageSummary {
+  from: string;
+  to: string;
+  modules: AiUsageModuleRow[];
+  insights: { scope: string; count: number }[];
+  totals: {
+    calls: number;
+    tokenInAmount: number;
+    tokenOutAmount: number;
+    pointsAmount: number;
+    insightCount: number;
+  };
 }
 
 const tierSchema = z.object({ cents: z.number(), bonusPercent: z.number() });
@@ -201,8 +232,39 @@ const usagePageSchema = apiEnvelope(
         billed: z.boolean(),
         occurredAt: z.string(),
         remark: z.string(),
+        module: z.string(),
+        operation: z.string(),
+        model: z.string(),
+        tokenInAmount: z.number(),
+        tokenOutAmount: z.number(),
+        pointsAmount: z.number(),
       }),
     ),
+  }),
+);
+const aiUsageSummarySchema = apiEnvelope(
+  z.object({
+    from: z.string(),
+    to: z.string(),
+    modules: z.array(
+      z.object({
+        module: z.string(),
+        code: z.string(),
+        calls: z.number(),
+        quantityAmount: z.number(),
+        tokenInAmount: z.number(),
+        tokenOutAmount: z.number(),
+        pointsAmount: z.number(),
+      }),
+    ),
+    insights: z.array(z.object({ scope: z.string(), count: z.number() })),
+    totals: z.object({
+      calls: z.number(),
+      tokenInAmount: z.number(),
+      tokenOutAmount: z.number(),
+      pointsAmount: z.number(),
+      insightCount: z.number(),
+    }),
   }),
 );
 const summarySchema = apiEnvelope(
@@ -308,9 +370,26 @@ export const pointsAdminApi = {
       body,
     }),
   usage: (
-    query: { code?: string; userId?: string; page?: number; size?: number } = {},
+    query: {
+      code?: string;
+      module?: string;
+      userId?: string;
+      from?: string;
+      to?: string;
+      page?: number;
+      size?: number;
+    } = {},
     options?: HttpOptions,
   ) => unwrap(usagePageSchema, `${ADMIN}/usage`, { ...options, query }),
+  /** 统一 AI 用量汇总：每个板块花了多少 token / 积分（§4.4）。 */
+  aiUsageSummary: (
+    query: { userId?: string; from?: string; to?: string } = {},
+    options?: HttpOptions,
+  ) =>
+    unwrap(aiUsageSummarySchema, `${ADMIN}/usage/summary`, {
+      ...options,
+      query,
+    }),
   accounts: (
     query: { keyword?: string; page?: number; size?: number } = {},
     options?: HttpOptions,
@@ -347,6 +426,11 @@ export const pointsApi = {
     query: { page?: number; size?: number; type?: string; scene?: string } = {},
     options?: HttpOptions,
   ) => unwrap(txPageSchema, `${USER}/transactions`, { ...options, query }),
+  /** 本人各板块的 AI 用量（token / 积分），与后台读同一张用量事实。 */
+  aiUsage: (
+    query: { from?: string; to?: string } = {},
+    options?: HttpOptions,
+  ) => unwrap(aiUsageSummarySchema, `${USER}/ai-usage`, { ...options, query }),
   settings: (options?: HttpOptions) =>
     unwrap(
       apiEnvelope(

@@ -19,6 +19,7 @@ import type {
 } from '@enterprise/contracts';
 import { Prisma } from '../../generated/prisma';
 import { pageParam, pageOf, text } from '../common/api';
+import { toJsonInput } from '../common/json-input';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { Logger } from '../common/logger';
@@ -889,7 +890,7 @@ export class CommunityService {
         userId: user.userId,
         jobId: job.id.slice(0, 64),
         status: job.status || 'queued',
-        inputs: inputSnapshot(inputs) as never,
+        inputs: toJsonInput(inputSnapshot(inputs)),
         startedAt: job.status === 'running' ? new Date() : null,
       },
     });
@@ -922,7 +923,7 @@ export class CommunityService {
     ]);
     const byWorkflow = new Map(workflows.map((row) => [row.id, row]));
     const byRun = new Map<number, OutputRow[]>();
-    for (const output of outputs as unknown as OutputRow[]) {
+    for (const output of outputs) {
       const bucket = byRun.get(output.runId) || [];
       bucket.push(output);
       byRun.set(output.runId, bucket);
@@ -1087,12 +1088,7 @@ export class CommunityService {
         take: page.pageSize,
       }),
     ]);
-    return pageOf(
-      await this.shapeRuns(rows as unknown as RunRow[]),
-      total,
-      page.page,
-      page.pageSize,
-    );
+    return pageOf(await this.shapeRuns(rows), total, page.page, page.pageSize);
   }
 
   // ---------- 发布与我的发布 ----------
@@ -1200,12 +1196,12 @@ export class CommunityService {
         description: text(body.description).slice(0, COMMUNITY_DESCRIPTION_MAX),
         category: pickCategory(body.category),
         groupLabel: text(body.groupLabel).trim().slice(0, 64),
-        tags: cleanTags(body.tags) as never,
+        tags: toJsonInput(cleanTags(body.tags)),
         mediaType: pickMedia(body.mediaType),
         format: 'api',
-        workflowJson: graph as never,
-        slots: slots as never,
-        coverKeys: [] as never,
+        workflowJson: toJsonInput(graph),
+        slots: toJsonInput(slots),
+        coverKeys: toJsonInput([]),
         comfyUrl: '',
         status: 'PENDING',
         auditNote: '已提交，等待管理员审核',
@@ -1274,7 +1270,7 @@ export class CommunityService {
     if (body.mediaType !== undefined)
       data.mediaType = pickMedia(body.mediaType);
     if (graphChanged) {
-      data.workflowJson = graph as never;
+      data.workflowJson = toJsonInput(graph);
       data.format = 'api';
     }
     if (slotsChanged) data.slots = slots;

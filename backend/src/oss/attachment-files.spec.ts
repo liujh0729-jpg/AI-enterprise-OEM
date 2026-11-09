@@ -1,7 +1,7 @@
 import { CurrentUser } from '../auth/current-user';
 import { FlexService } from '../flex/flex.service';
 import { IdentityService } from '../identity/identity.service';
-import { parseAttachmentFiles } from './attachment-files';
+import { parseAttachmentFiles, objectContentType } from './attachment-files';
 
 const valid = {
   name: '营业执照.png',
@@ -48,6 +48,26 @@ describe.each(['provider', 'flex'])('%s attachments', (kind) => {
     if (kind === 'flex')
       expect(requireRoles).toHaveBeenCalledWith(user, 'ENTERPRISE_USER');
   });
+});
+
+describe('object content types', () => {
+  it.each([
+    ['report.csv', 'text/csv; charset=utf-8'],
+    ['notes.md', 'text/markdown; charset=utf-8'],
+    ['clip.mp4', 'video/mp4'],
+    ['voice.m4a', 'audio/mp4'],
+    ['archive.zip', 'application/zip'],
+    ['unknown.bin', 'application/octet-stream'],
+  ])('maps %s to %s', (name, contentType) => {
+    expect(objectContentType(name)).toBe(contentType);
+  });
+
+  it.each(['page.html', 'icon.svg', 'app.js', 'data.xml'])(
+    'keeps scriptable types out of the public bucket: %s',
+    (name) => {
+      expect(() => objectContentType(name)).toThrow('不支持');
+    },
+  );
 });
 
 describe('attachment decoding limits', () => {

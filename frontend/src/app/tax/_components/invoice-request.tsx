@@ -13,7 +13,6 @@ import {
   Select,
   Space,
   Table,
-  Tabs,
 } from "antd";
 import type { TableProps } from "antd";
 import { useEffect, useState } from "react";
@@ -21,7 +20,7 @@ import {
   ContactEditModal,
   type ContactEditTarget,
 } from "@/components/contact-edit-modal";
-import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { EmptyState, Notice, Panel, TabStrip } from "@/components/ui/panel";
 import { StatusBadge } from "@/components/status-badge";
 import {
   useInvoiceRequests,
@@ -481,17 +480,17 @@ export function InvoiceRequestPanel({
           </Notice>
         ) : null}
         {mode === "REVIEW" ? (
-          <Tabs
-            size="small"
-            activeKey={tab}
+          <TabStrip
+            value={tab}
             onChange={(value) => {
               setTab(value);
               setPage(1);
             }}
             items={[
-              { key: "PENDING", label: `待审核（${pendingTotal}）` },
-              { key: "ALL", label: `全部（${total}）` },
+              { key: "PENDING", label: "待审核", count: pendingTotal },
+              { key: "ALL", label: "全部", count: total },
             ]}
+            style={{ marginBottom: 12 }}
           />
         ) : null}
         <div className="table-wrap">

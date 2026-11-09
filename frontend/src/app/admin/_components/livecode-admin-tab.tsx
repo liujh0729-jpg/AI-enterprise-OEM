@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Input, Modal, Space, Table, Tag, message } from "antd";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { PageResponse } from "@enterprise/contracts";
 import { livecodeApi } from "@/api/collab";
 
@@ -23,7 +23,7 @@ export function LivecodeAdminTab() {
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const data = (await livecodeApi.adminList({
@@ -36,12 +36,11 @@ export function LivecodeAdminTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, keyword]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [load]);
 
   return (
     <Table

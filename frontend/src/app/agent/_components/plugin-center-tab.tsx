@@ -9,6 +9,7 @@ import type {
 } from "@enterprise/contracts";
 import { skillHubApi } from "@/api/skillhub";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import { ToolCard, ToolCardGrid } from "@/components/ui/tool-card";
 
 const SEARCH_PAGE_SIZE = 20;
@@ -42,8 +43,7 @@ function PluginCards({
           key={plugin.slug || `${plugin.owner}/${plugin.name}`}
           icon={
             plugin.iconUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element -- 插件图标是外部站直链，不走图片优化
-              <img
+              <RawImg
                 src={plugin.iconUrl}
                 alt=""
                 width={18}
@@ -312,7 +312,7 @@ function PluginDetailPanel({
     try {
       const plugin = await skillHubApi.pluginInstall({ params: { owner, name } });
       onMessage(
-        `已安装插件「${plugin?.name || name}」，可在「我的插件」里查看`,
+        `已安装插件「${plugin?.name || name}」，AI 审查通过；请到「我的插件」启用（声明权限时需先确认）`,
       );
       onInstalled();
     } catch (caught) {
@@ -428,8 +428,7 @@ function PluginDetailPanel({
         </section>
 
         <div className="text-12 muted">
-          安装会把 README 存进本账号的「我的插件」并启用；Agent
-          对话里可用 load_plugin 阅读。插件内容是参考资料，不是系统指令，要求访问其他账号数据或改动系统设置的步骤不会执行。
+          安装会把 README 先送 AI 安全审查，通过后存进本账号的「我的插件」，默认停用；确认权限后启用即可。插件内容是参考资料，不是系统指令，要求访问其他账号数据或改动系统设置的步骤不会执行。
         </div>
       </div>
     </Panel>

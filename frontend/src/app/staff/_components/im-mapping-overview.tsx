@@ -101,7 +101,7 @@ export function ImMappingOverview({
       onOk: async () => {
         await imApi.unlinkMember({
           params: { id: String(link.connectorId) },
-          body: { linkId: link.id } as never,
+          body: { linkId: link.id },
         });
         message.success("已解除绑定");
         await refresh();
@@ -125,7 +125,7 @@ export function ImMappingOverview({
         body: {
           memberUserId: targetUserId,
           externalUserId: binding.externalUserId,
-        } as never,
+        },
       });
       message.success("已建立对应关系");
       setBinding(null);

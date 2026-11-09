@@ -1,5 +1,10 @@
 import { ContractsService } from './contracts.service';
 import { CurrentUser } from '../auth/current-user';
+import { PrismaService } from '../prisma/prisma.service';
+import { IdentityService } from '../identity/identity.service';
+import { UserLookupService } from '../directory/user-lookup.service';
+import { ContactResolver } from '../shared/contacts.service';
+import { stub } from '../../test/doubles';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -26,10 +31,10 @@ describe('dashboard contract reads', () => {
       .fn()
       .mockResolvedValue([{ status: 'ACTIVE', _count: { _all: 2 } }]);
     const service = new ContractsService(
-      { contract: { groupBy } } as never,
-      identity as never,
-      {} as never,
-      {} as never,
+      stub<PrismaService>({ contract: { groupBy } }),
+      stub<IdentityService>(identity),
+      stub<UserLookupService>(),
+      stub<ContactResolver>(),
     );
     const result = service.listStats(user);
     await Promise.resolve();
@@ -68,10 +73,10 @@ describe('dashboard contract reads', () => {
         .mockResolvedValue({ roles: ['SERVICE_PROVIDER'] }),
     };
     const service = new ContractsService(
-      prisma as never,
-      identity as never,
-      {} as never,
-      {} as never,
+      stub<PrismaService>(prisma),
+      stub<IdentityService>(identity),
+      stub<UserLookupService>(),
+      stub<ContactResolver>(),
     );
     const result = service.myEnterprises(user);
     await Promise.resolve();
@@ -103,10 +108,10 @@ describe('dashboard contract reads', () => {
           .mockResolvedValue({ roles: provider ? ['SERVICE_PROVIDER'] : [] }),
       };
       const service = new ContractsService(
-        prisma as never,
-        identity as never,
-        {} as never,
-        {} as never,
+        stub<PrismaService>(prisma),
+        stub<IdentityService>(identity),
+        stub<UserLookupService>(),
+        stub<ContactResolver>(),
       );
       await expect(service.myEnterprises(user)).resolves.toEqual([]);
       expect(prisma.contract.findMany).toHaveBeenCalledTimes(provider ? 1 : 0);

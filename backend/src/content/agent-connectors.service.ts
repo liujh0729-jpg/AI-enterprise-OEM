@@ -1,5 +1,6 @@
 import { MCP_ENDPOINT_PATH } from '@enterprise/contracts';
 import { text } from '../common/api';
+import { toJsonInput } from '../common/json-input';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { RateWindow } from '../common/rate-window';
@@ -25,6 +26,7 @@ import {
 import { mcpToolDescriptors } from '../mcp/mcp.service';
 import { runAsAgent } from '../mcp/agent-context';
 import { currentAgentScope } from './agent-scope';
+import type { AgentIntentDraft } from '../agent-memory/agent-memory.service';
 
 const NAME_MAX = 60;
 const URL_MAX = 500;
@@ -206,6 +208,11 @@ export class ContentAgentConnectorService {
     private readonly crypto: AgentMcpCrypto,
     private readonly identity: IdentityService,
     readonly builtin: { current?: BuiltinMcpRunner },
+    /** 授权闸与留痕：连接器工具未经本人勾选不执行，被拦的那次也要进操作流 */
+    private readonly grants: {
+      grantedConnectors(userId: string): Promise<Set<number>>;
+    },
+    private readonly memory: { record(draft: AgentIntentDraft): Promise<void> },
   ) {}
 
   /** 连接器名字带上来源主机，界面与审计都能看出它指向哪里。 */
@@ -345,7 +352,7 @@ export class ContentAgentConnectorService {
         headers: Object.keys(headers).length
           ? this.crypto.encrypt(JSON.stringify(headers))
           : '',
-        headerNames: Object.keys(headers) as never,
+        headerNames: toJsonInput(Object.keys(headers)),
         enabled: body.enabled !== false,
       },
     });
@@ -554,7 +561,7 @@ export class ContentAgentConnectorService {
         where: { id },
         data: {
           toolCount: tools.length,
-          toolNames: tools.slice(0, 50).map((tool) => tool.name) as never,
+          toolNames: toJsonInput(tools.slice(0, 50).map((tool) => tool.name)),
           lastError: error.slice(0, ERROR_TEXT_MAX),
           lastCheckedAt: new Date(),
         },
@@ -692,6 +699,10 @@ export class ContentAgentConnectorService {
     } catch (error) {
       return failText(`连接器「${row.name}」不可用：${this.messageOf(error)}`);
     }
+    // 授权闸：连接器工具由第三方实现、可读写远端状态，未经本人勾选一律只回草案。
+    // 工具名与读写语义都由远端控制，所以粒度落在「整条连接器」而不是单个工具名。
+    const blocked = await this.connectorGate(user, row, spec, args);
+    if (blocked) return blocked;
     const client = new McpClient({
       transport: transportOf(row.transport),
       url: row.url,
@@ -723,6 +734,58 @@ export class ContentAgentConnectorService {
     } finally {
       client.close();
     }
+  }
+
+  /**
+   * 连接器工具的两道闸，命中就返回给模型的拒执文案（不抛错、不打断整轮对话）：
+   * · 无人值守（定时任务 / 助理）默认不执行，任务显式放开写动作才放行；
+   * · 本人没在「可自动执行的动作」里勾选这条连接器时，只回草案。
+   * 远端工具没有可靠的读写标注，一律按写动作对待——宁可多拦一次，也不让无人值守的
+   * 一轮对话被注入内容驱动着去改远端数据。
+   */
+  private async connectorGate(
+    user: CurrentUser,
+    row: ConnectorRow,
+    spec: ConnectorToolSpec,
+    args: Record<string, unknown>,
+  ): Promise<{ text: string; ok: boolean } | null> {
+    const scope = currentAgentScope();
+    const unattended =
+      scope?.trigger === 'schedule' && scope.allowWrite !== true;
+    const granted = await this.grants
+      .grantedConnectors(user.userId)
+      .catch(() => new Set<number>());
+    if (!unattended && granted.has(row.id)) return null;
+    const reason = unattended
+      ? '无人值守任务默认不执行连接器工具，只出草案；要自动执行请在该定时任务里勾选「允许自动执行写动作」，或在本人的对话里确认后执行。'
+      : `本账号没有勾选「${row.name}」可自动执行。`;
+    await this.memory
+      .record({
+        userId: user.userId,
+        domain: 'connector',
+        action: 'Connector_callTool',
+        method: 'POST',
+        path: `/connector/${row.id}/${spec.remoteName}`,
+        targetType: 'connector',
+        targetId: String(row.id),
+        targetLabel: row.name,
+        params: args,
+        outcome: 'blocked',
+        errorCode: unattended ? 'SCHEDULE_DENIED' : 'NOT_GRANTED',
+        errorMessage: reason,
+        channel: scope?.trigger === 'schedule' ? 'scheduler' : 'mcp',
+      })
+      .catch(() => undefined);
+    return {
+      text: `工具执行失败：${reason}已生成草案，未真正调用远端：${JSON.stringify(
+        {
+          connector: row.name,
+          tool: spec.remoteName,
+          args,
+        },
+      ).slice(0, 1200)}`,
+      ok: false,
+    };
   }
 
   private async callBuiltin(

@@ -15,14 +15,17 @@ import {
   MarketListing,
   MarketListingPage,
   MoneyMode,
+  PublishDemandResult,
   ServiceAreaInput,
 } from '../aiworkin/aiworkin.types';
 import {
   MarketCategoryModule,
   categoryLabels,
+  hubSubCategoryId,
   leafById,
   marketplacePoolScope,
   moduleCategory,
+  poolCategoryKey,
   requireSubCategoryId,
 } from '../aiworkin/category-catalog';
 import { text } from '../common/api';
@@ -37,6 +40,10 @@ import {
 import { ErrorCode } from '../common/error-code';
 import { IdentityService } from '../identity/identity.service';
 import { ContactResolver } from '../shared/contacts.service';
+import {
+  MarketListingRecordService,
+  recordToListing,
+} from './market-listing-record.service';
 import {
   ContactPair,
   contactStr,
@@ -55,6 +62,21 @@ import {
 /** 平台 `pageParam` 上限 200，这里取 100 并限页，避免把整个市场拖进一次列表请求。 */
 const PAGE_SIZE = 100;
 const MAX_PAGES = 5;
+/** 供需市场（跨板块）：接口仍走 `/enterprise/market/:domain/...`，HUB 表示不按板块收窄。 */
+export const MARKET_HUB_DOMAIN = 'HUB';
+/**
+ * 列表筛选：地域（省 / 市）＋类目（二级类目 id）。
+ * `categoryId` 只有供需市场会传（跨板块公开池按二级类目收窄）；单一板块的看板/市集
+ * 已由板块本身收窄，不传该参数。
+ */
+export type MarketListFilter = RegionFilter & {
+  categoryId?: string;
+  /**
+   * 取数范围：`all`＝只扫 AIworkin 公开池，`mine`＝只读本地发布台账（「我发布的」）。
+   * 供需市场用它切「全部 / 我发布的」；不传＝各板块既有口径。
+   */
+  scope?: 'all' | 'mine';
+};
 /** 自有行补取的并发上限（列表行的联系方式平台已脱敏，要逐条读属主详情）。 */
 const DETAIL_CONCURRENCY = 8;
 const MONEY_MODES: MoneyMode[] = ['FIXED', 'STARTING', 'RANGE', 'NEGOTIABLE'];
@@ -151,23 +173,30 @@ type PageFetcher = (
   query: DemandQuery,
 ) => Promise<MarketListingPage | null | undefined>;
 /**
- * 平台直连看板（财税 / 供销 / 出海）：「需求信息」与「服务发布」都直接调用 AIworkin
- * 运行时接口，**本系统不落一行数据、也不审核发布内容的资质**（2026-09-26 用户口径：
- * 本系统只审「能不能成为服务商」，需求/服务的发布与回复只是接口转发）。其余板块仍是
- * 本地台账 + 通道同步，等 #227 再统一切到平台数据源；这些板块再走本地台账路由的写入
- * 已在 `services.service.ts` 拒收（写进去就是任何看板都读不到的孤行）。
+ * 平台直连看板（财税 / 供销 / 出海）：「需求信息」与「服务发布」的**发布**走 AIworkin MCP
+ * （REST 写被平台 401 拦死），**本地留台账**（`market_listing_records`，存平台挂单号），
+ * 列表与明细再按挂单号读回平台公开池；本系统不审核发布内容的资质（2026-09-26 用户口径：
+ * 本系统只审「能不能成为服务商」）。其余板块仍是本地台账 + 通道同步，等 #227 再统一切到
+ * 平台数据源；这些板块再走本地台账路由的写入已在 `services.service.ts` 拒收
+ * （写进去就是任何看板都读不到的孤行）。
  *
  * 出海（2026-09-26 并入）只用「需求信息」：该板块的「服务发布」界面未开，但接口与门控
  * 同口径，不留未门控的发布路径。
  *
- * 需求列表 = 我发布的（`/market/listings/mine`，按本板块二级类目本地筛）
- * ∪ 平台公开池（`/market/listings?category=一级类目key&province=&city=`）。
- * 编辑 / 删除 / 查看消息只对自有行开放：平台的改删按属主校验，会话回复也只有服务商侧
- * （`agentConversation.supplierProfile.userId`）能发，需求方在平台上没有发言接口。
+ * 需求列表 = 我发布的（本地台账按本板块筛）∪ 平台公开池
+ * （`/market/listings?category=一级类目key&province=&city=`）。
  *
- * 凭证口径（2026-11-03 用户指令）：服务列表 / 公开池这类「平台数据」走基础数据通道
- * （平台 Key 优先，未配置回落本人绑定 Key），平台配一次 Key 后未绑定的用户也能浏览；
- * 「我发布的」与发布 / 修改 / 删除 / 查看消息仍用本人绑定的 Key（平台 Key 代表不了本人归属）。
+ * 为什么「我发布的」不能读平台：`GET /market/listings/mine`（与 `/mine/{id}`）对 API Key
+ * 一律 401，谁扫谁整页报「通道鉴权失败」（2026-11-09 实测）。平台也没开放按属主读回挂单，
+ * 所以本地台账就是归属的唯一来源。
+ *
+ * 已发布到平台的挂单**不支持在本系统改删**（2026-11-09 用户裁定）：平台 REST 写
+ * （PATCH / DELETE）对 API Key 一律 401，MCP 也没有修改/删除工具，改删只会造成本地与
+ * 平台不一致，所以这些行只给「查看」。
+ *
+ * 凭证口径：列表 / 明细这类「平台数据」走基础数据通道（平台 Key 优先，未配置回落本人
+ * 绑定 Key），平台配一次 Key 后未绑定的用户也能浏览；**发布**必须用本人绑定的 Key
+ * （平台把挂单挂在本人 Key 对应的 AIworkin 域下）。
  */
 export class MarketBoardService {
   private readonly cursors = new CursorCache<MarketScanState>();
@@ -177,18 +206,20 @@ export class MarketBoardService {
   >();
   private async page(
     user: CurrentUser,
-    module: MarketCategoryModule,
+    module: MarketCategoryModule | null,
     ownerTag: string,
-    mineToken: string,
     poolToken: string,
     direction: 'DEMAND' | 'SUPPLY',
-    filter: RegionFilter,
+    filter: MarketListFilter,
     cursor?: string,
     pageSize = 20,
-    startSource: 'mine' | 'pool' = 'mine',
+    scope: 'all' | 'mine' = 'mine',
     poolScope: 'parent' | 'leaf' = 'leaf',
   ): Promise<MarketPage> {
-    this.requireChannel();
+    // 本地台账（scope=mine）整页只读本系统 `market_listing_records`，不碰平台通道，
+    // 因此未配平台 Key 也能列「我发布的」；只有读公开池（scope=all）才校验通道。
+    if (scope === 'all') this.requireChannel();
+    // `module=null` 即供需市场：列表只按方向收窄，不限定单一板块的二级类目。
     const owner = createHash('sha256')
       .update(
         JSON.stringify([
@@ -204,8 +235,7 @@ export class MarketBoardService {
     const state: MarketScanState = cursor
       ? this.cursors.get(owner, cursor)
       : {
-          // 本人未绑定 Key 时没有「我发布的」可扫，直接从公开池起步（公开池用平台 Key）。
-          source: startSource === 'mine' && !mineToken ? 'pool' : startSource,
+          source: scope === 'all' ? 'pool' : 'mine',
           minePage: 1,
           poolPage: 1,
           buffer: [],
@@ -224,6 +254,17 @@ export class MarketBoardService {
         seen: [...state.seen],
       };
       const seen = new Set(next.seen);
+      /**
+       * 公开池的一级类目参数：单一板块按板块的一级类目收窄；供需市场选了二级类目时
+       * 按该叶子的父类目收窄（平台未收录该一级类目则不带，回落到本地叶子精确过滤）。
+       */
+      const category = module
+        ? module.poolFilterable !== false
+          ? module.parentKey
+          : undefined
+        : filter.categoryId
+          ? poolCategoryKey(filter.categoryId)
+          : undefined;
       let scans = 0;
       const list: (MarketDemandRow | MarketServiceRow)[] = [];
       while (list.length < pageSize) {
@@ -234,30 +275,26 @@ export class MarketBoardService {
         if (next.source === 'done' || scans >= 5) break;
         const mine = next.source === 'mine';
         const page = mine ? next.minePage++ : next.poolPage++;
-        const result = await (mine
-          ? this.demands.listMine(mineToken, {
-              page,
-              pageSize: PAGE_SIZE,
-              direction,
-            })
-          : this.demands.listPublic(poolToken, {
+        const result = mine
+          ? await this.localMinePage(user.userId, module, direction, page)
+          : await this.demands.listPublic(poolToken, {
               page,
               pageSize: PAGE_SIZE,
               direction,
               // 平台未收录该板块一级类目时不带 `category`（会被判 400 请求参数错误）。
-              category:
-                module.poolFilterable === false ? undefined : module.parentKey,
+              category,
               province: filter.province,
               city: filter.city,
-            }));
+            });
         scans++;
         if (!result || !Array.isArray(result.list))
           throw new BusinessException(
             ErrorCode.AIWORKIN_UNAVAILABLE,
             '平台未返回有效列表',
           );
-        const scoped =
-          mine || direction === 'DEMAND' || poolScope === 'leaf'
+        const scoped = !module
+          ? this.inDirection(direction, result.list)
+          : mine || direction === 'DEMAND' || poolScope === 'leaf'
             ? this.inModule(module, direction, result.list)
             : this.inPoolModule(module, result.list);
         for (const item of scoped) {
@@ -267,15 +304,18 @@ export class MarketBoardService {
             direction === 'DEMAND'
               ? toDemandRow(item, mine)
               : toServiceRow(item, mine);
-          if (matchesRegion(row, filter)) next.buffer.push(row);
+          if (
+            matchesRegion(row, filter) &&
+            matchesCategory(row, filter.categoryId)
+          )
+            next.buffer.push(row);
         }
         const upstreamSize = Number(result.pageSize) || PAGE_SIZE;
         const exhausted =
           Number.isFinite(result.total) && result.total >= result.list.length
             ? page * upstreamSize >= result.total
             : result.list.length < upstreamSize;
-        if (exhausted)
-          next.source = mine && direction === 'DEMAND' ? 'pool' : 'done';
+        if (exhausted) next.source = 'done';
         if (seen.size > 10000)
           throw new BusinessException(
             ErrorCode.CONFLICT,
@@ -301,40 +341,75 @@ export class MarketBoardService {
     }
     return pending;
   }
+  /**
+   * 「我发布的」一页：来自本地发布台账（存平台挂单号），不再打平台的 `/market/listings/mine`
+   * —— 那个接口对 API Key 一律 401，扫它只会让整页报「通道鉴权失败」。
+   * 台账是内存以外的小数据（一个账号在一个板块的一个方向），一次全量给完，上游不参与分页。
+   */
+  private async localMinePage(
+    userId: string,
+    module: MarketCategoryModule | null,
+    direction: 'DEMAND' | 'SUPPLY',
+    page: number,
+  ): Promise<MarketListingPage> {
+    if (page > 1) return { list: [], total: 0, page, pageSize: 1 };
+    const domain = module ? module.domain : MARKET_HUB_DOMAIN;
+    const rows = await this.records.list(userId, domain, direction);
+    const list = rows.map((row) => recordToListing(row, domain));
+    return {
+      list,
+      total: list.length,
+      page: 1,
+      pageSize: Math.max(list.length, 1),
+    };
+  }
   async detail(
     user: CurrentUser,
     domain: string,
     id: string,
-    userToken: string,
     poolToken: string,
     direction: 'DEMAND' | 'SUPPLY',
   ) {
+    if (this.isHub(domain)) return this.hubDetail(id, poolToken, direction);
     const module = this.moduleOf(domain);
     this.requireChannel();
     if (!LISTING_ID_PATTERN.test(id))
       throw new BusinessException(ErrorCode.BAD_REQUEST, '挂单编号格式不正确');
-    let listing: MarketListing | undefined,
-      mine = false;
-    if (userToken) {
-      try {
-        listing = await this.demands.getMine(userToken, id);
-        mine = true;
-      } catch (error) {
-        if (
-          !(error instanceof BusinessException) ||
-          (error.errorCode !== ErrorCode.NOT_FOUND &&
-            error.errorCode !== ErrorCode.FORBIDDEN)
-        )
-          throw error;
-      }
+    // 归属只看本地台账（平台没有可按属主读回挂单的接口）；内容按挂单号读平台公开池，
+    // 平台读不回（草稿 / 已下架）时用台账快照回显。
+    const record = await this.records.find(user.userId, id);
+    let listing: MarketListing | undefined;
+    try {
+      listing = await this.demands.getPublic(poolToken, id);
+    } catch (error) {
+      if (!record) throw error;
     }
-    // 非属主（或本人未绑定 Key）只读公开池：公开挂单用平台 Key 取。
-    if (!listing) listing = await this.demands.getPublic(poolToken, id);
+    if (!listing && record) listing = recordToListing(record, module.domain);
+    if (!listing)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '该板块下未找到挂单');
     if (!this.inModule(module, direction, [listing]).length)
       throw new BusinessException(ErrorCode.NOT_FOUND, '该板块下未找到挂单');
+    const mine = Boolean(record);
     return direction === 'DEMAND'
       ? toDemandRow(listing, mine)
       : toServiceRow(listing, mine);
+  }
+  /** 供需市场明细：跨板块，只读平台公开池（平台 Key），不做板块类目收窄。 */
+  private async hubDetail(
+    id: string,
+    poolToken: string,
+    direction: 'DEMAND' | 'SUPPLY',
+  ) {
+    this.requireChannel();
+    if (!LISTING_ID_PATTERN.test(id))
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '挂单编号格式不正确');
+    // 只走公开池：供需市场的行都来自公开池，读取用平台 Key，绝不带本人 Key 打 `/market/listings/mine`。
+    const listing = await this.demands.getPublic(poolToken, id);
+    if (String(listing.direction || '').toUpperCase() !== direction)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '该方向下未找到挂单');
+    return direction === 'DEMAND'
+      ? toDemandRow(listing, false)
+      : toServiceRow(listing, false);
   }
 
   constructor(
@@ -342,28 +417,43 @@ export class MarketBoardService {
     private readonly demands: DemandService,
     private readonly identity: IdentityService,
     private readonly contacts: ContactResolver,
+    private readonly records: MarketListingRecordService,
   ) {}
   // —— 需求信息（direction=DEMAND）——
   async listDemands(
     user: CurrentUser,
     domain: string,
-    mineToken: string,
     poolToken: string,
-    filter: RegionFilter = {},
+    filter: MarketListFilter = {},
     cursor?: string,
     pageSize = 20,
   ) {
+    if (this.isHub(domain))
+      return this.page(
+        user,
+        null,
+        `${MARKET_HUB_DOMAIN}:demands`,
+        // 需求读取一律走基础数据通道（平台 Key）：公开池与自有行都按挂单号读回平台。
+        poolToken,
+        'DEMAND',
+        filter,
+        cursor,
+        pageSize,
+        // 供需市场按 scope 切「全部需求 / 我发布的需求」；不传＝只扫公开池（既有口径）。
+        filter.scope ?? 'all',
+      );
+    // 直连板块（财税 / 供销 / 出海）：需求列表＝本地发布台账（与同板块服务列表同口径），
+    // 平台公开池不进这张表；发布时仍同步 AIworkin 并记回挂单号（内容 ID）。
     return this.page(
       user,
       this.moduleOf(domain),
       domain,
-      mineToken,
       poolToken,
       'DEMAND',
       filter,
       cursor,
       pageSize,
-      'mine',
+      filter.scope ?? 'mine',
     );
   }
   async createDemand(
@@ -372,19 +462,24 @@ export class MarketBoardService {
     body: Record<string, unknown>,
     token: string,
   ) {
-    const module = await this.requireDemandAction(user, domain);
+    // 供需市场是跨板块公开市集：不做单一板块的发布资质门控，其余板块沿用原口径。
+    const module = this.isHub(domain)
+      ? null
+      : await this.requireDemandAction(user, domain);
     this.requireChannel();
-    await this.identity.requireRoles(user, 'ENTERPRISE_USER');
+    if (module) await this.identity.requireRoles(user, 'ENTERPRISE_USER');
     const draft = await this.demandDraft(user, module, body);
     const result = await this.demands.publish(token, draft);
+    await this.recordListing(user, module, 'DEMAND', draft, result);
+    const where = module ? `${module.label}板块` : '供需市场';
     return {
       id: result.listing.id,
       listing_id: result.listing.id,
       status: String(result.listing.status || 'ONLINE'),
       tip:
         result.listing.status === 'DRAFT'
-          ? `${module.label}需求已存为平台草稿（补齐截止时间后即可发布匹配）`
-          : `需求已发布至 AIworkin ${module.label}板块`,
+          ? `需求已存为平台草稿（补齐截止时间后即可发布匹配）`
+          : `需求已发布至 AIworkin ${where}`,
     };
   }
   async updateDemand(
@@ -394,7 +489,9 @@ export class MarketBoardService {
     body: Record<string, unknown>,
     token: string,
   ) {
-    const module = await this.requireDemandAction(user, domain);
+    const module = this.isHub(domain)
+      ? null
+      : await this.requireDemandAction(user, domain);
     this.requireChannel();
     const existing = await this.requireOwn(token, id);
     const draft = await this.demandDraft(user, module, body, existing);
@@ -407,7 +504,7 @@ export class MarketBoardService {
     id: string,
     token: string,
   ) {
-    await this.requireDemandAction(user, domain);
+    if (!this.isHub(domain)) await this.requireDemandAction(user, domain);
     this.requireChannel();
     await this.requireOwn(token, id);
     await this.demands.removeListing(token, id);
@@ -426,7 +523,7 @@ export class MarketBoardService {
     listingId: string;
     conversations: ChannelConversation[];
   }> {
-    this.moduleOf(domain);
+    if (!this.isHub(domain)) this.moduleOf(domain);
     this.requireChannel();
     await this.requireOwn(token, id);
     const runIds = await this.matchRunIds(token, id);
@@ -444,26 +541,42 @@ export class MarketBoardService {
     return { listingId: id, conversations };
   }
   // —— 服务发布（direction=SUPPLY）——
-  /** 与其余六板块同口径：本栏目只列「我已发布的服务」，公开池不进这张表。 */
+  /**
+   * 其余板块：本栏目只列「我已发布的服务」，公开池不进这张表。
+   * 供需市场：公开市集，列表 = 平台公开池（读取只用平台 Key，不扫「我发布的」）。
+   */
   async listServices(
     user: CurrentUser,
     domain: string,
-    token: string,
-    filter: RegionFilter = {},
+    poolToken: string,
+    filter: MarketListFilter = {},
     cursor?: string,
     pageSize = 20,
   ) {
+    if (this.isHub(domain))
+      return this.page(
+        user,
+        null,
+        `${MARKET_HUB_DOMAIN}:services`,
+        // 供需市场列表＝平台公开池（默认）；按 scope 切「全部服务 / 我发布的服务」。
+        poolToken,
+        'SUPPLY',
+        filter,
+        cursor,
+        pageSize,
+        filter.scope ?? 'all',
+      );
+    // 其余板块只列「我已发布的服务」：读本地台账，平台公开池不进这张表。
     return this.page(
       user,
       this.moduleOf(domain),
       domain,
-      token,
-      token,
+      poolToken,
       'SUPPLY',
       filter,
       cursor,
       pageSize,
-      'mine',
+      filter.scope ?? 'mine',
     );
   }
   /**
@@ -488,13 +601,12 @@ export class MarketBoardService {
       user,
       module,
       `marketplace:${domain}`,
-      '',
       poolToken,
       'SUPPLY',
       filter,
       cursor,
       pageSize,
-      'pool',
+      'all',
       marketplacePoolScope(module),
     );
   }
@@ -527,19 +639,22 @@ export class MarketBoardService {
     body: Record<string, unknown>,
     token: string,
   ) {
-    const module = this.moduleOf(domain);
+    // 供需市场是跨板块公开市集：不做单一板块的服务商备案门控。
+    const module = this.isHub(domain) ? null : this.moduleOf(domain);
     this.requireChannel();
-    await this.assertPublishAllowed(user, module.domain);
+    if (module) await this.assertPublishAllowed(user, module.domain);
     const draft = await this.serviceDraft(user, module, body);
     const result = await this.demands.publish(token, draft);
+    await this.recordListing(user, module, 'SUPPLY', draft, result);
+    const where = module ? `${module.label}板块` : '供需市场';
     return {
       id: result.listing.id,
       platform_listing_id: result.listing.id,
       status: String(result.listing.status || 'ONLINE'),
       tip:
         result.listing.status === 'DRAFT'
-          ? `${module.label}服务已存为平台草稿（补齐报价说明后即可发布）`
-          : `服务已发布至 AIworkin ${module.label}板块`,
+          ? `${where}服务已存为平台草稿（补齐报价说明后即可发布）`
+          : `服务已发布至 AIworkin ${where}`,
     };
   }
   async updateService(
@@ -549,9 +664,9 @@ export class MarketBoardService {
     body: Record<string, unknown>,
     token: string,
   ) {
-    const module = this.moduleOf(domain);
+    const module = this.isHub(domain) ? null : this.moduleOf(domain);
     this.requireChannel();
-    await this.assertPublishAllowed(user, module.domain);
+    if (module) await this.assertPublishAllowed(user, module.domain);
     const existing = await this.requireOwn(token, id);
     const draft = await this.serviceDraft(user, module, body, existing);
     await this.demands.updateListing(token, id, draft, editKey(id, draft));
@@ -563,7 +678,7 @@ export class MarketBoardService {
     id: string,
     token: string,
   ) {
-    this.moduleOf(domain);
+    if (!this.isHub(domain)) this.moduleOf(domain);
     this.requireChannel();
     await this.requireOwn(token, id);
     await this.demands.removeListing(token, id);
@@ -579,6 +694,23 @@ export class MarketBoardService {
   private moduleOf(value: unknown) {
     const key = this.domainKey(value);
     return moduleCategory(key);
+  }
+
+  /** 供需市场＝跨板块公开市集：同一套接口，`HUB` 只表示不按单一板块收窄。 */
+  private isHub(value: unknown) {
+    return (
+      text(value || '')
+        .trim()
+        .toUpperCase() === MARKET_HUB_DOMAIN
+    );
+  }
+
+  /** 供需市场的行归属：只按方向收窄，不限定板块类目。 */
+  private inDirection(direction: 'DEMAND' | 'SUPPLY', rows: MarketListing[]) {
+    return rows.filter(
+      (item) =>
+        item.id && String(item.direction || '').toUpperCase() === direction,
+    );
   }
 
   /**
@@ -703,7 +835,7 @@ export class MarketBoardService {
   // —— 报文 ——
   private async demandDraft(
     user: CurrentUser,
-    module: MarketCategoryModule,
+    module: MarketCategoryModule | null,
     body: Record<string, unknown>,
     existing?: MarketListing | null,
   ): Promise<DemandDraft> {
@@ -725,19 +857,21 @@ export class MarketBoardService {
       },
       {
         title,
-        categoryLabel: module.parentName,
-        subcategoryId: requireSubCategoryId(
-          module.domain,
-          body.sub_category_id ?? existing?.subcategoryId,
-        ),
-        attributes: { board: module.domain },
+        categoryLabel: module ? module.parentName : '供需市场',
+        subcategoryId: module
+          ? requireSubCategoryId(
+              module.domain,
+              body.sub_category_id ?? existing?.subcategoryId,
+            )
+          : hubSubCategoryId(body.sub_category_id ?? existing?.subcategoryId),
+        attributes: { board: module ? module.domain : MARKET_HUB_DOMAIN },
         a2aConfig: demandGeoConfig(regionColumnsOf(region)),
       },
     );
   }
   private async serviceDraft(
     user: CurrentUser,
-    module: MarketCategoryModule,
+    module: MarketCategoryModule | null,
     body: Record<string, unknown>,
     existing?: MarketListing | null,
   ): Promise<DemandDraft> {
@@ -769,10 +903,12 @@ export class MarketBoardService {
       title,
       description,
       direction: 'SUPPLY',
-      subcategoryId: requireSubCategoryId(
-        module.domain,
-        body.sub_category_id ?? existing?.subcategoryId,
-      ),
+      subcategoryId: module
+        ? requireSubCategoryId(
+            module.domain,
+            body.sub_category_id ?? existing?.subcategoryId,
+          )
+        : hubSubCategoryId(body.sub_category_id ?? existing?.subcategoryId),
       publishAction:
         text(body.publish_action || '').toUpperCase() === 'DRAFT'
           ? 'DRAFT'
@@ -798,11 +934,34 @@ export class MarketBoardService {
         contactStr(body.contact_wechat ?? body.contactWechat) || undefined,
       contactEmail:
         contactStr(body.contact_email ?? body.contactEmail) || undefined,
-      attributes: { board: module.domain },
+      attributes: { board: module ? module.domain : MARKET_HUB_DOMAIN },
     };
     if (amounts.amountMin !== undefined) draft.amountMin = amounts.amountMin;
     if (amounts.amountMax !== undefined) draft.amountMax = amounts.amountMax;
     return draft;
+  }
+  /**
+   * 发布成功即落本地台账：平台挂单号 + 提交报文快照。
+   * 列表的「我发布的」与明细都以它为准（平台没有可按属主读回挂单的接口）。
+   */
+  private async recordListing(
+    user: CurrentUser,
+    module: MarketCategoryModule | null,
+    direction: 'DEMAND' | 'SUPPLY',
+    draft: DemandDraft,
+    result: PublishDemandResult,
+  ) {
+    await this.records.record({
+      userId: user.userId,
+      domain: module ? module.domain : MARKET_HUB_DOMAIN,
+      direction,
+      listingId: result.listing.id,
+      matchRunId: String(result.initialMatchRunId || ''),
+      status: String(result.listing.status || 'ONLINE'),
+      title: draft.title,
+      subCategoryId: draft.subcategoryId || '',
+      snapshot: draft,
+    });
   }
   /** 联系方式：按发布人档案自动带出，入参显式给出的逐字段覆盖（临时换人可改）。 */
   private async publishContact(
@@ -1144,6 +1303,11 @@ function matchesRegion(
   if (province && row.province !== province) return false;
   if (city && row.city !== city) return false;
   return true;
+}
+/** 类目筛选：传了二级类目 id 时只看挂在该叶子下的行（供需市场跨板块公开池用）。 */
+function matchesCategory(row: { subCategoryId: string }, categoryId?: string) {
+  if (!categoryId) return true;
+  return row.subCategoryId.toLowerCase() === categoryId.toLowerCase();
 }
 /** 修改的幂等键：内容哈希，改过内容必然是新键（否则平台按幂等重放旧版本）。 */
 function editKey(id: string, draft: DemandDraft) {

@@ -2,6 +2,8 @@
 import { useOperationMutation } from "@/query/business";
 import { presentMutationError } from "@/query/errors";
 import { overseasApi } from "@/api/overseas";
+import { aiApi, type AiOverseasCheck } from "@/api/ai";
+import { AiList, AiModeTag } from "@/components/ai-result";
 
 import { GlobalOutlined } from "@ant-design/icons";
 import {
@@ -144,10 +146,34 @@ export function OverseasTools({
     null,
   );
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [aiCountry, setAiCountry] = useState("");
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiAnswer, setAiAnswer] = useState<AiOverseasCheck | null>(null);
+  const [aiAsking, setAiAsking] = useState(false);
   const [form] = Form.useForm();
   /** 服务商已绑定职员（用于把承办职员 id 显示成姓名） */
   const staffQuery = useProviderStaff(!isEnterprise);
   const staff = staffQuery.data ?? [];
+
+  const runAiCheck = async () => {
+    if (!aiCountry.trim() || !aiQuestion.trim()) {
+      message.warning("请填写国家/地区与问题");
+      return;
+    }
+    setAiAsking(true);
+    setAiAnswer(null);
+    try {
+      setAiAnswer(
+        await aiApi.overseasCheck({
+          body: { country: aiCountry.trim(), question: aiQuestion.trim() },
+        }),
+      );
+    } catch (error) {
+      message.error((error as Error).message || "AI 问答失败");
+    } finally {
+      setAiAsking(false);
+    }
+  };
 
   const signedOf = (type: string) =>
     contracts.some(
@@ -424,6 +450,45 @@ export function OverseasTools({
             );
           })}
         </div>
+      </Panel>
+
+      <Panel
+        title="出海 AI 问答"
+        titleBadge="基于知识库里「出海」挂载的资料回答，并给出通用风险清单；不替代当地律师与会计师意见"
+      >
+        <Space.Compact style={{ width: "100%", marginBottom: 8 }}>
+          <Input
+            style={{ width: 220 }}
+            value={aiCountry}
+            onChange={(event) => setAiCountry(event.target.value)}
+            placeholder="国家/地区，如：越南"
+          />
+          <Input
+            value={aiQuestion}
+            onChange={(event) => setAiQuestion(event.target.value)}
+            placeholder="例如：外资企业设立需要哪些资质与最低资本要求？"
+          />
+          <Button type="primary" loading={aiAsking} onClick={() => void runAiCheck()}>
+            提问
+          </Button>
+        </Space.Compact>
+        {aiAnswer ? (
+          <div>
+            <AiModeTag mode={aiAnswer.mode} model={aiAnswer.model} />
+            <div style={{ whiteSpace: "pre-wrap", marginTop: 6 }}>
+              {aiAnswer.answer}
+            </div>
+            {aiAnswer.citations.length ? (
+              <AiList
+                title="引用来源"
+                items={aiAnswer.citations.map(
+                  (item) => `${item.title}（${item.ref}）`,
+                )}
+              />
+            ) : null}
+            <AiList title="通用风险清单" items={aiAnswer.risks} />
+          </div>
+        ) : null}
       </Panel>
 
       {listQuery.isError || detailQuery.isError ? (

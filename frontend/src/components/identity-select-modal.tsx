@@ -34,7 +34,7 @@ export function IdentitySelectModal() {
     try {
       await switchIdentity(selected);
       setOpen(false);
-      router.replace("/");
+      router.replace("/dashboard");
     } catch (error) {
       if (previousSelection === null) localStorage.removeItem("identity_selected");
       else localStorage.setItem("identity_selected", previousSelection);

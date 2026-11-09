@@ -56,10 +56,8 @@ try{var u=el.getAttribute('data-lk-origin')||'';if(u&&navigator.sendBeacon){navi
 });</script></body></html>`;
 
 /** 图片地址解析：后台配置了 OSS 时由 OssService 提供，未注入时回退部署默认桶。 */
-const imageUrlOf = (
-  input: { urlOf?: (key: string) => string },
-  key: string,
-) => (input.urlOf ? input.urlOf(key) : ossPublicUrl(ossObjectKey(key)));
+const imageUrlOf = (input: { urlOf?: (key: string) => string }, key: string) =>
+  input.urlOf ? input.urlOf(key) : ossPublicUrl(ossObjectKey(key));
 
 export function renderLanding(input: {
   code: MarketingQrCode;

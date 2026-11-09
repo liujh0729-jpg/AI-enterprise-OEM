@@ -116,6 +116,15 @@ export class ServiceDeskController {
     return ok(await this.service.conversation(user, owner, Number(id)));
   }
 
+  async convertToCrm(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    const owner = await this.service.workOwner(user);
+    return ok(await this.service.convertToCrm(user, owner, Number(id), body));
+  }
+
   async send(user: CurrentUser, id: string, body: Record<string, unknown>) {
     const owner = await this.service.workOwner(user);
     return ok(await this.service.send(user, owner, Number(id), body));

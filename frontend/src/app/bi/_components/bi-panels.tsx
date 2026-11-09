@@ -10,17 +10,18 @@ import {
   Space,
   Switch,
   Table,
-  Tabs,
   Tag,
   message,
 } from "antd";
 import { PlusOutlined, RobotOutlined, SendOutlined } from "@ant-design/icons";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { EndpointInput } from "@enterprise/contracts";
+import { BI_CHART_TYPES, BI_COMPONENT_TYPES, BI_DATASOURCE_TYPES } from "@enterprise/contracts";
 import { biApi, streamBiAsk } from "@/api/bi";
 import { contentApi } from "@/api/content";
-import { Notice, Panel, StatCard, StatGrid } from "@/components/ui/panel";
-import { ChartRenderer, type ChartColumn } from "./chart-renderer";
+import { Notice, Panel, PanelTabs, StatCard, StatGrid } from "@/components/ui/panel";
+import { ChartRenderer, parseChartConfig, type ChartColumn } from "./chart-renderer";
 
 const CHART_TYPES = [
   { value: "TABLE", label: "表格" },
@@ -119,6 +120,16 @@ export function BiWorkbenchTab({
   );
 }
 
+type DashboardComponent = NonNullable<
+  EndpointInput<"Bi_saveDashboard">["body"]["components"]
+>[number];
+
+type ChartRow = NonNullable<Awaited<ReturnType<typeof biApi.charts>>>["list"][number];
+
+type DatasourceRow = NonNullable<Awaited<ReturnType<typeof biApi.datasources>>>[number];
+
+type DatasetFieldRow = NonNullable<Awaited<ReturnType<typeof biApi.datasetFields>>>[number];
+
 type AskResult = {
   messageId?: number;
   sql?: string;
@@ -151,7 +162,7 @@ export function BiChatTab() {
   const [modelsError, setModelsError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const loadModels = async (nextChannelId: number, preferred?: string) => {
+  const loadModels = useCallback(async (nextChannelId: number, preferred?: string) => {
     setModelsLoading(true);
     setModelsError("");
     try {
@@ -175,21 +186,21 @@ export function BiChatTab() {
     } finally {
       setModelsLoading(false);
     }
-  };
+  }, []);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [datasetData, sessionData] = await Promise.all([
         biApi.datasets({ query: { page: 1, pageSize: 200 } }),
         biApi.sessions({ query: { page: 1, pageSize: 30 } }),
       ]);
       setDatasets((datasetData?.list || []).map((item) => ({ id: item.id, name: item.name })));
-      setSessions((sessionData?.list || []) as never);
+      setSessions(sessionData?.list || []);
       if (!datasetId && datasetData?.list?.length) setDatasetId(datasetData.list[0].id);
     } catch (error) {
       message.error(err(error));
     }
-  };
+  }, [datasetId]);
 
   useEffect(() => {
     void load();
@@ -211,8 +222,7 @@ export function BiChatTab() {
         // 读不到模型清单时仍可浏览历史；发送前会提示先选模型
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 首屏只跑一次
-  }, []);
+  }, [load, loadModels]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -312,7 +322,7 @@ export function BiChatTab() {
         type={String(data.chart?.type || "TABLE")}
         columns={data.columns || []}
         rows={data.rows || []}
-        config={data.chart as never}
+        config={parseChartConfig(data.chart)}
       />
       {data.analysis ? <div className="bi-analysis">{data.analysis}</div> : null}
       {data.followups?.length ? (
@@ -555,16 +565,17 @@ export function BiDatasetsTab() {
   const [datasources, setDatasources] = useState<Array<Record<string, unknown>>>([]);
   const [tables, setTables] = useState<Array<Record<string, unknown>>>([]);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<EndpointInput<"Bi_createDataset">["body"]>({
     name: "",
     type: "INTERNAL",
     internalKey: "LEADS",
     datasourceId: 0,
-    tableIds: [] as number[],
+    tableIds: [],
     sqlText: "",
     description: "",
   });
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof biApi.dataset>> | null>(null);
+  const [detailTab, setDetailTab] = useState("fields");
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof biApi.previewDataset>> | null>(null);
   const [rowFilter, setRowFilter] = useState("");
 
@@ -600,6 +611,7 @@ export function BiDatasetsTab() {
     try {
       const data = await biApi.dataset({ params: { id: String(id) } });
       setDetail(data);
+      setDetailTab("fields");
       setPreview(null);
       const analyst = data?.permissions.find((item) => item.role === "ANALYST");
       setRowFilter(String(analyst?.rowFilter || ""));
@@ -657,7 +669,7 @@ export function BiDatasetsTab() {
               body: {
                 name: draft.name,
                 groupId: 0,
-                type: draft.type as never,
+                type: draft.type,
                 internalKey: draft.internalKey,
                 datasourceId: draft.datasourceId,
                 tableIds: draft.tableIds,
@@ -740,7 +752,9 @@ export function BiDatasetsTab() {
         }
       >
         {detail ? (
-          <Tabs
+          <PanelTabs
+            value={detailTab}
+            onChange={setDetailTab}
             items={[
               {
                 key: "fields",
@@ -804,18 +818,25 @@ export function BiDatasetsTab() {
 }
 
 export function BiChartsTab() {
-  const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
+  const [rows, setRows] = useState<ChartRow[]>([]);
   const [datasets, setDatasets] = useState<Array<{ id: number; name: string }>>([]);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<{
+    id: number;
+    datasetId: number;
+    name: string;
+    chartType: EndpointInput<"Bi_saveChart">["body"]["chartType"];
+    dimensions: string[];
+    measures: string[];
+  }>({
     id: 0,
     datasetId: 0,
     name: "",
     chartType: "BAR",
-    dimensions: [] as string[],
-    measures: [] as string[],
+    dimensions: [],
+    measures: [],
   });
-  const [fields, setFields] = useState<Array<Record<string, unknown>>>([]);
+  const [fields, setFields] = useState<DatasetFieldRow[]>([]);
   const [data, setData] = useState<Awaited<ReturnType<typeof biApi.chartData>> | null>(null);
 
   const load = async () => {
@@ -824,7 +845,7 @@ export function BiChartsTab() {
         biApi.charts({ query: { page: 1, pageSize: 100 } }),
         biApi.datasets({ query: { page: 1, pageSize: 200 } }),
       ]);
-      setRows((chartData?.list || []) as Array<Record<string, unknown>>);
+      setRows(chartData?.list || []);
       setDatasets((datasetData?.list || []).map((item) => ({ id: item.id, name: item.name })));
     } catch (error) {
       message.error(err(error));
@@ -842,7 +863,7 @@ export function BiChartsTab() {
     }
     void biApi
       .datasetFields({ params: { id: String(draft.datasetId) } })
-      .then((items) => setFields((items || []) as Array<Record<string, unknown>>))
+      .then((items) => setFields(items || []))
       .catch(() => setFields([]));
   }, [draft.datasetId]);
 
@@ -874,20 +895,21 @@ export function BiChartsTab() {
             {
               title: "操作",
               width: 180,
-              render: (_: unknown, row: Record<string, unknown>) => (
+              render: (_: unknown, row: ChartRow) => (
                 <Space size={0}>
                   <Button
                     type="link"
                     size="small"
                     onClick={async () => {
                       setData(await biApi.chartData({ params: { id: String(row.id) } }));
+                      const config = parseChartConfig(row.config);
                       setDraft({
-                        id: Number(row.id),
-                        datasetId: Number(row.datasetId),
-                        name: String(row.name),
-                        chartType: String(row.chartType),
-                        dimensions: ((row.config as Record<string, unknown>)?.dimensions as string[]) || [],
-                        measures: (((row.config as Record<string, unknown>)?.measures as Array<Record<string, unknown>>) || []).map((item) => String(item.key)),
+                        id: row.id,
+                        datasetId: row.datasetId,
+                        name: row.name,
+                        chartType: BI_CHART_TYPES.find((value) => value === row.chartType) ?? "BAR",
+                        dimensions: config.dimensions ?? [],
+                        measures: (config.measures ?? []).map((item) => item.key),
                       });
                       setOpen(true);
                     }}
@@ -924,7 +946,7 @@ export function BiChartsTab() {
                 ...(draft.id ? { id: draft.id } : {}),
                 datasetId: draft.datasetId,
                 name: draft.name || "未命名图表",
-                chartType: draft.chartType as never,
+                chartType: draft.chartType,
                 config: {
                   dimensions: draft.dimensions,
                   measures: draft.measures.map((key) => ({ key, aggregate: "SUM" })),
@@ -956,21 +978,21 @@ export function BiChartsTab() {
             placeholder="维度"
             value={draft.dimensions}
             onChange={(value) => setDraft({ ...draft, dimensions: value })}
-            options={fields.filter((item) => item.role === "DIMENSION").map((item) => ({ value: String(item.fieldKey), label: String(item.name) }))}
+            options={fields.filter((item) => item.role === "DIMENSION").map((item) => ({ value: item.fieldKey, label: item.name }))}
           />
           <Select
             mode="multiple"
             placeholder="指标"
             value={draft.measures}
             onChange={(value) => setDraft({ ...draft, measures: value })}
-            options={fields.filter((item) => item.role === "MEASURE").map((item) => ({ value: String(item.fieldKey), label: String(item.name) }))}
+            options={fields.filter((item) => item.role === "MEASURE").map((item) => ({ value: item.fieldKey, label: item.name }))}
           />
           {data ? (
             <ChartRenderer
               type={data.chart.chartType}
               columns={data.columns}
               rows={data.rows}
-              config={data.chart.config as never}
+              config={parseChartConfig(data.chart.config)}
             />
           ) : null}
         </Space>
@@ -983,10 +1005,14 @@ export function BiDashboardsTab() {
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [charts, setCharts] = useState<Array<Record<string, unknown>>>([]);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<{
+    id: number;
+    name: string;
+    components: DashboardComponent[];
+  }>({
     id: 0,
     name: "",
-    components: [] as Array<Record<string, unknown>>,
+    components: [],
   });
   const [data, setData] = useState<Awaited<ReturnType<typeof biApi.dashboardData>> | null>(null);
 
@@ -1015,7 +1041,7 @@ export function BiDashboardsTab() {
       components: (detail?.components || []).map((item) => ({
         id: item.id,
         chartId: item.chartId,
-        type: item.type,
+        type: BI_COMPONENT_TYPES.find((value) => value === item.type) ?? "CHART",
         title: item.title,
         position: item.position,
         config: item.config,
@@ -1096,12 +1122,12 @@ export function BiDashboardsTab() {
                 config: {},
                 layout: draft.components.map((item, index) => ({ index })),
                 components: draft.components.map((item, index) => ({
-                  ...(item.id ? { id: Number(item.id) } : {}),
-                  chartId: Number(item.chartId) || 0,
-                  type: String(item.type || "CHART") as never,
-                  title: String(item.title || ""),
-                  position: { order: index, width: Number((item.position as Record<string, unknown>)?.width || 6) },
-                  config: (item.config || {}) as never,
+                  ...(item.id ? { id: item.id } : {}),
+                  chartId: item.chartId ?? 0,
+                  type: item.type ?? "CHART",
+                  title: item.title ?? "",
+                  position: { order: index, width: Number(item.position?.width || 6) },
+                  config: item.config ?? {},
                   sort: index,
                 })),
               },
@@ -1167,7 +1193,7 @@ export function BiDashboardsTab() {
               <b>{String(item.title || item.type)}</b>
               <Select
                 style={{ width: 110 }}
-                value={Number((item.position as Record<string, unknown>)?.width || 6)}
+                value={Number(item.position?.width || 6)}
                 onChange={(value) => {
                   const next = [...draft.components];
                   next[index] = { ...next[index], position: { width: value } };
@@ -1207,7 +1233,7 @@ export function BiDashboardsTab() {
                       type={item.chart.chartType}
                       columns={item.columns}
                       rows={item.rows}
-                      config={item.chart.config as never}
+                      config={parseChartConfig(item.chart.config)}
                       height={220}
                     />
                   ) : null}
@@ -1222,9 +1248,11 @@ export function BiDashboardsTab() {
 }
 
 export function BiDatasourcesTab() {
-  const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
+  const [rows, setRows] = useState<DatasourceRow[]>([]);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<
+    { id: number } & EndpointInput<"Bi_createDatasource">["body"]
+  >({
     id: 0,
     name: "",
     type: "PG",
@@ -1241,7 +1269,7 @@ export function BiDatasourcesTab() {
 
   const load = async () => {
     try {
-      setRows((await biApi.datasources()) as Array<Record<string, unknown>>);
+      setRows((await biApi.datasources()) ?? []);
     } catch (error) {
       message.error(err(error));
     }
@@ -1280,13 +1308,13 @@ export function BiDatasourcesTab() {
             {
               title: "状态",
               width: 100,
-              render: (_: unknown, row: Record<string, unknown>) =>
+              render: (_: unknown, row: DatasourceRow) =>
                 row.kind === "INTERNAL" ? <Tag color="blue">内置</Tag> : <Tag color={row.status === "ACTIVE" ? "green" : "red"}>{row.status === "ACTIVE" ? "正常" : "异常"}</Tag>,
             },
             {
               title: "操作",
               width: 320,
-              render: (_: unknown, row: Record<string, unknown>) => {
+              render: (_: unknown, row: DatasourceRow) => {
                 if (row.kind === "INTERNAL") return <span className="muted">平台维护，只读</span>;
                 return (
                   <Space size={0}>
@@ -1335,16 +1363,16 @@ export function BiDatasourcesTab() {
                       size="small"
                       onClick={() => {
                         setDraft({
-                          id: Number(row.id),
-                          name: String(row.name),
-                          type: String(row.type),
-                          host: String(row.host),
-                          port: Number(row.port),
-                          database: String(row.database),
-                          schema: String(row.schema),
-                          username: String(row.username),
+                          id: row.id,
+                          name: row.name,
+                          type: BI_DATASOURCE_TYPES.find((value) => value === row.type) ?? "PG",
+                          host: row.host,
+                          port: row.port,
+                          database: row.database,
+                          schema: row.schema,
+                          username: row.username,
                           password: "",
-                          ssl: Boolean(row.ssl),
+                          ssl: row.ssl,
                         });
                         setOpen(true);
                       }}
@@ -1377,10 +1405,10 @@ export function BiDatasourcesTab() {
         onCancel={() => setOpen(false)}
         onOk={async () => {
           try {
-            const body = { ...draft } as Record<string, unknown>;
-            delete body.id;
-            if (draft.id) await biApi.updateDatasource({ params: { id: String(draft.id) }, body: body as never });
-            else await biApi.createDatasource({ body: body as never });
+            // 更新契约不接受 type（数据源类型建后不可改），只有新建时才带上。
+            const { id, type, ...rest } = draft;
+            if (id) await biApi.updateDatasource({ params: { id: String(id) }, body: rest });
+            else await biApi.createDatasource({ body: { type, ...rest } });
             setOpen(false);
             void load();
           } catch (error) {
@@ -1434,13 +1462,14 @@ export function BiDatasourcesTab() {
 
 export function BiSettingsTab() {
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
+  const [settingsTab, setSettingsTab] = useState("model");
   const [draft, setDraft] = useState({ defaultTextChannelId: 0, defaultTextModel: "", maxRows: 10000, queryTimeoutMs: 30000 });
   const [members, setMembers] = useState<{ rows: Array<Record<string, unknown>>; candidates: Array<Record<string, unknown>> } | null>(null);
   const [terms, setTerms] = useState<Array<Record<string, unknown>>>([]);
   const [trainings, setTrainings] = useState<Array<Record<string, unknown>>>([]);
   const [recommended, setRecommended] = useState<Array<Record<string, unknown>>>([]);
   const [logs, setLogs] = useState<Array<Record<string, unknown>>>([]);
-  const [memberDraft, setMemberDraft] = useState({ memberUserId: "", role: "ANALYST" });
+  const [memberDraft, setMemberDraft] = useState<EndpointInput<"Bi_saveMember">["body"]>({ memberUserId: "", role: "ANALYST" });
   const [termDraft, setTermDraft] = useState({ term: "", definition: "" });
   const [trainingDraft, setTrainingDraft] = useState({ question: "", sqlText: "" });
   const [questionDraft, setQuestionDraft] = useState("");
@@ -1462,7 +1491,7 @@ export function BiSettingsTab() {
         maxRows: Number((settingData || {}).maxRows || 10000),
         queryTimeoutMs: Number((settingData || {}).queryTimeoutMs || 30000),
       });
-      setMembers(memberData as never);
+      setMembers(memberData);
       setTerms((termData || []) as Array<Record<string, unknown>>);
       setTrainings((trainingData || []) as Array<Record<string, unknown>>);
       setRecommended((questionData || []) as Array<Record<string, unknown>>);
@@ -1479,7 +1508,9 @@ export function BiSettingsTab() {
   if (!settings) return <div className="muted">加载中…</div>;
 
   return (
-    <Tabs
+    <PanelTabs
+      value={settingsTab}
+      onChange={setSettingsTab}
       items={[
         {
           key: "model",
@@ -1537,7 +1568,7 @@ export function BiSettingsTab() {
                 <Button
                   type="primary"
                   onClick={async () => {
-                    await biApi.saveMember({ body: memberDraft as never });
+                    await biApi.saveMember({ body: memberDraft });
                     void load();
                   }}
                 >

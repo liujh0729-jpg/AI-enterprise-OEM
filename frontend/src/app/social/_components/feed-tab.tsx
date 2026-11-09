@@ -1,10 +1,18 @@
 "use client";
 
-import { DeleteOutlined, GlobalOutlined, SendOutlined, TeamOutlined } from "@ant-design/icons";
-import { App, Button, Input, Popconfirm } from "antd";
+import {
+  DeleteOutlined,
+  GlobalOutlined,
+  RobotOutlined,
+  SendOutlined,
+  TeamOutlined,
+} from "@ant-design/icons";
+import { App, Button, Input, Modal, Popconfirm, Select, Space } from "antd";
 import { useState } from "react";
 import { EmptyState, Panel, PillTabs } from "@/components/ui/panel";
 import { socialApi, type MyPostRow, type PostRow, type PersonBrief } from "@/api/social";
+import { aiApi, type AiSocialCompose } from "@/api/ai";
+import { AiModeTag } from "@/components/ai-result";
 import { useBusinessQuery, useOperationMutation } from "@/query/business";
 import { useSession } from "@/lib/session";
 import { PersonAvatar, fmtDateTime, fmtRelative } from "./social-ui";
@@ -15,6 +23,12 @@ export function FeedTab() {
   const { me } = useSession();
   const [body, setBody] = useState("");
   const [visibility, setVisibility] = useState<"PUBLIC" | "FRIENDS">("PUBLIC");
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [topic, setTopic] = useState("");
+  const [platform, setPlatform] = useState("通用");
+  const [tone, setTone] = useState("自然");
+  const [composing, setComposing] = useState(false);
+  const [draft, setDraft] = useState<AiSocialCompose | null>(null);
 
   const myself: PersonBrief = {
     userId: me?.userId || "",
@@ -35,6 +49,29 @@ export function FeedTab() {
     (input: { id: number }) => socialApi.deletePost(input.id),
     ["social"],
   );
+
+  const runCompose = async () => {
+    const text = topic.trim();
+    if (!text) return message.warning("请先填写要写的主题");
+    setComposing(true);
+    setDraft(null);
+    try {
+      setDraft(await aiApi.socialCompose({ body: { topic: text, platform, tone } }));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "AI 生成失败");
+    } finally {
+      setComposing(false);
+    }
+  };
+
+  const applyDraft = () => {
+    if (!draft) return;
+    const content = draft.content.trim();
+    const tags = draft.tags.map((tag) => `#${tag}`).join(" ");
+    setBody(tags ? `${content}\n\n${tags}` : content);
+    setComposeOpen(false);
+    setDraft(null);
+  };
 
   const onPublish = async () => {
     const text = body.trim();
@@ -115,13 +152,99 @@ export function FeedTab() {
                   { key: "FRIENDS", label: "仅好友" },
                 ]}
               />
-              <Button type="primary" icon={<SendOutlined />} loading={publish.isPending} onClick={onPublish}>
-                发布动态
-              </Button>
+              <Space size={8}>
+                <Button icon={<RobotOutlined />} onClick={() => setComposeOpen(true)}>
+                  AI 帮我写
+                </Button>
+                <Button type="primary" icon={<SendOutlined />} loading={publish.isPending} onClick={onPublish}>
+                  发布动态
+                </Button>
+              </Space>
             </div>
           </div>
         </div>
       </Panel>
+      <Modal
+        open={composeOpen}
+        title="AI 帮我写动态"
+        okText="填入输入框"
+        cancelText="取消"
+        okButtonProps={{ disabled: !draft }}
+        confirmLoading={composing}
+        onOk={applyDraft}
+        onCancel={() => {
+          if (composing) return;
+          setComposeOpen(false);
+          setDraft(null);
+        }}
+      >
+        <Space orientation="vertical" size={12} style={{ width: "100%" }}>
+          <div>
+            <div className="text-12 muted" style={{ marginBottom: 6 }}>
+              想写什么
+            </div>
+            <Input.TextArea
+              rows={3}
+              maxLength={500}
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="例如：我们刚上线了跨境独立站建站服务，想找互补的服务商合作"
+            />
+          </div>
+          <Space size={8} wrap>
+            <Select
+              value={platform}
+              onChange={setPlatform}
+              style={{ width: 140 }}
+              options={["通用", "微信", "微博", "小红书", "抖音", "领英"].map((item) => ({
+                value: item,
+                label: item,
+              }))}
+            />
+            <Select
+              value={tone}
+              onChange={setTone}
+              style={{ width: 140 }}
+              options={["自然", "专业", "活泼", "克制"].map((item) => ({
+                value: item,
+                label: item,
+              }))}
+            />
+            <Button loading={composing} onClick={() => void runCompose()}>
+              生成文案
+            </Button>
+          </Space>
+          {draft ? (
+            <div>
+              <Space size={8} align="center">
+                <b>生成结果</b>
+                <AiModeTag mode={draft.mode} model={draft.model} />
+              </Space>
+              {draft.title ? (
+                <div className="text-12 muted" style={{ margin: "6px 0" }}>
+                  {draft.title}
+                </div>
+              ) : null}
+              <div
+                style={{
+                  whiteSpace: "pre-wrap",
+                  background: "var(--surface-2, #f7f8fa)",
+                  borderRadius: 8,
+                  padding: 12,
+                  marginTop: 6,
+                }}
+              >
+                {draft.content}
+              </div>
+              {draft.tags.length ? (
+                <div className="text-12 muted" style={{ marginTop: 6 }}>
+                  {draft.tags.map((tag) => `#${tag}`).join(" ")}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </Space>
+      </Modal>
 
       {/* 信息流为主栏、我的动态为右侧窄栏（窄屏由 .sns-feed-layout 回落到上下堆叠） */}
       <div className="sns-feed-layout">

@@ -1,3 +1,5 @@
+import type { PrismaClient } from '../generated/prisma';
+import { stub } from '../test/doubles';
 import {
   buildOfficialRows,
   seedCreativeCommunity,
@@ -191,7 +193,7 @@ describe('seedCreativeCommunity 幂等', () => {
   it('第二遍不再新建行：create 只发生在首轮，update 不抹热度也不重传封面', async () => {
     const fake = fakePrisma();
     bind(fake);
-    const first = await seedCreativeCommunity(fake.prisma as never);
+    const first = await seedCreativeCommunity(stub<PrismaClient>(fake.prisma));
     expect(first.created).toBe(rows.length);
     expect(first.updated).toBe(0);
     expect(fake.calls.create).toHaveLength(rows.length);
@@ -216,7 +218,7 @@ describe('seedCreativeCommunity 幂等', () => {
         (item) => [item.id, [...item.coverKeys]] as [number, unknown[]],
       ),
     );
-    const second = await seedCreativeCommunity(fake.prisma as never);
+    const second = await seedCreativeCommunity(stub<PrismaClient>(fake.prisma));
     expect(second.created).toBe(0);
     expect(second.updated).toBe(rows.length);
     expect(fake.calls.create).toHaveLength(0);
@@ -240,7 +242,7 @@ describe('seedCreativeCommunity 幂等', () => {
     bind(fake);
     delete process.env.OSS_ACCESS_KEY_ID;
     delete process.env.OSS_ACCESS_KEY_SECRET;
-    await seedCreativeCommunity(fake.prisma as never);
+    await seedCreativeCommunity(stub<PrismaClient>(fake.prisma));
     const withRemoteCover = fake.calls.create.filter((data) =>
       toList(data.coverKeys).some((key) => String(key).startsWith('http')),
     );
@@ -258,10 +260,10 @@ describe('seedCreativeCommunity 幂等', () => {
   it('单行内容变化会被更新，而不是新增重复行', async () => {
     const fake = fakePrisma();
     bind(fake);
-    await seedCreativeCommunity(fake.prisma as never);
+    await seedCreativeCommunity(stub<PrismaClient>(fake.prisma));
     fake.calls.create = [];
     fake.calls.update = [];
-    const third = await seedCreativeCommunity(fake.prisma as never);
+    const third = await seedCreativeCommunity(stub<PrismaClient>(fake.prisma));
     expect(third.total).toBe(rows.length);
     expect(fake.store.size).toBe(rows.length);
     expect(fake.calls.create).toHaveLength(0);

@@ -22,9 +22,20 @@ export class AgentMemoryController {
     const actions = Array.isArray(body.actions)
       ? body.actions.filter((item): item is string => typeof item === 'string')
       : [];
+    // 连接器与动作同一次提交：整份覆盖，未传的连接器＝收回授权
+    const connectorIds = Array.isArray(body.connectorIds)
+      ? body.connectorIds
+          .map((item) => Number(item))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      : [];
     // 新增授权要验本站登录密码（服务端判定，不信界面上的预检）
     return ok(
-      await this.memory.saveGrants(user.userId, actions, body.password),
+      await this.memory.saveGrants(
+        user.userId,
+        actions,
+        body.password,
+        connectorIds,
+      ),
     );
   }
 

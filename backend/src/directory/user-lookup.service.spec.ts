@@ -1,6 +1,8 @@
 import { UserLookupService } from './user-lookup.service';
 import { httpRequest } from '../http/transport';
 import { runInRequestContext } from '../common/request-context';
+import type { PrismaService } from '../prisma/prisma.service';
+import { stub } from '../../test/doubles';
 
 jest.mock('../http/transport', () => ({ httpRequest: jest.fn() }));
 
@@ -36,7 +38,7 @@ function setup(enabled = 1, syncedAt: Date | null = null) {
   return {
     prisma,
     row,
-    users: new UserLookupService(prisma as never),
+    users: new UserLookupService(stub<PrismaService>(prisma)),
   };
 }
 

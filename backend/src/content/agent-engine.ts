@@ -2,17 +2,19 @@ import { text as readText } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
-import { streamRequest, TransportError } from '../http/transport';
+import { readSse, streamRequest, TransportError } from '../http/transport';
 import { ContentModelSettingService } from './model-setting.service';
 import { protocolHeaders } from './model-catalog.service';
 import type { ModelOverrides } from './content-media.service';
 import type { ConnectorToolSpec } from './agent-connectors.service';
+import { AgentRunGuard, type RunGuardOptions } from '../feature/runtime-guard';
 import {
   type AgentReference,
   type AgentToolContext,
   AGENT_TOOLS,
   runAgentTool,
 } from './agent-tools';
+import { businessToolSpecs } from './agent-business-tools';
 
 const MAX_TOOL_ROUNDS = 8;
 const HISTORY_LIMIT = 30;
@@ -134,45 +136,11 @@ function withReferences(content: string, references: AgentReference[]) {
   ].join('\n');
 }
 
-/** 逐行解析 SSE（OpenAI 与 Anthropic 都是 `data: {json}` 行），遇到 [DONE] 结束。 */
-async function readSse(
-  body: ReadableStream<Uint8Array> | null,
-  onChunk: (payload: Record<string, unknown>) => void,
-) {
-  if (!body) return;
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let index = buffer.indexOf('\n');
-      while (index >= 0) {
-        const line = buffer.slice(0, index).trim();
-        buffer = buffer.slice(index + 1);
-        index = buffer.indexOf('\n');
-        if (!line || line.startsWith(':')) continue;
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (payload === '[DONE]') return;
-        try {
-          onChunk(JSON.parse(payload) as Record<string, unknown>);
-        } catch {
-          // 单块坏数据不打断整轮
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-/** 内置工具 + 本轮连接器发布的远程工具；远程名字已带前缀，不会与内置重名。 */
+/** 内置 + 业务动作 + 本轮连接器发布的远程工具；远程名字已带前缀，不会与内置重名。 */
 function openAiTools(connectorTools: ConnectorToolSpec[]) {
   return [
     ...AGENT_TOOLS,
+    ...businessToolSpecs(),
     ...connectorTools.map((spec) => ({
       type: 'function' as const,
       function: {
@@ -189,6 +157,14 @@ function anthropicTools(connectorTools: ConnectorToolSpec[]) {
     ...AGENT_TOOLS.map((tool) => ({
       name: tool.function.name,
       description: tool.function.description,
+      input_schema: tool.function.parameters,
+    })),
+    ...businessToolSpecs().map((tool) => ({
+      name: String(tool.function.name),
+      description:
+        typeof tool.function.description === 'string'
+          ? tool.function.description
+          : '',
       input_schema: tool.function.parameters,
     })),
     ...connectorTools.map((spec) => ({
@@ -219,6 +195,14 @@ function canceledError() {
  * 渠道协议：OpenAI 兼容（/chat/completions）或 Anthropic 原生（/messages）。
  */
 export class ContentAgentEngine {
+  /**
+   * 运行期护栏参数（沙箱硬上限）由平台访问策略提供：技能/插件正文无权调大。
+   * 装配时由 services.ts 注入；未注入时使用 runtime-guard 的默认值。
+   */
+  guardOptions?: (
+    user: CurrentUser,
+  ) => Promise<Partial<Omit<RunGuardOptions, 'userId' | 'audit'>>>;
+
   constructor(
     private readonly settings: ContentModelSettingService,
     private readonly tools: AgentToolContext,
@@ -238,6 +222,16 @@ export class ContentAgentEngine {
   }
 
   async run(input: RunInput): Promise<EngineResult> {
+    // 每轮一个独立护栏：行为基线与输出兜底只作用于这一轮，不跨对话累计
+    const guardLimits = this.guardOptions
+      ? await this.guardOptions(input.user).catch(() => ({}))
+      : {};
+    const guard = new AgentRunGuard({
+      userId: input.user.userId,
+      audit: (action, detail) =>
+        this.tools.identity.audit(input.user.userId, action, detail),
+      ...guardLimits,
+    });
     // 前端先选渠道再选模型：本轮可以覆盖「模型设置 → 文本」的默认槽位；
     // 没传渠道就沿用槽位，模型没传且渠道与槽位一致才拿槽位默认模型。
     const slot = await this.settings.slotOf(input.user, 'text');
@@ -339,6 +333,7 @@ export class ContentAgentEngine {
       imageSize: input.imageSize,
       videoResolution: input.videoResolution,
       videoDuration: input.videoDuration,
+      guard,
       signal: input.signal,
       emit: input.emit,
     };
@@ -404,6 +399,9 @@ export class ContentAgentEngine {
         }
       });
       stream.close();
+      // 2.2 / 2.5：本轮模型输出先过体量与内容兜底，命中即中止
+      await target.guard.inspectOutput(roundText);
+      await target.guard.blockIfUnsafe(roundText);
 
       const calls = Array.from(drafts.values()).filter((item) => item.name);
       if (!calls.length) {
@@ -510,6 +508,9 @@ export class ContentAgentEngine {
         }
       });
       stream.close();
+      // 2.2 / 2.5：本轮模型输出先过体量与内容兜底，命中即中止
+      await target.guard.inspectOutput(roundText);
+      await target.guard.blockIfUnsafe(roundText);
       if (upstreamError) {
         throw new BusinessException(
           ErrorCode.SERVICE_UNAVAILABLE,
@@ -566,6 +567,8 @@ export class ContentAgentEngine {
     // 已点「停止」就不再起新的工具：runAgentTool 会把中断包成普通失败结果，
     // 不放行的话循环会接着调下一个工具，多跑一轮、多出一条「工具执行失败」。
     if (target.signal.aborted) throw canceledError();
+    // 2.1 行为基线：调用次数 / 重复调用超限直接熔断本轮
+    await target.guard.beforeTool(name, argsJson || '{}');
     await target.emit({ type: 'tool_start', name, args: argsJson || '{}' });
     // 出图/出片要轮询几分钟，中间一个事件都没有，连接会被 Next dev 代理（30 秒）、
     // 反向代理和前端 90 秒空闲看门狗掐掉，界面上就表现成「失败」。这里定时报进度。
@@ -684,6 +687,8 @@ type RunTarget = {
   imageSize?: string;
   videoResolution?: string;
   videoDuration?: number;
+  /** 本轮运行护栏（工具次数/重复调用/输出体量/内容兜底） */
+  guard: AgentRunGuard;
   signal: AbortSignal;
   emit: Emit;
 };

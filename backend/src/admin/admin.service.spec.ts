@@ -4,6 +4,12 @@ import {
   QXY_SETTINGS_KEY,
 } from '../qixiangyun/qxy-settings.service';
 import { AdminService } from './admin.service';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityService } from '../identity/identity.service';
+import type { UserLookupService } from '../directory/user-lookup.service';
+import type { CapabilityService } from '../capability/capability.service';
+import type { GeoCollectionService } from '../geo/geo-collection.service';
+import { stub } from '../../test/doubles';
 
 describe('generic admin settings credential isolation', () => {
   const user = new CurrentUser('admin', 'admin', 'admin');
@@ -18,11 +24,11 @@ describe('generic admin settings credential isolation', () => {
   };
   const identity = { requireAdmin: jest.fn(), setSetting: jest.fn() };
   const admin = new AdminService(
-    prisma as never,
-    identity as never,
-    {} as never,
-    {} as never,
-    {} as never,
+    stub<PrismaService>(prisma),
+    stub<IdentityService>(identity),
+    stub<UserLookupService>(),
+    stub<CapabilityService>(),
+    stub<GeoCollectionService>(),
   );
 
   it('does not return ciphertext from the generic settings endpoint', async () => {

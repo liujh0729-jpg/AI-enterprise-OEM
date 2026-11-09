@@ -12,7 +12,8 @@ export const HELP_CHAPTERS_PART_TWO: HelpChapterContent[] = [
       {
         code: 'as-staff',
         title: '职员与代理人',
-        summary: '邀请成员挂靠组织、审批入组、配置部门岗位与职能，是 CRM/BI/OA 共享的成员底座。',
+        summary:
+          '邀请成员挂靠组织、审批入组、配置部门岗位与职能，是 CRM/BI/OA 共享的成员底座。',
         routePath: '/staff',
         keywords: ['职员', '代理人', '成员', '部门', '岗位', '邀请'],
         content: `「管理设置 → 职员/代理人管理」组织你的团队：
@@ -48,36 +49,89 @@ export const HELP_CHAPTERS_PART_TWO: HelpChapterContent[] = [
   {
     code: 'integration',
     title: '开放集成与 MCP',
-    intro: 'API Key、模型设置、OpenAPI 文档，以及让外部 AI 客户端直接操作本系统的 MCP Server。',
+    intro:
+      'API Key、模型广场、模型设置，以及「API-MCP-Skill」里的 Skill 下载、MCP Server 与开放接口文档。',
     topics: [
       {
         code: 'in-keys',
         title: 'API Key 与 API 文档',
-        summary: '生成 ek_ Key 调 /api/v1 开放接口；接口清单由契约派生，与 MCP 目录同源。',
+        summary:
+          '生成 ek_ Key 调 /api/v1 开放接口；可复制明文、按 Key 设积分额度；接口清单由契约派生，与 MCP 目录同源。',
         routePath: '/developer/keys',
-        keywords: ['API', 'Key', '开放接口', 'api v1', '文档', 'OpenAPI'],
-        content: `**API Key 管理**（/developer/keys）：生成 / 重置 / 吊销本站 ek_ Key，机器通道调用 /api/v1 开放接口（多维表格读写、RPA 认领执行等）都用它。AIPDD sk- Key 的绑定也在同页。
+        keywords: [
+          'API',
+          'Key',
+          '开放接口',
+          '复制',
+          '积分额度',
+          'api v1',
+          '文档',
+          'OpenAPI',
+        ],
+        content: `**API Key 管理**（/developer/keys）：生成 / 复制 / 重置 / 吊销本站 ek_ Key，机器通道调用 /api/v1 开放接口（多维表格读写、RPA 认领执行等）与模型广场都用它。明文以密文保存，仅本人可随时「复制 API Key」，他人不可见；每把 Key 可单独设「积分额度」（对外调用累计消耗上限，超出即拒，也可设为不限额度）。AIPDD sk- Key 的绑定也在同页。
 
-**API 文档**（/developer/docs）：本系统实际对外提供的接口清单，由契约层派生，与 MCP 服务端 list_operations、OpenAPI 文档同源，看到的即调得到的。`,
+**API 文档**（/developer/api-mcp-skill?view=api）：本系统实际对外提供的接口清单，由契约层派生，与 MCP 服务端 list_operations、OpenAPI 文档同源，看到的即调得到的。`,
+      },
+      {
+        code: 'in-skill',
+        title: '下载平台生成的 Skill',
+        summary:
+          '平台管理员按业务域生成的技能包清单，点「下载」即可拿走 zip，放进支持 Skill 的 AI 客户端直接用。',
+        routePath: '/developer/api-mcp-skill?view=skill',
+        keywords: ['Skill', '技能包', '下载', 'zip', 'API-MCP-Skill'],
+        content: `「开放集成 → API-MCP-Skill → Skill」列出平台管理员生成的技能包：
+
+1. 每行给出技能名称、说明、业务域、覆盖动作数、生成模型与更新时间。
+2. 点「下载」直接拿走 zip，包里是调用本站开放接口的说明与示例，不含任何真实 Key。
+3. 真实凭证请到「API Key 管理」生成 ek_ Key，再按技能包说明填进客户端。
+
+列表由平台后台生成动作维护：管理员重新生成同名技能时覆盖旧包，页面刷新即见最新版本。`,
       },
       {
         code: 'in-mcp',
         title: '用 MCP 连接外部 AI 客户端',
-        summary: 'Codex / Claude Desktop / Cursor 用同一把 API Key 连入，Agent 读记忆、按授权执行本站动作。',
-        routePath: '/developer/mcp',
+        summary:
+          'Codex / Claude Desktop / Cursor 用同一把 API Key 连入，Agent 读记忆、按授权执行本站动作。',
+        routePath: '/developer/api-mcp-skill?view=mcp',
         keywords: ['MCP', 'Codex', 'Claude', 'Cursor', 'Workbuddy', '客户端'],
-        content: `「开放集成 → MCP Server」把本系统变成一个 AI 客户端可操作的工具集：
+        content: `「开放集成 → API-MCP-Skill → MCP Server」把本系统变成一个 AI 客户端可操作的工具集：
 
 1. 在「API Key 管理」生成 ek_ Key。
 2. 按页面配置样例把 MCP Server 加进 Codex、Claude Desktop、Cursor 或自研脚本（Workbuddy 亦同）。
 3. 连上后客户端能列出全部授权动作（与 API 文档同源），用户只给指令，服务端先分析本账号的智能体记忆再执行。
 
-写动作默认不放行：到「Agent → 授权闸」按域勾选允许的动作（如允许 AI 新建分发内容）；帮助中心的知识库（Help_chapters / Help_topic / Help_search 三个只读动作）默认开放，直接问你的 AI 客户端「这个系统怎么用」即可获得官方答案。`,
+写动作默认不放行：到「Agent → 授权闸」按域勾选允许的动作（如允许 AI 新建分发内容）；帮助中心的知识库（Help_chapters / Help_topic / Help_search 三个只读动作）默认开放，直接问你的 AI 客户端「这个系统怎么用」即可获得官方答案。
+
+清单随契约自动扩张：新增的业务模块（ERP 进销存、SEO 工作台、AI 获客、企微 SCRM、项目任务、HRM 等）只要进了契约就自动出现在 list_operations 与「MCP Server」页的业务能力总览里，不用改 MCP 代码。审批结论、资金收付、库存流水这类会直接改动账面的动作（如 ERP 的库存申请 / 采购订单 / 入库单 / 费用报销审批、核销收款、核销付款、出入库流水）属于永久排除项：机器通道能看见、能读，但永远不会无人值守执行，必须由本人在界面上确认。`,
+      },
+      {
+        code: 'in-model-plaza',
+        title: '模型广场',
+        summary:
+          '平台统一上架的模型目录：双价展示、在线试用、cURL / Python / TypeScript / JavaScript 调用示例与按量计费。',
+        routePath: '/model-plaza',
+        keywords: [
+          '模型广场',
+          '模型目录',
+          '调用示例',
+          '按量计费',
+          'OpenAI 兼容',
+          '速率限制',
+          'v1',
+        ],
+        content: `「开放集成 → 模型广场」只展示平台统一凭据上架的模型，价格口径单一：
+
+- **模型目录**：按渠道 / 厂商 / 计价类型 / 能力筛选；每个模型给出人民币上游价与积分售价（按 Token 或按次），并显示你近 7 天的调用与消费。
+- **调用方式**：点卡片上的「调用方式」，按模型支持的能力切换端点，复制 cURL、Python、TypeScript、JavaScript 示例；同一抽屉里能看到支持的参数与速率限制。
+- **在线试用**：支持对话的模型可直接在页面里试跑，按目录价扣积分，余额不足会被拒绝。
+- **接入方式**：在「API Key 管理」签发 ek_ Key，把 baseURL 指向模型广场给出的地址即可，完全兼容 OpenAI SDK。
+- **兑换码**：在「积分中心 → 兑换码」输入平台管理员发放的兑换码并点「兑换」即可获得积分；只有平台管理员能新建和管理兑换码。`,
       },
       {
         code: 'in-models',
         title: '模型设置',
-        summary: 'Agent 与内容创作共用的模型配置：内置渠道、OpenAI 兼容网关与默认模型。',
+        summary:
+          'Agent 与内容创作共用的模型配置：内置渠道、OpenAI 兼容网关与默认模型。',
         routePath: '/model-settings',
         keywords: ['模型', '大模型', '网关', '默认模型', 'AI'],
         content: `「开放集成 → 模型设置」统一管理处全站 AI 能力用的模型：
@@ -89,6 +143,103 @@ export const HELP_CHAPTERS_PART_TWO: HelpChapterContent[] = [
     ],
   },
   {
+    code: 'hardware',
+    title: '智能硬件',
+    intro:
+      '「开放集成 → 智能硬件」子菜单：硬件广场与开发包、接入设备与心跳、按型号的专属 MCP 工具（Agent 控制）与 API（程序控制）。',
+    topics: [
+      {
+        code: 'hw-overview',
+        title: '硬件广场与开发包',
+        summary:
+          '按型号浏览硬件、下载开发包（SDK / 固件，附 SHA-256 校验），进型号详情看该型号的默认 API / MCP 工具。',
+        routePath: '/hardware',
+        keywords: [
+          '智能硬件',
+          '硬件广场',
+          '型号',
+          '开发包',
+          '开发板',
+          'ESP32',
+          'Jetson',
+          '树莓派',
+          '固件',
+          'SDK',
+          'SHA-256',
+        ],
+        content: `「智能硬件 → 硬件广场」是硬件与开发包的目录（位于侧栏「开放集成 → 智能硬件」）：
+
+1. **型号目录**：卡片按推荐与排序展示，每个型号给出厂商、芯片、分类与规格；点上架开关后用户侧可见。
+2. **开发包**：每个型号下按版本列出开发包，分稳定 / 预览通道；二进制直传本站对象存储，下载量计数，页面给出文件名、大小与 SHA-256，下载后可自行校验。
+3. **型号详情**：点进某个型号可看它的规格与开发包列表，以及该型号可用的默认 API / MCP 工具清单。
+4. **SDK 与示例**：仓库根目录 \`hardware-devkit/\` 提供可直接编译运行的 ESP32 ESP-IDF 组件、Jetson / 树莓派 Python 包（纯标准库）、两个可跑示例，以及一个零依赖的 Node 模拟设备与逐字段协议文档；没有真机也能用模拟器跑通完整闭环。
+
+平台管理员在后台「智能硬件 → 硬件型号 / 开发包」维护型号与版本。`,
+      },
+      {
+        code: 'hw-device',
+        title: '接入设备与心跳',
+        summary:
+          '选型号接入设备生成 hw_ 设备令牌，设备填好地址与令牌后心跳上线；在线 / 离线 / 从未上报与事件流水。',
+        routePath: '/hardware/devices',
+        keywords: [
+          '添加硬件',
+          '接入设备',
+          '设备令牌',
+          'hw_',
+          '心跳',
+          '在线',
+          '离线',
+          '在线状态',
+          '事件流水',
+        ],
+        content: `「智能硬件 → 添加硬件」把手上设备接进平台：
+
+1. **接入**：选择型号、起个名字，点保存后生成 \`hw_\` 开头的设备令牌——**明文只在生成那一刻显示一次**，平台上只存它的 SHA-256，丢了可随时重置（旧令牌立即失效）。
+2. **烧写 / 运行**：把令牌与服务地址填进开发包里的 SDK 或预编译固件（ESP32 烧录、Jetson / 树莓派直接跑示例），设备即开始定时上报心跳。
+3. **在线状态**：列表按三类展示——从未上报（NEVER）、在线（ONLINE）、离线（OFFLINE，超过 180 秒没有心跳自动转离线）；能看到最近一次上报时间、IP 与固件版本。
+4. **排障**：按设备查看心跳 / 指令 / 回执的事件流水，定位设备是否收到指令、有没有回执、耗时多久。
+5. **停用 / 删除**：设备可停用（保留记录但拒绝调用）或删除；停用后设备通道会明确拒绝它的心跳。
+
+> 设备通道（\`/api/public/hardware/**\`）只认设备令牌、免登录，且**不受功能开关拦截**：管理员关掉「智能硬件」板块也不会掐断已接入设备的心跳。`,
+      },
+      {
+        code: 'hw-tools',
+        title: '专属 MCP 工具与 API',
+        summary:
+          '独立的硬件 MCP 服务端与 ek_ Key 机器通道；工具名 hw__型号__工具，写工具受「授权 / 无人值守 / dryRun」三层闸约束。',
+        routePath: '/hardware/mcp',
+        keywords: [
+          '硬件 MCP',
+          'hw__',
+          '硬件工具',
+          '工具授权',
+          '试调',
+          '可自动执行',
+          'API',
+          'api/v1/hardware',
+          'ek_',
+        ],
+        content: `每个硬件型号都能带一批**专属**的工具，供 Agent（MCP）或程序（API）调用：
+
+- **硬件MCP**（/hardware/mcp）：独立服务端 \`aiworkin-hardware-mcp\`，端点是 \`/api/v1/hardware/mcp\`，与平台 MCP 完全分开——工具只来自硬件工具表，命名 \`hw__<型号编码>__<工具编码>\`，用「开发者 → API Key」里的 \`ek_\` Key 鉴权。
+- **硬件API**（/hardware/api）：同一批工具走 \`/api/v1/hardware/**\` 机器通道，\`curl\` 即可列出并调用；参数与响应以页面给出的 JSON 示例为准。
+
+**写工具的三层授权闸**（与平台 MCP 同一套口径）：
+
+1. **未授权只出草案**：写动作默认不执行，先在本页勾选「可自动执行」才放行。
+2. **无人值守只出草案**：来自定时任务等无人值守场景的写动作默认不执行，需在该任务上显式允许。
+3. **dryRun 只出草案**：调用方显式声明 dryRun 时只回草案，不真正下发。
+
+**试调**：本人的「试调」不受第 1 层限制（未授权也能先验证工具好不好用），仍会留一条执行流水。
+
+**自建工具**：你可以按型号新建自己的工具（仅本人可见可用，首版不上架市场）；工具分「设备直连（HTTP）」与「指令下发（DEVICE）」两种通道——前者由平台代调设备上报的 HTTP 地址，后者把指令下发到设备、设备拉取后回执，同步等回执、超时明确留痕。
+
+平台管理员在后台「智能硬件 → 默认工具」按型号维护平台级默认工具，改完用户侧即时可见。`,
+      },
+    ],
+  },
+  {
     code: 'platform-admin',
     title: '平台管理后台',
     intro: '仅平台管理员可见：用户与企业监管、服务商审核、签约监管与系统设置。',
@@ -96,16 +247,17 @@ export const HELP_CHAPTERS_PART_TWO: HelpChapterContent[] = [
       {
         code: 'pa-overview',
         title: '后台功能地图',
-        summary: '切到平台管理员身份后侧栏变为监管菜单：总览、用户、服务商、签约、财税、活码、社区、积分、系统设置。',
+        summary:
+          '切到平台管理员身份后侧栏变为监管菜单（用户、服务商、签约、财税、活码、社区、积分、系统设置），平台数据总览在首页高管驾驶舱。',
         routePath: '/admin',
         keywords: ['平台管理', '后台', '管理员', '审核', '监管'],
         content: `具备平台管理员身份后，在右上角切换到「平台管理员」，侧栏变为监管菜单：
 
-- **总览**：平台运行指标一屏。
+- **高管驾驶舱（首页）**：平台运行指标一屏——注册 / 企业 / 服务商 / 签约 / 各业务单据与税额，另含待办审核与服务商服务类型分布；侧栏不再单独保留「总览」板块。
 - **注册用户 / 企业用户**：账号检索、封禁与解封。
 - **服务商备案 / 服务商管理 / 能力开通**：审核备案材料、管理在约服务商、开关服务领域。
 - **签约监管 / 供销网络监管 / 灵活用工 / 财税管理**：业务合规抽查；财税管理统一配置企享云 Key 与税号匹配。
-- **GEO 管理设置 / 活码监管 / 创意社区 / 积分与充值 / 服务商展示与同步**：各线平台级参数。
+- **GEO 管理设置 / 活码监管 / 创意社区 / 积分与充值**：各线平台级参数。
 - **系统设置**：文件存储（OSS）、AIPDD 平台 Key（基础数据）、平台级参数与站点设置（站点名 / Logo / 菜单显隐，保存即全站生效）。
 
 管理员侧栏刻意不含「管理设置」个人账户菜单与账户级 Key/模型自助页——要用那些请切回企业/个人身份。`,
@@ -120,7 +272,8 @@ export const HELP_CHAPTERS_PART_TWO: HelpChapterContent[] = [
       {
         code: 'faq-session',
         title: '登录失效 / 会话被踢',
-        summary: '会话默认 2 天，勾选 30 天自动登录可延长；改密或封禁会让旧令牌立即失效。',
+        summary:
+          '会话默认 2 天，勾选 30 天自动登录可延长；改密或封禁会让旧令牌立即失效。',
         routePath: '',
         keywords: ['登录', '会话', '过期', '重新登录', '改密码'],
         content: `- 登录会话默认 2 天有效；登录时勾选「30 天内自动登录」可延长到 30 天。
@@ -131,18 +284,20 @@ export const HELP_CHAPTERS_PART_TWO: HelpChapterContent[] = [
       {
         code: 'faq-menu',
         title: '菜单里看不到某个功能',
-        summary: '菜单按身份与开通状态过滤；站点级隐藏只收入口，直接访问链接仍可用。',
+        summary:
+          '菜单按身份与开通状态过滤；站点级隐藏只收入口，直接访问链接仍可用。',
         routePath: '',
         keywords: ['菜单', '看不到', '消失', '权限', '隐藏'],
         content: `- **身份不对**：平台管理菜单只在「平台管理员」身份下出现；「管理设置」在管理员身份下反而不显示，切回企业/个人身份即可。
 - **领域未开通**：业务服务只显示已开通的领域，先到对应板块申请或联系服务商完成签约开通。
-- **站点级隐藏**：管理员在「站点设置」可隐藏业务服务 / 开放集成 / AI增值服务的部分菜单项，被隐藏的板块对普通用户不再显示；这类只是收菜单入口，已知链接访问不受影响。
+- **站点级隐藏**：管理员在「站点设置 → 用户侧菜单显隐」可勾选隐藏前台侧栏的任意一条菜单（含首页入口与「AI增值服务」外链），某分组内的菜单项全部隐藏后该分组自动消失；这类只是收菜单入口，已知链接访问不受影响。
 - **个人主体限制**：自然人主体在财税/出海等板块只可浏览，办理按钮不出现。`,
       },
       {
         code: 'faq-error',
         title: '操作报错怎么办',
-        summary: '先看弹窗里的中文原因；涉及上游服务的错误会注明通道，可重试或稍后再来。',
+        summary:
+          '先看弹窗里的中文原因；涉及上游服务的错误会注明通道，可重试或稍后再来。',
         routePath: '',
         keywords: ['报错', '失败', '错误', '重试', '上游'],
         content: `- 页面弹出的红色提示都是可行动的具体原因（如「平台不支持该内容类型」），按提示修正后重试。
@@ -152,7 +307,8 @@ export const HELP_CHAPTERS_PART_TWO: HelpChapterContent[] = [
       {
         code: 'faq-ask-agent',
         title: '直接问 Agent 怎么用',
-        summary: '本帮助中心同时是 MCP 知识库，站内 Agent 或任意 MCP 客户端都能检索官方用法。',
+        summary:
+          '本帮助中心同时是 MCP 知识库，站内 Agent 或任意 MCP 客户端都能检索官方用法。',
         routePath: '/agent',
         keywords: ['问Agent', '知识库', 'MCP', '怎么用', '帮助'],
         content: `这份帮助中心同时以 MCP 只读工具形式开放（查看帮助章节 / 查看帮助主题 / 搜索帮助中心三个动作）：

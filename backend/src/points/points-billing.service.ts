@@ -60,7 +60,9 @@ export class PointsBillingService {
       if (snapshotAt.getDate() === 1) {
         summary.seatCharged = await this.chargeCrmSeats(snapshotAt);
       }
-      summary.rechargesClosed = await this.recharge.closeExpired(new Date(Date.now() - 2 * 3600_000));
+      summary.rechargesClosed = await this.recharge.closeExpired(
+        new Date(Date.now() - 2 * 3600_000),
+      );
       await this.refreshArrearsStatus();
       // 全部成功后再落幂等标记：中途异常下轮可重试
       await this.settings.setFlag('last_daily_batch_date', key);
@@ -86,7 +88,12 @@ export class PointsBillingService {
       const bytes = BigInt(Math.round((row._sum.fileSize || 0) * 1024 * 1024));
       await this.prisma.storageDailySnapshot.upsert({
         where: { userId_snapshotAt: { userId: row.userId, snapshotAt } },
-        create: { userId: row.userId, bytesAmount: bytes, assetCount: row._count._all, snapshotAt },
+        create: {
+          userId: row.userId,
+          bytesAmount: bytes,
+          assetCount: row._count._all,
+          snapshotAt,
+        },
         update: { bytesAmount: bytes, assetCount: row._count._all },
       });
       count += 1;
@@ -96,7 +103,9 @@ export class PointsBillingService {
 
   /** asset_storage 按 GB·天出账：超免费额部分计费，欠费标记 ARREARS。 */
   private async chargeStorage(snapshotAt: Date) {
-    const pricing = await this.prisma.modulePricing.findUnique({ where: { code: 'asset_storage' } });
+    const pricing = await this.prisma.modulePricing.findUnique({
+      where: { code: 'asset_storage' },
+    });
     if (!pricing || !pricing.enabled || pricing.mode !== 'METERED') {
       return { charged: 0, arrears: 0 };
     }
@@ -104,7 +113,9 @@ export class PointsBillingService {
     const freeGB = toNum(pricing.freeQuotaAmount);
     const minCharge = toNum(pricing.minChargeAmount);
     if (unitPrice <= 0) return { charged: 0, arrears: 0 };
-    const snapshots = await this.prisma.storageDailySnapshot.findMany({ where: { snapshotAt } });
+    const snapshots = await this.prisma.storageDailySnapshot.findMany({
+      where: { snapshotAt },
+    });
     let charged = 0;
     let arrears = 0;
     for (const snap of snapshots) {
@@ -148,7 +159,9 @@ export class PointsBillingService {
 
   /** crm 席位月费：按 owner 聚合 ACTIVE 席位，超免费额扣费（每月 1 日出账）。 */
   private async chargeCrmSeats(snapshotAt: Date) {
-    const pricing = await this.prisma.modulePricing.findUnique({ where: { code: 'crm' } });
+    const pricing = await this.prisma.modulePricing.findUnique({
+      where: { code: 'crm' },
+    });
     if (!pricing || !pricing.enabled || pricing.mode !== 'METERED') return 0;
     const unitPrice = toNum(pricing.unitPriceAmount);
     const freeSeats = toNum(pricing.freeQuotaAmount);
@@ -165,12 +178,17 @@ export class PointsBillingService {
       const amount = Number((chargeableSeats * unitPrice).toFixed(4));
       if (amount < minCharge || amount <= 0) continue;
       try {
-        const debit = await this.points.debit(row.ownerUserId, 'SPEND', amount, {
-          scene: 'crm',
-          refType: 'crm_seat_month',
-          refId: todayKey(snapshotAt),
-          remark: `CRM 席位 ${row._count.memberUserId}（免费 ${freeSeats}）`,
-        });
+        const debit = await this.points.debit(
+          row.ownerUserId,
+          'SPEND',
+          amount,
+          {
+            scene: 'crm',
+            refType: 'crm_seat_month',
+            refId: todayKey(snapshotAt),
+            remark: `CRM 席位 ${row._count.memberUserId}（免费 ${freeSeats}）`,
+          },
+        );
         await this.prisma.usageEvent.create({
           data: {
             userId: row.ownerUserId,
@@ -211,7 +229,9 @@ export class PointsBillingService {
    */
   private async refreshArrearsStatus() {
     const cfg = await this.settings.view();
-    const arrears = await this.prisma.pointAccount.findMany({ where: { status: 'ARREARS' } });
+    const arrears = await this.prisma.pointAccount.findMany({
+      where: { status: 'ARREARS' },
+    });
     for (const account of arrears) {
       if (toNum(account.balanceAmount) > 0) {
         await this.prisma.pointAccount.update({

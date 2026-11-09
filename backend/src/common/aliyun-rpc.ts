@@ -48,18 +48,31 @@ export function canonicalQuery(params: Record<string, string>): string {
     .join('&');
 }
 
+/**
+ * RPC 签名（可指定资源路径）：Green 这类 `/green/text/scan` path 式接口的
+ * CanonicalizedResource 是实际路径，不是统一的 `/`。
+ */
+export function signRpcResource(input: {
+  params: Record<string, string>;
+  accessKeySecret: string;
+  method?: 'POST' | 'GET';
+  resource?: string;
+}): string {
+  const method = input.method ?? 'POST';
+  const stringToSign = `${method}&${percentEncode(
+    input.resource ?? '/',
+  )}&${percentEncode(canonicalQuery(input.params))}`;
+  return createHmac('sha1', `${input.accessKeySecret}&`)
+    .update(stringToSign)
+    .digest('base64');
+}
+
 export function signRpc(input: {
   params: Record<string, string>;
   accessKeySecret: string;
   method?: 'POST' | 'GET';
 }): string {
-  const method = input.method ?? 'POST';
-  const stringToSign = `${method}&${percentEncode('/')}&${percentEncode(
-    canonicalQuery(input.params),
-  )}`;
-  return createHmac('sha1', `${input.accessKeySecret}&`)
-    .update(stringToSign)
-    .digest('base64');
+  return signRpcResource(input);
 }
 
 /** 阿里云要求的 UTC 时间：`YYYY-MM-DDThh:mm:ssZ`（不带毫秒）。 */

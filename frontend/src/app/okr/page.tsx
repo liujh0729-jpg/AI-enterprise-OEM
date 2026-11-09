@@ -4,6 +4,8 @@ import { Button, ConfigProvider } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { okrApi } from "@/api/okr";
 import { Notice, PageHero } from "@/components/ui/panel";
+import { OkrBriefsTab } from "./_components/okr-briefs";
+import { OkrDecompositionTab } from "./_components/okr-decomposition";
 import { OkrObjectivesTab } from "./_components/okr-objectives";
 import { OkrPlansTab } from "./_components/okr-plans";
 import { OkrReportsTab } from "./_components/okr-reports";
@@ -11,7 +13,9 @@ import { OkrSettingsTab } from "./_components/okr-settings";
 import { OkrStatsTab } from "./_components/okr-stats";
 
 const TABS = [
+  { key: "briefs", label: "目标书" },
   { key: "objectives", label: "目标" },
+  { key: "decomposition", label: "AI 拆解" },
   { key: "plans", label: "我的计划" },
   { key: "reports", label: "汇报" },
   { key: "stats", label: "统计复盘" },
@@ -21,8 +25,9 @@ const TABS = [
 type OkrContextData = Awaited<ReturnType<typeof okrApi.context>>;
 
 export default function OkrPage() {
-  const [tab, setTab] = useState("objectives");
+  const [tab, setTab] = useState("briefs");
   const [cycleId, setCycleId] = useState(0);
+  const [decompositionBriefId, setDecompositionBriefId] = useState(0);
   const [ctx, setCtx] = useState<OkrContextData | null>(null);
   const [error, setError] = useState("");
 
@@ -53,7 +58,7 @@ export default function OkrPage() {
     <ConfigProvider button={{ autoInsertSpace: false }}>
       <PageHero
         title="OKR 计划"
-        desc="账号级目标管理：年度/季度/月度周期、公司到个人的目标树、周/日计划、日报周报与周期复盘评分。成员与管理者的岗位能力复用「职员与代理人」。"
+        desc="账号级目标管理：目标书（业务目标 + 范围/时间/成本铁三角）→ AI 互动澄清与多方案拆解 → 确认落库为任务与个人 OKR；另有周期、目标树、周/日计划、日报周报与复盘评分。成员与管理者的岗位能力复用「职员与代理人」。"
         tabs={TABS}
         activeTab={tab}
         onTabChange={setTab}
@@ -72,11 +77,27 @@ export default function OkrPage() {
         </div>
       ) : null}
 
+      {ctx && tab === "briefs" ? (
+        <OkrBriefsTab
+          ctx={ctx}
+          onDecompose={(briefId) => {
+            setDecompositionBriefId(briefId);
+            setTab("decomposition");
+          }}
+        />
+      ) : null}
       {ctx && tab === "objectives" ? (
         <OkrObjectivesTab
           ctx={ctx}
           reload={load}
           onCycleChange={(next) => setCycleId(next)}
+        />
+      ) : null}
+      {ctx && tab === "decomposition" ? (
+        <OkrDecompositionTab
+          ctx={ctx}
+          initialBriefId={decompositionBriefId || undefined}
+          onCommitted={load}
         />
       ) : null}
       {ctx && tab === "plans" ? <OkrPlansTab ctx={ctx} reload={load} /> : null}

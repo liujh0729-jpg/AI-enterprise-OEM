@@ -8,7 +8,7 @@ import { runInRequestContext } from '../common/request-context';
 import { DataTableService } from '../data-table/data-table.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { TransportError } from '../http/transport';
 import { AliyunCallCrypto } from './aliyun-call-crypto';
 import {
@@ -476,10 +476,7 @@ export class AliyunCallService {
         jobGroupName:
           jobGroupName ||
           (mode === 'append' ? jobGroupId : buildDefaultName(table.name)),
-        strategyJson:
-          strategy === null
-            ? undefined
-            : (strategy as unknown as Prisma.InputJsonValue),
+        strategyJson: strategy === null ? undefined : toJsonInput(strategy),
         callingNumbers: callingNumbers.length ? callingNumbers : undefined,
         status: 'queued',
         totalRows: prepared.rows.length,

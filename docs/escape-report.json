@@ -1,0 +1,408 @@
+{
+  "tool": "escape-audit",
+  "version": 2,
+  "commit": "5e152c3",
+  "date": "2026-11-09",
+  "root": "E:\\wwwroot\\oem-enterprise",
+  "files": 1467,
+  "candidates": 1929,
+  "untracked": 501,
+  "missing": [
+    "backend/src/platform/provider-display.service.ts",
+    "frontend/src/app/admin/_components/providers-display-tab.tsx",
+    "frontend/src/app/agent/_components/memory-tab.tsx"
+  ],
+  "excluded": {
+    "dir": 0,
+    "instrument": 2
+  },
+  "loc": 526748,
+  "prodLoc": 481049,
+  "total": 6,
+  "prodTotal": 4,
+  "unallowlisted": 0,
+  "allowMatched": 6,
+  "allowStale": [],
+  "density": 0.01,
+  "byCat": {
+    "asNever": {
+      "total": 0,
+      "prod": 0,
+      "test": 0,
+      "script": 0,
+      "dts": 0
+    },
+    "asAny": {
+      "total": 0,
+      "prod": 0,
+      "test": 0,
+      "script": 0,
+      "dts": 0
+    },
+    "asUnknownAs": {
+      "total": 3,
+      "prod": 1,
+      "test": 0,
+      "script": 2,
+      "dts": 0
+    },
+    "tsIgnore": {
+      "total": 0,
+      "prod": 0,
+      "test": 0,
+      "script": 0,
+      "dts": 0
+    },
+    "tsExpectError": {
+      "total": 0,
+      "prod": 0,
+      "test": 0,
+      "script": 0,
+      "dts": 0
+    },
+    "eslintDisable": {
+      "total": 3,
+      "prod": 3,
+      "test": 0,
+      "script": 0,
+      "dts": 0
+    },
+    "explicitAny": {
+      "total": 0,
+      "prod": 0,
+      "test": 0,
+      "script": 0,
+      "dts": 0
+    },
+    "tsNocheck": {
+      "total": 0,
+      "prod": 0,
+      "test": 0,
+      "script": 0,
+      "dts": 0
+    }
+  },
+  "byRole": {
+    "script": {
+      "files": 115,
+      "loc": 27616,
+      "total": 2
+    },
+    "test": {
+      "files": 108,
+      "loc": 18083,
+      "total": 0
+    },
+    "prod": {
+      "files": 1244,
+      "loc": 481049,
+      "total": 4
+    }
+  },
+  "workspaces": [
+    {
+      "ws": "frontend",
+      "files": 598,
+      "loc": 189231,
+      "prodFiles": 589,
+      "prodLoc": 188664,
+      "total": 4,
+      "prodTotal": 3,
+      "density": 0.02,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 1,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 3,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      },
+      "prodCats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 3,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "ws": "backend",
+      "files": 721,
+      "loc": 261772,
+      "prodFiles": 603,
+      "prodLoc": 241861,
+      "total": 2,
+      "prodTotal": 1,
+      "density": 0,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 2,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      },
+      "prodCats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 1,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "ws": "extensions",
+      "files": 7,
+      "loc": 2868,
+      "prodFiles": 0,
+      "prodLoc": 0,
+      "total": 0,
+      "prodTotal": 0,
+      "density": 0,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      },
+      "prodCats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "ws": "hardware-devkit",
+      "files": 1,
+      "loc": 103,
+      "prodFiles": 0,
+      "prodLoc": 0,
+      "total": 0,
+      "prodTotal": 0,
+      "density": 0,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      },
+      "prodCats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "ws": "packages/contracts",
+      "files": 52,
+      "loc": 50524,
+      "prodFiles": 52,
+      "prodLoc": 50524,
+      "total": 0,
+      "prodTotal": 0,
+      "density": 0,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      },
+      "prodCats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "ws": "scripts",
+      "files": 88,
+      "loc": 22250,
+      "prodFiles": 0,
+      "prodLoc": 0,
+      "total": 0,
+      "prodTotal": 0,
+      "density": 0,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      },
+      "prodCats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    }
+  ],
+  "topFiles": [
+    {
+      "file": "backend/src/http/automation-routes.ts",
+      "role": "prod",
+      "loc": 1818,
+      "total": 1,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 1,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "file": "backend/test/doubles.ts",
+      "role": "script",
+      "loc": 9,
+      "total": 1,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 1,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "file": "frontend/src/app/agent/_components/chat-panel.tsx",
+      "role": "prod",
+      "loc": 2408,
+      "total": 1,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 1,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "file": "frontend/src/components/ui/raw-img.tsx",
+      "role": "prod",
+      "loc": 13,
+      "total": 1,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 1,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "file": "frontend/src/lib/session.tsx",
+      "role": "prod",
+      "loc": 123,
+      "total": 1,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 0,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 1,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    },
+    {
+      "file": "frontend/src/test/doubles.ts",
+      "role": "script",
+      "loc": 9,
+      "total": 1,
+      "cats": {
+        "asNever": 0,
+        "asAny": 0,
+        "asUnknownAs": 1,
+        "tsIgnore": 0,
+        "tsExpectError": 0,
+        "eslintDisable": 0,
+        "explicitAny": 0,
+        "tsNocheck": 0
+      }
+    }
+  ],
+  "eslintRules": [
+    {
+      "rule": "react-hooks/exhaustive-deps",
+      "n": 2
+    },
+    {
+      "rule": "@next/next/no-img-element",
+      "n": 1
+    }
+  ],
+  "budget": {
+    "total": 6,
+    "byCat": {
+      "asNever": 0,
+      "asAny": 0,
+      "asUnknownAs": 3,
+      "tsIgnore": 0,
+      "tsExpectError": 0,
+      "eslintDisable": 3,
+      "explicitAny": 0,
+      "tsNocheck": 0
+    },
+    "allowlisted": 6,
+    "commit": "5e152c3",
+    "date": "2026-11-09"
+  }
+}

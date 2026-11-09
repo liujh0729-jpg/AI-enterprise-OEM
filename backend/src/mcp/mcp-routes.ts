@@ -49,7 +49,7 @@ export function registerMcpRoutes(
         message = raw ? JSON.parse(raw) : undefined;
       } catch {
         return context.json(
-          jsonRpcError(MCP_ERROR.PARSE, '请求体不是合法 JSON') as never,
+          jsonRpcError(MCP_ERROR.PARSE, '请求体不是合法 JSON'),
           200,
         );
       }
@@ -60,7 +60,7 @@ export function registerMcpRoutes(
         message,
       );
       if (reply.status === 202) return new Response(null, { status: 202 });
-      return context.json(reply.payload as never, 200);
+      return context.json(reply.payload, 200);
     },
   );
 }

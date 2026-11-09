@@ -30,7 +30,11 @@ export function registerDevSessionRoutes(
     const session = await account.account.devSession(username);
     if (!session)
       return c.json(
-        { code: 400, message: '开发账号不存在或已停用（需先存在于本地账户表）', data: null },
+        {
+          code: 400,
+          message: '开发账号不存在或已停用（需先存在于本地账户表）',
+          data: null,
+        },
         400,
       );
     const token = issueSsoSession(
@@ -45,6 +49,6 @@ export function registerDevSessionRoutes(
       path: '/',
       maxAge: 43200,
     });
-    return c.redirect(safeNextPath(c.req.query('next')), 303);
+    return c.redirect(safeNextPath(c.req.query('next'), '/dashboard'), 303);
   });
 }

@@ -20,7 +20,9 @@ export class PointsDailyScheduler {
     const intervalMs = Number(process.env.POINTS_SCHEDULER_TICK_MS || 3600000);
     this.timer = setInterval(() => void this.tick(), intervalMs);
     void this.tick();
-    this.logger.log(`积分计费日批已启动：每 ${intervalMs}ms 扫描一次，当日未跑则执行`);
+    this.logger.log(
+      `积分计费日批已启动：每 ${intervalMs}ms 扫描一次，当日未跑则执行`,
+    );
   }
   private async tick() {
     if (this.busy) return;

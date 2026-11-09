@@ -4,6 +4,7 @@ import {
   OA_TASK_STATUS_LABELS,
 } from '@enterprise/contracts';
 import { text } from '../common/api';
+import { fromJson } from '../common/json-input';
 import { jsonArray, jsonObject, num, statusLabel } from './oa.helpers';
 import type { OaContext, OaMemberRow } from './oa.scope';
 
@@ -62,7 +63,7 @@ export const asFrozenNodes = (value: unknown): OaFrozenNode[] =>
       },
       mode: (text(row.mode) || 'ANY') as OaFlowNode['mode'],
       condition: row.condition
-        ? (jsonObject(row.condition) as unknown as OaFlowNode['condition'])
+        ? fromJson<OaFlowNode['condition']>(jsonObject(row.condition))
         : null,
       emptyAction: (text(row.emptyAction) ||
         'SKIP') as OaFlowNode['emptyAction'],

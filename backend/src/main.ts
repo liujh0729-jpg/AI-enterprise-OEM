@@ -10,6 +10,7 @@ import { OkrDailyScheduler } from './okr/okr.scheduler';
 import { OaReminderScheduler } from './oa/oa.scheduler';
 import { TencentQidianScheduler } from './tencent-qidian/tp.scheduler';
 import { PointsDailyScheduler } from './points/points-daily.scheduler';
+import { ModerationPollScheduler } from './moderation/moderation-poll.scheduler';
 
 async function bootstrap() {
   validateConfig();
@@ -27,6 +28,16 @@ async function bootstrap() {
   const pointsScheduler = new PointsDailyScheduler(services.points.billing);
   // 创意社区运行：轮询 Comfy Cloud 作业并把产物转存进本站 OSS（签名 URL 约 6 小时失效）
   const communityScheduler = services.community.scheduler;
+  // 视频模版：按后台策略从 AIworkin 平台补充模版（上游接口未上线时只记 SKIPPED）
+  const videoTemplateScheduler = services.videoTemplate.scheduler;
+  // 视频内容安全：送审是异步的，轮询结论写回数字资产台账
+  const moderationScheduler = new ModerationPollScheduler(
+    services.digitalAsset,
+  );
+  // AI 获客：监控源到点建批次、跟进到期发送、超时批次收口
+  const acquisitionScheduler = services.acquisition.scheduler;
+  // 企微 SCRM：群发到点、继承轮询、SOP 定时/逾期提醒、活码日切再平衡
+  const scrmScheduler = services.scrm.scheduler;
   try {
     await services.prisma.$connect();
     // OSS 配置缓存：后台保存过则用库里的配置，否则回退 .env（URL 生成是同步调用）
@@ -39,7 +50,11 @@ async function bootstrap() {
     oaScheduler.onModuleInit();
     tpScheduler.onModuleInit();
     pointsScheduler.onModuleInit();
+    moderationScheduler.onModuleInit();
     communityScheduler.onModuleInit();
+    videoTemplateScheduler.onModuleInit();
+    acquisitionScheduler.onModuleInit();
+    scrmScheduler.onModuleInit();
   } catch (error) {
     rpaScheduler.onModuleDestroy();
     workbuddyScheduler.onModuleDestroy();
@@ -48,7 +63,11 @@ async function bootstrap() {
     oaScheduler.onModuleDestroy();
     tpScheduler.onModuleDestroy();
     pointsScheduler.onModuleDestroy();
+    moderationScheduler.onModuleDestroy();
     communityScheduler.onModuleDestroy();
+    videoTemplateScheduler.onModuleDestroy();
+    acquisitionScheduler.onModuleDestroy();
+    scrmScheduler.onModuleDestroy();
     await services.prisma.$disconnect();
     throw error;
   }
@@ -69,7 +88,11 @@ async function bootstrap() {
     oaScheduler.onModuleDestroy();
     tpScheduler.onModuleDestroy();
     pointsScheduler.onModuleDestroy();
+    moderationScheduler.onModuleDestroy();
     communityScheduler.onModuleDestroy();
+    videoTemplateScheduler.onModuleDestroy();
+    acquisitionScheduler.onModuleDestroy();
+    scrmScheduler.onModuleDestroy();
     server.close(() => {
       void services.prisma.$disconnect().finally(() => process.exit(0));
     });

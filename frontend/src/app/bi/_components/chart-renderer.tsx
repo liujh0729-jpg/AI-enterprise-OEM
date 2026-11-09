@@ -2,15 +2,37 @@
 
 import { Table } from "antd";
 import { useMemo } from "react";
+import { z } from "@enterprise/contracts";
 
 export type ChartColumn = { key: string; label: string; type: string };
 
-export type ChartConfig = {
-  type?: string;
-  dimensions?: string[];
-  measures?: Array<{ key: string; aggregate?: string; alias?: string }>;
-  [key: string]: unknown;
-};
+const chartConfigSchema = z
+  .object({
+    type: z.string().optional().catch(undefined),
+    dimensions: z.array(z.string()).optional().catch(undefined),
+    measures: z
+      .array(
+        z.object({
+          key: z.string(),
+          aggregate: z.string().optional(),
+          alias: z.string().optional(),
+        }),
+      )
+      .optional()
+      .catch(undefined),
+  })
+  .catchall(z.unknown());
+
+export type ChartConfig = z.output<typeof chartConfigSchema>;
+
+/**
+ * 契约里图表配置是自由 JSON（z.record），渲染侧只认 dimensions/measures。
+ * 在此一处收窄：单个字段写坏时只丢该字段，不让整份配置失效或让渲染抛错。
+ */
+export function parseChartConfig(value: unknown): ChartConfig {
+  const parsed = chartConfigSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 const COLORS = ["#3370ff", "#14c9c9", "#ff7d00", "#f53f3f", "#722ed1", "#00b42a", "#86909c", "#eb0aa4"];
 

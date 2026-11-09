@@ -39,6 +39,7 @@ import { contentApi } from "@/api/content";
 import { Notice, Panel } from "@/components/ui/panel";
 import { joinSiteUrl } from "@/lib/site-url";
 import { useSiteBase } from "@/lib/site-brand";
+import { AgentGrantsPanel } from "./grants-panel";
 
 type ConnectorDraft = {
   name: string;
@@ -56,7 +57,7 @@ const EMPTY_DRAFT: ConnectorDraft = {
   enabled: true,
 };
 
-/** 内置连接器背后的业务能力：与 `/developer/mcp` 的「业务能力总览」同一份契约派生。 */
+/** 内置连接器背后的业务能力：与「API-MCP-Skill → MCP Server」的业务能力总览同一份契约派生。 */
 const BUILTIN_OPS = mcpOperations();
 const BUILTIN_OP_TOTAL = BUILTIN_OPS.length;
 const BUILTIN_DOMAINS = (() => {
@@ -80,11 +81,12 @@ const BUILTIN_TOOL_TITLES = MCP_TOOL_NAMES.map(
 );
 
 /**
- * Agent 的 MCP 连接器：内置一个是本站 MCP Server（与 /api/v1/mcp 同一服务、同一条授权闸，只读不可删），
+ * MCP 连接器：内置一个是本站 MCP Server（与 /api/v1/mcp 同一服务、同一条授权闸，只读不可删），
  * 其余由用户自己添加外部 MCP 服务（Streamable HTTP / 旧版 SSE）。
  * 启用后它们的工具会以 `mcp__c<id>__` 前缀发布给 Agent 调用；连不上的连接器只记录错误，不挡对话。
+ * 外部连接器的工具默认不代执行：要本人到下方授权闸勾选，否则 Agent 调用只回草案。
  */
-export function AgentConnectorsTab() {
+function McpConnectorsPanel() {
   const { message } = App.useApp();
   // 内置连接器的完整地址：外部 MCP 客户端要绝对 URL，域名跟站点配置走
   const siteBase = useSiteBase();
@@ -339,7 +341,7 @@ export function AgentConnectorsTab() {
             >
               复制配置
             </Button>
-            <Link href="/developer/mcp" className="text-12">
+            <Link href="/developer/api-mcp-skill?view=mcp" className="text-12">
               <LinkOutlined aria-hidden /> 接入说明
             </Link>
           </div>
@@ -455,7 +457,7 @@ export function AgentConnectorsTab() {
         onCancel={() => {
           if (!saving && !testing) setOpen(false);
         }}
-        maskClosable={!saving && !testing}
+        mask={{ closable: !saving && !testing }}
         width={600}
         footer={
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -554,5 +556,19 @@ export function AgentConnectorsTab() {
         </div>
       </Modal>
     </Panel>
+  );
+}
+
+/**
+ * Agent 的「MCP连接器」页签：连接器清单 + 「可自动执行的动作」授权闸。
+ * 授权闸管两件事，都在同一处设置：契约接口写动作，以及自建连接器的工具；
+ * 与连接器同属对外赋能 Agent 的边界设置，故并入同一页签。
+ */
+export function AgentConnectorsTab() {
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <McpConnectorsPanel />
+      <AgentGrantsPanel />
+    </div>
   );
 }

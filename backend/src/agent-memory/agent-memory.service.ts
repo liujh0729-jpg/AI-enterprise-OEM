@@ -35,6 +35,11 @@ export type AgentIntentDraft = {
 };
 
 const READ_LIMIT = 5000;
+/** 授权行的两种粒度：契约动作（存量语义）与整条自建连接器。 */
+const GRANT_SCOPE_ACTION = 'ACTION';
+const GRANT_SCOPE_CONNECTOR = 'CONNECTOR';
+/** CONNECTOR 行的 action 列固定值：唯一键是 (user_id, action)，连接器 id 落在 connector_id。 */
+const CONNECTOR_ACTION = 'CONNECTOR';
 
 /**
  * 智能体记忆的地基：写入只有 `record()` 一个入口，读接口和提炼（含 MCP 收到指令时的分析）都走这里。
@@ -232,15 +237,43 @@ export class AgentMemoryService {
   /** 本账号已勾选「可自动执行」的动作集合；授权闸与 MCP 清单都用它，判定只有一处。 */
   async grantedActions(userId: string): Promise<Set<string>> {
     const rows = await this.prisma.agentActionGrant.findMany({
-      where: { userId },
+      where: { userId, scopeType: GRANT_SCOPE_ACTION },
       select: { action: true },
     });
     return new Set(rows.map((row) => row.action));
   }
 
+  /**
+   * 本账号已放开「可代执行」的自建 MCP 连接器。粒度是整个连接器：
+   * 连接器工具由远端运行时探测（可随时增删改名），按工具名存授权会因改名静默失效，
+   * 且工具名由第三方控制，不能决定本站的授权粒度。
+   */
+  async grantedConnectors(userId: string): Promise<Set<number>> {
+    const rows = await this.prisma.agentActionGrant.findMany({
+      where: { userId, scopeType: GRANT_SCOPE_CONNECTOR },
+      select: { connectorId: true },
+    });
+    return new Set(rows.map((row) => row.connectorId).filter((id) => id > 0));
+  }
+
   /** 授权闸清单：契约派生的全部写动作 + 本人勾选状态 + 永久排除理由。 */
   async grants(userId: string) {
-    const granted = await this.grantedActions(userId);
+    const [granted, connectorRows, connectorGranted] = await Promise.all([
+      this.grantedActions(userId),
+      this.prisma.contentAgentMcpConnector.findMany({
+        where: { userId },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          enabled: true,
+          toolCount: true,
+          lastError: true,
+          lastCheckedAt: true,
+        },
+      }),
+      this.grantedConnectors(userId),
+    ]);
     const items = MCP_WRITE_OPERATIONS.map((row) => {
       const forbidden = forbiddenReasonOf(row.operationId);
       return {
@@ -275,6 +308,19 @@ export class AgentMemoryService {
           granted: bucket.granted,
         })),
       items,
+      // 连接器与契约动作分开列：授权粒度不同，界面也要分两段展示
+      connectors: connectorRows.map((row) => ({
+        connectorId: row.id,
+        name: row.name,
+        enabled: row.enabled,
+        toolCount: row.toolCount,
+        lastError: row.lastError,
+        lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+        allowed: connectorGranted.has(row.id),
+      })),
+      connectorGrantedCount: connectorRows.filter((row) =>
+        connectorGranted.has(row.id),
+      ).length,
     };
   }
 
@@ -282,8 +328,14 @@ export class AgentMemoryService {
    * 保存勾选：整份覆盖（取消勾选＝删行），未知动作、读接口、永久排除一律拒收。
    * 授权只由人在界面上改，MCP 自己看不到这一组接口（见 mcp-catalog 的排除域），所以无法自我提权；
    * 新增授权另外要验登录密码——令牌被盗时也不能顺手把写动作放开，收回授权则随时可以。
+   * 自建连接器与契约动作同一次提交、同一道验密：两者都是「不必问我」的范围。
    */
-  async saveGrants(userId: string, actions: string[], password?: unknown) {
+  async saveGrants(
+    userId: string,
+    actions: string[],
+    password?: unknown,
+    connectorIds: number[] = [],
+  ) {
     const requested = new Set<string>();
     for (const raw of actions) {
       const action = raw.trim();
@@ -307,15 +359,46 @@ export class AgentMemoryService {
         );
       requested.add(action);
     }
-    const existing = await this.grantedActions(userId);
+    // 连接器只认本人名下的：别人的 id、已删除的 id 一律当作不存在，不静默写入
+    const wantedConnectors = new Set(
+      connectorIds.filter((id) => Number.isInteger(id) && id > 0),
+    );
+    const ownedConnectors = wantedConnectors.size
+      ? await this.prisma.contentAgentMcpConnector.findMany({
+          where: { userId, id: { in: [...wantedConnectors] } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const ownedIds = new Set(ownedConnectors.map((row) => row.id));
+    const unknownConnector = [...wantedConnectors].find(
+      (id) => !ownedIds.has(id),
+    );
+    if (unknownConnector !== undefined)
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        `连接器 #${unknownConnector} 不存在或不属于当前账号`,
+      );
+
+    const [existing, existingConnectors] = await Promise.all([
+      this.grantedActions(userId),
+      this.grantedConnectors(userId),
+    ]);
     const toAdd = [...requested].filter((action) => !existing.has(action));
     const toRemove = [...existing].filter((action) => !requested.has(action));
-    if (toAdd.length) {
+    const connectorsToAdd = [...ownedIds].filter(
+      (id) => !existingConnectors.has(id),
+    );
+    const connectorsToRemove = [...existingConnectors].filter(
+      (id) => !ownedIds.has(id),
+    );
+    if (toAdd.length || connectorsToAdd.length) {
       await assertSensitivePassword(
         this.prisma,
         userId,
         password,
-        '自动执行写动作',
+        connectorsToAdd.length
+          ? '自动执行写动作与连接器工具'
+          : '自动执行写动作',
       );
     }
     if (toAdd.length)
@@ -326,15 +409,45 @@ export class AgentMemoryService {
             userId,
             domain: truncate(operation?.domain ?? '', 32),
             action,
+            scopeType: GRANT_SCOPE_ACTION,
           };
         }),
         skipDuplicates: true,
       });
     if (toRemove.length)
       await this.prisma.agentActionGrant.deleteMany({
-        where: { userId, action: { in: toRemove } },
+        where: {
+          userId,
+          scopeType: GRANT_SCOPE_ACTION,
+          action: { in: toRemove },
+        },
       });
-    if (toAdd.length || toRemove.length)
+    // CONNECTOR 行的唯一键是 (user_id, action)，action 固定值；连接器 id 落在 connector_id
+    if (connectorsToAdd.length)
+      await this.prisma.agentActionGrant.createMany({
+        data: connectorsToAdd.map((connectorId) => ({
+          userId,
+          domain: 'connector',
+          action: CONNECTOR_ACTION,
+          scopeType: GRANT_SCOPE_CONNECTOR,
+          connectorId,
+        })),
+        skipDuplicates: true,
+      });
+    if (connectorsToRemove.length)
+      await this.prisma.agentActionGrant.deleteMany({
+        where: {
+          userId,
+          scopeType: GRANT_SCOPE_CONNECTOR,
+          connectorId: { in: connectorsToRemove },
+        },
+      });
+    if (
+      toAdd.length ||
+      toRemove.length ||
+      connectorsToAdd.length ||
+      connectorsToRemove.length
+    )
       await this.prisma.auditLog.create({
         data: {
           userId,
@@ -342,7 +455,14 @@ export class AgentMemoryService {
           detail: truncate(
             `自动执行授权：新增 ${toAdd.join(',') || '无'}；取消 ${
               toRemove.join(',') || '无'
-            }；共 ${requested.size} 项`,
+            }；连接器新增 ${
+              ownedConnectors
+                .filter((row) => connectorsToAdd.includes(row.id))
+                .map((row) => row.name)
+                .join(',') || '无'
+            }；连接器取消 ${connectorsToRemove.join(',') || '无'}；共 ${
+              requested.size
+            } 项动作、${ownedIds.size} 个连接器`,
             500,
           ),
         },
@@ -351,6 +471,9 @@ export class AgentMemoryService {
       granted: toAdd.length,
       revoked: toRemove.length,
       actions: [...requested].sort(),
+      connectorsGranted: connectorsToAdd.length,
+      connectorsRevoked: connectorsToRemove.length,
+      connectorIds: [...ownedIds].sort((a, b) => a - b),
     };
   }
 

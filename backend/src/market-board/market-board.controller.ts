@@ -3,27 +3,28 @@ import { ok } from '../common/api';
 import { MarketBoardService } from './market-board.service';
 /**
  * 平台直连看板（财税 / 供销 / 出海）的「需求信息」与「服务发布」接口。
- * 全部转发 AIworkin 运行时接口，本系统不存任何需求/服务数据（见 service 注释）。
+ * 发布走 AIworkin MCP 并把平台挂单号落本地台账（`market_listing_records`）；
+ * 列表 / 明细按挂单号读回平台公开池，读不回（草稿 / 已下架）时用台账快照回显。
  */
 export class MarketBoardController {
   constructor(private readonly board: MarketBoardService) {}
   async demands(
     user: CurrentUser,
-    mineToken: string,
     poolToken: string,
     domain: string,
     province?: string,
     city?: string,
     cursor?: string,
     pageSize = 20,
+    subCategoryId?: string,
+    scope?: 'all' | 'mine',
   ) {
     return ok(
       await this.board.listDemands(
         user,
         domain,
-        mineToken,
         poolToken,
-        { province, city },
+        { province, city, categoryId: subCategoryId, scope },
         cursor,
         pageSize,
       ),
@@ -31,25 +32,19 @@ export class MarketBoardController {
   }
   async demandDetail(
     user: CurrentUser,
-    userToken: string,
     poolToken: string,
     domain: string,
     id: string,
   ) {
-    return ok(
-      await this.board.detail(user, domain, id, userToken, poolToken, 'DEMAND'),
-    );
+    return ok(await this.board.detail(user, domain, id, poolToken, 'DEMAND'));
   }
   async serviceDetail(
     user: CurrentUser,
-    userToken: string,
     poolToken: string,
     domain: string,
     id: string,
   ) {
-    return ok(
-      await this.board.detail(user, domain, id, userToken, poolToken, 'SUPPLY'),
-    );
+    return ok(await this.board.detail(user, domain, id, poolToken, 'SUPPLY'));
   }
   async createDemand(
     user: CurrentUser,
@@ -87,19 +82,21 @@ export class MarketBoardController {
   }
   async services(
     user: CurrentUser,
-    token: string,
+    poolToken: string,
     domain: string,
     province?: string,
     city?: string,
     cursor?: string,
     pageSize = 20,
+    subCategoryId?: string,
+    scope?: 'all' | 'mine',
   ) {
     return ok(
       await this.board.listServices(
         user,
         domain,
-        token,
-        { province, city },
+        poolToken,
+        { province, city, categoryId: subCategoryId, scope },
         cursor,
         pageSize,
       ),

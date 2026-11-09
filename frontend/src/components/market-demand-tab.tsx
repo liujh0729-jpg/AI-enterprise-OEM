@@ -2,6 +2,7 @@
 import {endpoints} from "@enterprise/contracts";
 
 import type { ReactNode } from "react";
+import { useState } from "react";
 
 import { BulbOutlined } from "@ant-design/icons";
 import {
@@ -14,7 +15,10 @@ import {
   Select,
   Table,
 } from "antd";
-import { CategoryField } from "@/components/category-field";
+import { CategoryField, HubCategoryFilter } from "@/components/category-field";
+import {
+  ChannelDetails,
+} from "@/components/channel-messages-modal";
 import {
   demandActionsColumn,
   DemandChannelModal,
@@ -23,6 +27,7 @@ import {
 } from "@/components/demand-board";
 import {
   demandColumns,
+  demandDetails,
   type DemandFields,
 } from "@/components/demand-columns";
 import {
@@ -30,15 +35,20 @@ import {
   RegionScopeFields,
   regionFormValues,
 } from "@/components/location-fields";
-import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { EmptyState, Notice, Panel, PillTabs } from "@/components/ui/panel";
+import { TablePager, useCursorPages } from "@/components/ui/pager";
 import { useSession } from "@/lib/session";
 
 /**
  * 平台直连看板的「需求信息」栏目（财税 / 供销 / 出海）。
  *
  * 与其余七板块的区别（2026-09-26 用户口径：本系统只审「能不能成为服务商」，
- * 需求与服务的发布、回复都是 AIworkin 接口转发，本身不审核、不落库）：
- * - 数据源是平台挂单：列表＝我发布的 ∪ 该一级类目的公开池，行的主键是平台挂单 UUID；
+ * 需求与服务的发布都是 AIworkin 接口转发，本系统不审核）：
+ * - 直连板块（财税 / 供销 / 出海）：列表读**本系统台账**（`market_listing_records`，
+ *   即「我发布的」）；发布时同时落本地台账 + 同步 AIworkin 并按挂单号（内容 ID）读回，
+ *   因此未绑定 Key 与已绑定 Key 的账号都不会看到通道鉴权失败；
+ * - 供需市场（HUB）例外：默认读平台公开池，服务商身份可切「全部需求（公开池）/
+ *   我发布的需求（本地台账）」，读取一律走平台通道；
  * - 改删与查看消息只对自有行开放（平台按属主校验，收件箱也不给非自有单的会话正文）；
  * - **需求方在平台上没有发言接口**（平台的会话回复只开放给服务商侧），
  *   因此本栏目的「查看消息」弹窗是只读的，不提供回复入口。
@@ -70,6 +80,8 @@ export function MarketDemandTab({
   titlePlaceholder,
   descPlaceholder,
   canSubmit = true,
+  demandNoun,
+  allowAnyIdentity = false,
 }: {
   /** 平台直连板块键（TAX / SUPPLY），决定接口与类目树 */
   domain: string;
@@ -80,10 +92,22 @@ export function MarketDemandTab({
   descPlaceholder: string;
   /** 个人主体在财税/出海板块不能发布需求（后端同一口径锁住），供销不受限。 */
   canSubmit?: boolean;
+  /** 需求的名词文案：默认「{label}需求」，供需市场传「需求」。 */
+  demandNoun?: string;
+  /** 不按企业身份限制发布入口（供需市场对全部登录用户开放）。 */
+  allowAnyIdentity?: boolean;
 }) {
   const { me } = useSession();
   const identity = me?.currentIdentity || "ENTERPRISE_USER";
   const isEnterprise = identity === "ENTERPRISE_USER";
+  const hub = domain.toUpperCase() === "HUB";
+  const noun = demandNoun || `${label}需求`;
+  /**
+   * 「全部 / 我发布的」筛选：只有供需市场需求栏目需要，且「我发布的需求」只对服务商身份渲染
+   * （2026-11-09 用户口径：服务商身份才有「我发布的」，企业身份一律不渲染——单选不出控件，
+   * 于是企业身份只看到平台公开池）。
+   */
+  const showScope = hub && identity === "SERVICE_PROVIDER";
 
   const board = useDemandBoard<MarketDemandRow>({
     rowSchema:endpoints.MarketBoard_demandDetail.response.shape.data.unwrap(),
@@ -116,46 +140,99 @@ export function MarketDemandTab({
       deadline: toDateInput(values.deadline),
       email_sync: values.email_sync || "0",
     }),
-    createdTip: `需求已发布至 AIworkin ${label}板块`,
-    editPasswordTitle: `修改${label}需求（需密码）`,
-    removePasswordTitle: `删除${label}需求`,
+    createdTip: hub ? "需求已发布至 AIworkin 供需市场" : `需求已发布至 AIworkin ${label}板块`,
+    editPasswordTitle: `修改${noun}（需密码）`,
+    removePasswordTitle: `删除${noun}`,
   });
   const { rows, editing, openChannel, openEdit, removeRow, save } = board;
+  /** 列表分页：过滤器变化回第一页，翻到未加载页时自动取下一段游标页。 */
+  const pager = useCursorPages<MarketDemandRow>({
+    rows,
+    hasMore: board.hasMore,
+    fetchNext: board.loadMore,
+    isFetchingNext: board.loadingMore,
+    resetKey: `${board.demandScope}|${board.demandRegion.province}|${board.demandRegion.city}|${board.demandCategory}`,
+  });
+  /** 详情查看：公开池的行不属于当前账号，但可以读平台明细（需求详情接口）。 */
+  const [viewing, setViewing] = useState<MarketDemandRow | null>(null);
+  const openDetail = (row: MarketDemandRow) => {
+    void board
+      .loadDetail(row)
+      .then(setViewing)
+      .catch((error: unknown) =>
+        board.message.error(
+          error instanceof Error ? error.message : "读取需求详情失败",
+        ),
+      );
+  };
 
   return (
     <>
       <Notice variant="info">
-        {label}需求直接走 AIworkin
-        平台的供需匹配：填写后由平台按二级类目与地域范围推送给同类目服务商， 本系统不另存需求台账。同一需求可由多家服务商各自应答；
-        平台的会话回复只开放给服务商侧，因此这里的「查看消息」用于读取回复方会话。
+        {hub
+          ? `供需市场是跨板块公开市集：「全部${noun}」读 AIworkin 平台公开池（全平台已发布的需求，读取走平台通道，未绑定 Key 也能浏览）${
+              showScope
+                ? `；「我发布的${noun}」读本系统台账（发布时落库并记平台内容 ID），仅服务商身份可见`
+                : ""
+            }。已正式发布到平台的挂单不可在本系统改删，只留「查看」。`
+          : `${noun}信息读本系统台账：发布时同时落库到本地并同步到 AIworkin，按二级类目与地域范围推送给同类目服务商，再记回平台挂单号（内容 ID）。已正式发布到平台的挂单不可在本系统改删，只留「查看消息」；平台草稿可回本系统补齐后再次保存发布。`}
+        同一需求可由多家服务商各自应答；平台的会话回复只开放给服务商侧，因此这里的「查看消息」用于读取回复方会话。
         {!canSubmit
-          ? `你是「个人」主体，这里可浏览${label}需求与回复；发布${label}需求属办理动作，需在「身份与资质」把主体类型变更为「企业」或「个体工商户」。`
+          ? `你是「个人」主体，这里可浏览${noun}与回复；发布${noun}属办理动作，需在「身份与资质」把主体类型变更为「企业」或「个体工商户」。`
           : null}
       </Notice>
 
       {board.error&&<Alert type="error" title={board.error.message} />}
       <Panel
-        title={`${label}需求（平台供需匹配）`}
+        title={`${noun}（平台供需匹配）`}
         titleBadge={`${rows.length} 条`}
         extra={
-          isEnterprise && canSubmit ? (
+          (isEnterprise || allowAnyIdentity) && canSubmit ? (
             <Button type="primary" onClick={board.openCreate}>
-              ＋ 提交{label}需求
+              ＋ 提交{noun}
             </Button>
           ) : null
         }
       >
-        <div style={{ marginBottom: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+            marginBottom: 12,
+          }}
+        >
+          {showScope ? (
+            <PillTabs
+              size="small"
+              variant="soft"
+              items={[
+                { key: "all", label: `全部${noun}` },
+                { key: "mine", label: `我发布的${noun}` },
+              ]}
+              value={board.demandScope === "mine" ? "mine" : "all"}
+              onChange={(key) =>
+                board.setDemandScope(key === "mine" ? "mine" : "")
+              }
+            />
+          ) : null}
           <RegionScopeFilter
             value={board.demandRegion}
             onChange={board.setDemandRegion}
           />
+          {hub ? (
+            <HubCategoryFilter
+              value={board.demandCategory}
+              onChange={board.setDemandCategory}
+            />
+          ) : null}
         </div>
         <div className="table-wrap">
           <Table<MarketDemandRow>
             rowKey="id"
-            loading={board.loading}
-            dataSource={rows}
+            loading={board.loading || board.loadingMore}
+            dataSource={pager.rows}
             pagination={false}
             size="middle"
             scroll={{ x: "max-content" }}
@@ -163,7 +240,7 @@ export function MarketDemandTab({
               emptyText: (
                 <EmptyState
                   icon={icon}
-                  text={`暂无${label}需求，点击右上角提交`}
+                  text={`暂无${noun}，点击右上角提交`}
                 />
               ),
             }}
@@ -172,8 +249,12 @@ export function MarketDemandTab({
               demandActionsColumn<MarketDemandRow>({
                 // 需求方在平台上没有发言接口：只给「查看消息」，不给「回复」
                 canReply: () => false,
-                canManage: (row) => row.mine,
+                // 已正式发布到 AIworkin 的挂单（status=ONLINE）在本系统不可改删：平台 REST 写
+                // 对 API Key 一律 401、MCP 也没有改删工具，只留「查看」（2026-11-09 用户裁定）；
+                // 平台草稿（无截止时间，尚未发布）仍可回本系统补齐后再次保存发布。
+                canManage: (row) => row.mine && row.status !== "ONLINE",
                 canView: (row) => row.mine,
+                openDetail: hub ? openDetail : undefined,
                 conversationCount: (row) => row.conversationCount,
                 openChannel,
                 openEdit,
@@ -182,15 +263,22 @@ export function MarketDemandTab({
             ]}
           />
         </div>
-        {board.hasMore&&<Button loading={board.loadingMore} onClick={()=>void board.loadMore()}>继续加载</Button>}
+        <TablePager
+          page={pager.page}
+          pageSize={pager.pageSize}
+          total={pager.total}
+          loaded={pager.loaded}
+          hasMore={board.hasMore}
+          onChange={pager.setPage}
+        />
       </Panel>
 
       <Modal
         open={board.createOpen}
         title={
           editing
-            ? `修改${label}需求 · ${editing.listingId}`
-            : `提交${label}需求`
+            ? `修改${noun} · ${editing.listingId}`
+            : `提交${noun}`
         }
         width={720}
         confirmLoading={board.submitting}
@@ -201,7 +289,7 @@ export function MarketDemandTab({
         <Form
           form={board.form}
           layout="vertical"
-          initialValues={{ region_mode: "NONE", email_sync: "0" }}
+          initialValues={{ email_sync: "0" }}
         >
           <Form.Item
             name="title"
@@ -282,9 +370,19 @@ export function MarketDemandTab({
 
       <DemandChannelModal
         board={board}
-        description={`${label}需求消息（平台会话）：回复方为承接该需求的服务商，需求方在平台上只读`}
+        description={`${noun}消息（平台会话）：回复方为承接该需求的服务商，需求方在平台上只读`}
         canReply={() => false}
       />
+
+      <Modal
+        open={viewing !== null}
+        title={`${noun}详情 · ${viewing?.listingId || ""}`}
+        width={720}
+        footer={null}
+        onCancel={() => setViewing(null)}
+      >
+        {viewing ? <ChannelDetails items={demandDetails(viewing)} /> : null}
+      </Modal>
     </>
   );
 }

@@ -107,7 +107,18 @@ export type DemandBoard<Row> = {
 
   demandRegion: LocationValue;
   setDemandRegion: (value: LocationValue) => void;
+  /** 类目筛选（二级类目 id）：目前只有供需市场渲染该控件，其余页面恒为空串。 */
+  demandCategory: string;
+  setDemandCategory: (value: string) => void;
+  /**
+   * 取数范围（目前只有供需市场需求栏目渲染该控件）：`""`＝全部需求（平台公开池），
+   * `"mine"`＝我发布的需求（本地发布台账）。其余页面恒为空串，走各板块既有口径。
+   */
+  demandScope: string;
+  setDemandScope: (value: string) => void;
 
+  /** 重取单条详情（详情接口）；需求 / 服务的「查看」用它读平台明细。 */
+  loadDetail: (row: Row) => Promise<Row>;
   form: FormInstance;
   editing: Row | null;
   createOpen: boolean;
@@ -174,6 +185,8 @@ export function useDemandBoard<Row>(
     province: "",
     city: "",
   });
+  const [demandCategory, setDemandCategory] = useState("");
+  const [demandScope, setDemandScope] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -184,11 +197,13 @@ export function useDemandBoard<Row>(
   const query = useBusinessInfiniteQuery<Row>(
     endpoint,
     "list",
-    { listParamsKey, demandRegion },
+    { listParamsKey, demandRegion, demandCategory, demandScope },
     async (signal, cursor) => {
       const params = new URLSearchParams(JSON.parse(listParamsKey));
       if (demandRegion.province) params.set("province", demandRegion.province);
       if (demandRegion.city) params.set("city", demandRegion.city);
+      if (demandCategory) params.set("subCategoryId", demandCategory);
+      if (demandScope) params.set("scope", demandScope);
       return loadDemandPage<Row>(
         endpoint,
         Object.fromEntries(params),
@@ -207,9 +222,11 @@ export function useDemandBoard<Row>(
     if (result.error) throw result.error;
     return result.data?.pages.flatMap((page) => page.list) || [];
   }, [refetchList]);
-  const loadMore = async () => {
-    await query.fetchNextPage();
-  };
+  // 引用保持稳定：分页外壳按「翻到未加载页」触发它，抖动会导致 effect 反复跑。
+  const { fetchNextPage } = query;
+  const loadMore = useCallback(async () => {
+    await fetchNextPage();
+  }, [fetchNextPage]);
 
   const fetchConversations = useCallback(
     async (id: string | number) => {
@@ -248,6 +265,10 @@ export function useDemandBoard<Row>(
   const openChannel = useCallback(
     (row: Row) => openChannelById(rowId(row)),
     [openChannelById, rowId],
+  );
+  const loadDetail = useCallback(
+    (row: Row) => fetchDetail(rowId(row)),
+    [fetchDetail, rowId],
   );
 
   /** 当前打开通道对应的那一行（回复重取后随之刷新）：页面据此判定发言侧。 */
@@ -411,8 +432,13 @@ export function useDemandBoard<Row>(
     loadingMore: query.isFetchingNextPage,
     loadMore,
     load,
+    loadDetail,
     demandRegion,
     setDemandRegion,
+    demandCategory,
+    setDemandCategory,
+    demandScope,
+    setDemandScope,
     form,
     editing,
     createOpen,
@@ -437,6 +463,8 @@ export function demandActionsColumn<Row>(options: {
   canManage: (row: Row) => boolean;
   /** 不传＝所有行都给消息入口。 */
   canView?: (row: Row) => boolean;
+  /** 传了就给所有行一个「查看」详情入口（供需市场等公开市集）。 */
+  openDetail?: (row: Row) => void;
   conversationCount: (row: Row) => number | null | undefined;
   openChannel: (row: Row) => void;
   openEdit: (row: Row) => void;
@@ -447,6 +475,13 @@ export function demandActionsColumn<Row>(options: {
     width: 240,
     render: (_: unknown, row: Row) => {
       const ops: ReactNode[] = [];
+      if (options.openDetail) {
+        ops.push(
+          <Button key="detail" onClick={() => options.openDetail?.(row)}>
+            查看
+          </Button>,
+        );
+      }
       if (!options.canView || options.canView(row)) {
         const reply = options.canReply(row);
         ops.push(

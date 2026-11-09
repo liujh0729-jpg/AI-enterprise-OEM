@@ -15,6 +15,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import type {
+  LowCodeApprovalDetail,
   LowCodeEntityView,
   LowCodeFieldView,
   LowCodePageView,
@@ -452,10 +453,7 @@ export function EntityDetailView({ projectId, entity }: { projectId: number; ent
     canUpdate: boolean;
     canDelete: boolean;
     readonlyFields: string[];
-    approval?: {
-      instance: { status: string; title: string; applicantName: string; createdAt: string } | null;
-      tasks: { id: number; nodeName: string; status: string; assigneeName: string; actedAt: string | null }[];
-    };
+    approval?: LowCodeApprovalDetail | null;
   } | null>(null);
   const [editing, setEditing] = useState(false);
 
@@ -468,8 +466,7 @@ export function EntityDetailView({ projectId, entity }: { projectId: number; ent
       .entityRow({ params: { id: String(projectId), entityId: String(entity.id), rowId: String(rowId) } })
       .then((row) => setDetail(row as typeof detail))
       .catch((error: unknown) => message.error(errText(error)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowId]);
+  }, [rowId, projectId, entity]);
 
   const loadApproval = async () => {
     if (!rowId) return;
@@ -477,7 +474,9 @@ export function EntityDetailView({ projectId, entity }: { projectId: number; ent
       const result = await lowcodeApi.recordApproval({
         params: { id: String(projectId), entityId: String(entity.id), rowId: String(rowId) },
       });
-      setDetail((current) => (current ? { ...current, approval: result as never } : current));
+      setDetail((current) =>
+        current ? { ...current, approval: result } : current,
+      );
     } catch {
       /* 没有审批实例时不打扰 */
     }

@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import {
   asArray,
@@ -86,7 +88,10 @@ export class CrmOpportunityService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx);
-    const where: Record<string, unknown> = { ...base, deletedAt: null };
+    const where: Prisma.CrmOpportunityWhereInput = {
+      ...base,
+      deletedAt: null,
+    };
     if (text(query.view) === 'mine') where.ownerId = ctx.actorId;
     if (query.stageId) where.stageId = Number(query.stageId);
     if (query.customerId) where.customerId = Number(query.customerId);
@@ -94,12 +99,12 @@ export class CrmOpportunityService {
     if (keyword) where.name = { contains: keyword };
     const [rows, total] = await Promise.all([
       this.prisma.crmOpportunity.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmOpportunity.count({ where: where as never }),
+      this.prisma.crmOpportunity.count({ where }),
     ]);
     return {
       list: await this.viewRows(rows, ctx),
@@ -113,7 +118,7 @@ export class CrmOpportunityService {
     const id = Number(rawId);
     const base = await this.scope.scopeWhereAsync(ctx);
     const row = await this.prisma.crmOpportunity.findFirst({
-      where: { ...base, id, deletedAt: null } as never,
+      where: { ...base, id, deletedAt: null },
     });
     if (!row)
       throw new BusinessException(ErrorCode.NOT_FOUND, '商机不存在或无权查看');
@@ -308,16 +313,17 @@ export class CrmOpportunityService {
     const row = await this.prisma.crmOpportunity.create({
       data: {
         ownerUserId: ctx.ownerUserId,
+        ...this.scope.orgKey(ctx),
         customerId,
         name,
         amount,
         possible: money(Number(amount) * (winRate / 100)),
-        products: asArray(body.products) as never,
+        products: asArray(body.products),
         stageId,
         contactId: int(body.contactId),
         ownerId: text(body.ownerId) || ctx.actorId,
         expectedEndAt: dateOrNull(body.expectedEndAt),
-        custom: jsonObject(body.custom) as never,
+        custom: toJsonInput(jsonObject(body.custom)),
       },
     });
     for (const item of items) {
@@ -354,7 +360,7 @@ export class CrmOpportunityService {
     const ctx = await this.scope.requireMember(user);
     this.scope.assertCan(ctx, 'write');
     const row = await this.findOne(ctx, rawId);
-    const data: Record<string, unknown> = {};
+    const data: Prisma.CrmOpportunityUncheckedUpdateInput = {};
     for (const key of ['name', 'failureReason'] as const) {
       if (body[key] !== undefined)
         data[key] = text(body[key]).slice(0, key === 'name' ? 120 : 200);
@@ -365,10 +371,11 @@ export class CrmOpportunityService {
     if (body.contactId !== undefined) data.contactId = int(body.contactId);
     if (body.ownerId !== undefined) data.ownerId = text(body.ownerId);
     if (body.products !== undefined) data.products = asArray(body.products);
-    if (body.custom !== undefined) data.custom = jsonObject(body.custom);
+    if (body.custom !== undefined)
+      data.custom = toJsonInput(jsonObject(body.custom));
     const updated = await this.prisma.crmOpportunity.update({
       where: { id: row.id },
-      data: data as never,
+      data,
     });
     await this.settings.log(
       ctx.ownerUserId,
@@ -546,9 +553,9 @@ export class CrmOpportunityService {
     this.scope.assertAdmin(ctx);
     const data = {
       name: text(body.name).trim().slice(0, 60),
-      scopeIds: asArray(body.scopeIds) as never,
+      scopeIds: asArray(body.scopeIds),
       auto: Boolean(body.auto),
-      conditions: jsonArray(body.conditions) as never,
+      conditions: toJsonInput(jsonArray(body.conditions)),
     };
     if (!data.name)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写规则名称');

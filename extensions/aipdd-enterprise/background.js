@@ -1,6 +1,10 @@
-// AIPDD Enterprise 后台调度：接收企业站页面推来的分发任务，逐平台开标签页让
-// publisher.js 在本地已登录的会话里填充/发布，再把逐平台结果回送给来源标签页。
-// 账号凭据始终留在浏览器里，后台只搬运内容与结果，不做任何平台登录。
+// AIPDD Enterprise 后台调度：一个插件同时承担「多平台内容分发」与「AI 获客（采集/触达）」。
+// 分发：接收企业站页面推来的任务，逐平台开标签页让 publisher.js 在本地已登录的会话里填充/发布，
+//       再把逐平台结果回送给来源标签页。
+// 获客：acquisition.js 从服务端领任务，交给 collector.js / outreach.js 在本机执行。
+// 账号凭据始终留在浏览器里，后台只搬运内容与结果，不做任何平台登录、不读取 Cookie。
+// MV3 经典 Service Worker：importScripts 必须在顶层同步执行，获客模块与分发共用同一全局作用域。
+importScripts("acquisition.js", "outreach.js");
 
 const PUBLISH_TARGETS = {
   weibo: "https://weibo.com/",
@@ -161,6 +165,10 @@ async function runPlatform(code, task, sourceTabId) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 获客指令（启动/续期/暂停/停止/查状态）交给 acquisition.js，分发链路保持原样。
+  if (String(message?.type || "").startsWith("AIPDD_ACQ_")) {
+    return self.AIPDD_ACQ.handle(message, sender, sendResponse);
+  }
   if (message?.type !== "AIPDD_DISTRIBUTE") return false;
   const task = message.payload || {};
   const codes = Array.isArray(task.platformCodes) ? task.platformCodes : [];

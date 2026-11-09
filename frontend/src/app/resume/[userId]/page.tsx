@@ -86,7 +86,7 @@ export default function ResumePage() {
         <Alert
           type="error"
           showIcon
-          message="无法打开这份简历"
+          title="无法打开这份简历"
           description={view.error instanceof Error ? view.error.message : "对方还没有向你投递简历，或简历已被撤回。"}
           action={
             <Link href="/social">

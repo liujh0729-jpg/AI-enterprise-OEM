@@ -2,6 +2,10 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import {
+  matchBlacklistHost,
+  type BlacklistEntryLite,
+} from '../feature/skill-review.rules';
 
 /**
  * 客户自定义渠道的出站守卫：只允许 https 公网地址。
@@ -32,6 +36,27 @@ const BLOCKED_HOSTS = new Set([
   'instance-data',
 ]);
 const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.localdomain'];
+
+/**
+ * 官方协议里只提供 http 的固定端点（百度主动推送 data.zz.baidu.com 的证书与主机名不匹配，
+ * 实测 https 握手失败）。主机名是代码常量、不接受用户输入，调用方必须显式开启；
+ * 开启后仍执行下面的 DNS 全地址内网/元数据校验，只放开协议这一项。
+ */
+const HTTP_ONLY_OFFICIAL_HOSTS = new Set(['data.zz.baidu.com']);
+
+export type OutboundGuardOptions = {
+  /** 仅对 HTTP_ONLY_OFFICIAL_HOSTS 里的常量主机生效，用户可控地址一律不放开。 */
+  allowOfficialHttp?: boolean;
+};
+
+/**
+ * 平台管理员黑名单（§5.9 红线 4 运行期强制）：由 AccessPolicyService 在读取/保存策略时
+ * 推送到这里（TTL 15s），出站守卫保持同步判定；命中一律拒绝，开发环境不豁免。
+ */
+let adminBlacklist: BlacklistEntryLite[] = [];
+export function setOutboundBlacklist(entries: BlacklistEntryLite[]) {
+  adminBlacklist = entries;
+}
 
 function isDevelopment() {
   return (
@@ -91,7 +116,11 @@ function fail(label: string, reason: string): never {
  * 同步校验：协议、字面量 IP、明显的内网主机名。
  * 保存渠道时即可调用，避免把注定无法发送的地址存进配置。
  */
-export function assertOutboundUrlSync(raw: string, label = '出站地址'): URL {
+export function assertOutboundUrlSync(
+  raw: string,
+  label = '出站地址',
+  options: OutboundGuardOptions = {},
+): URL {
   const input = raw.trim();
   if (!input) fail(label, '不能为空');
   let url: URL;
@@ -103,14 +132,22 @@ export function assertOutboundUrlSync(raw: string, label = '出站地址'): URL 
   const dev = isDevelopment();
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
   const loopback = isLocalHost(host);
+  const officialHttp =
+    options.allowOfficialHttp === true &&
+    url.protocol === 'http:' &&
+    HTTP_ONLY_OFFICIAL_HOSTS.has(host);
   if (
     url.protocol !== 'https:' &&
+    !officialHttp &&
     !(dev && loopback && url.protocol === 'http:')
   ) {
     fail(label, '只支持 https://（开发环境仅回环地址可用 http）');
   }
   if (url.username || url.password) {
     fail(label, '不能带账号密码，请改用校验请求头');
+  }
+  if (matchBlacklistHost(adminBlacklist, host)) {
+    fail(label, '命中平台访问黑名单');
   }
   if (dev && loopback) return url;
   if (BLOCKED_HOSTS.has(host)) fail(label, '不能指向本机或内网主机');
@@ -127,8 +164,9 @@ export function assertOutboundUrlSync(raw: string, label = '出站地址'): URL 
 export async function assertOutboundUrl(
   raw: string,
   label = '出站地址',
+  options: OutboundGuardOptions = {},
 ): Promise<URL> {
-  const url = assertOutboundUrlSync(raw, label);
+  const url = assertOutboundUrlSync(raw, label, options);
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if (isDevelopment() && isLocalHost(host)) return url;
   if (isIP(host)) {

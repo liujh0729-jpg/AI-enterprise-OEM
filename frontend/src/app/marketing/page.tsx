@@ -24,9 +24,11 @@ import {
 import {
   type HeroTab,
 } from "@/components/ui/panel";
+import { filterBoardTabs } from "@/lib/board-tabs";
 import { canWorkOn } from "@/lib/can-work-on";
 import { MARKETING_SUB_ITEMS } from "@/lib/provider-categories";
 import { useSession } from "@/lib/session";
+import { useSiteBrand } from "@/lib/site-brand";
 
 type MarketingRow=import('@enterprise/contracts').MarketingRow;
 
@@ -66,15 +68,19 @@ export default function MarketingPage() {
   /** 回复公开池需求是机构级动作（后端 requireRoles SERVICE_PROVIDER）：仅服务商账号本人可见 */
   const canAcceptDemand = roles.includes("SERVICE_PROVIDER");
   const [tab, setTab] = useState("requests");
+  const { hiddenBoardTabs } = useSiteBrand();
   const tabs: HeroTab[] = [
     { key: "requests", label: <><UnorderedListOutlined aria-hidden /> 需求信息</> },
     // 资源库页签恒排末尾（全站口径）：达人建联 / GEO-AI引擎优化（含 GEO 建站）/ 潜客挖掘已迁至「工作台 → 营销工具」
     { key: "providers", label: <><TagOutlined aria-hidden /> 营销服务商</> },
     serviceMarketTab("营销服务市集"),
   ];
+  // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染，命中当前页签则回退到第一个可见页签。
+  const visibleTabs = filterBoardTabs("marketing", tabs, hiddenBoardTabs);
+  const activeTab = visibleTabs.some((item) => item.key === tab) ? tab : visibleTabs[0]?.key || "";
 
   const board = useDemandBoard<MarketingRow>({
-    autoLoad: tab === "requests",
+    autoLoad: activeTab === "requests",
     rowSchema:marketingViewSchema,
     endpoint: "/enterprise/marketing",
     // 服务商侧取「按机构可见」的需求集合：后端按 as=provider 收窄
@@ -132,8 +138,8 @@ export default function MarketingPage() {
             : "服务商直接回复企业需求即接收对接，无需先点接收"
         }）。达人建联、GEO-AI引擎优化（含发稿平台推荐与 GEO 建站入口）、Google 潜客线索挖掘三个工具已迁至「工作台 → 营销工具」。`,
       }}
-      tabs={tabs}
-      activeTab={tab}
+      tabs={visibleTabs}
+      activeTab={activeTab}
       onTabChange={setTab}
       board={board}
       toDemand={toDemand}

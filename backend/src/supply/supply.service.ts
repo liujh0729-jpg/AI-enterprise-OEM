@@ -1,6 +1,7 @@
 import { pageParam } from '../common/api';
 import { allocateNo } from '../common/document-number';
 import { Prisma } from '../../generated/prisma';
+import { toJsonInput, type JsonInput } from '../common/json-input';
 import { text } from '../common/api';
 import type { SupplyBooking, SupplyOrder } from '../../generated/prisma';
 import { AiworkinClient } from '../aiworkin/aiworkin.client';
@@ -78,8 +79,8 @@ function requireContact(
   return pair;
 }
 /** JSON 列（attrs 等）写入用：把入参数组收敛为 Prisma 可接受的 JSON 值。 */
-function jsonArray(value: unknown): Prisma.InputJsonValue[] {
-  return asArray(value) as unknown as Prisma.InputJsonValue[];
+function jsonArray(value: unknown): JsonInput {
+  return toJsonInput(asArray(value));
 }
 /** 明细快照：本地台账字段 + 订单主键（buildItems 产物）。 */
 type OrderItemInput = {
@@ -2231,6 +2232,7 @@ export class SupplyService {
   }
   private async decorateOrders<
     T extends {
+      id: number;
       enterpriseId: number;
       providerUserId: string;
     },
@@ -2239,11 +2241,7 @@ export class SupplyService {
       ? await this.prisma.supplyOrderItem.findMany({
           where: {
             orderId: {
-              in: (
-                rows as unknown as {
-                  id: number;
-                }[]
-              ).map((item) => item.id),
+              in: rows.map((item) => item.id),
             },
           },
           orderBy: { id: 'asc' },
@@ -2256,12 +2254,9 @@ export class SupplyService {
     );
     const out = [];
     for (const row of decorated) {
-      const current = row as unknown as {
-        id: number;
-      };
       out.push({
         ...row,
-        items: items.filter((item) => item.orderId === current.id),
+        items: items.filter((item) => item.orderId === row.id),
       });
     }
     return out;

@@ -50,7 +50,11 @@ import {
 import { App, Button, Dropdown, Result, Spin, Tooltip } from "antd";
 import Link from "next/link";
 import { NotificationBell } from "@/components/notification-bell";
+import { OrgContextSwitcher } from "@/components/org-context-switcher";
+import { PageAssistant } from "@/components/page-assistant";
 import { PointsBalanceChip } from "@/components/points-balance-chip";
+import { TermsGate } from "@/components/terms-gate";
+import { UsageTracker } from "@/components/usage-tracker";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import {
@@ -59,6 +63,7 @@ import {
   PRO_LAYOUT_BACKGROUNDS,
 } from "@/config/default-settings";
 import { navigationFor, type EnterpriseRoute } from "@/config/routes";
+import { governanceApi } from "@/api/governance";
 import { useSiteBrand } from "@/lib/site-brand";
 import { useI18n } from "@/lib/i18n/i18n";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -137,6 +142,20 @@ function withRouteIcons(route: EnterpriseRoute, t: (text: string) => string): Me
   };
 }
 
+/**
+ * FeatureCatalog 开关过滤（§5.10）：后端 menu 接口把 PLATFORM∪ORG 合并后的 closed 节点
+ * 已级联到叶子 path，这里只按叶子剔除；剔空后的合成分组一并移除。
+ * 接口不可用时不调用本函数（fail-open 保留原菜单），直接访问链路由后端 FEATURE_CLOSED 拦截。
+ */
+function filterClosedMenu(route: MenuRoute, closed: Set<string>): MenuRoute {
+  if (!route.routes) return route;
+  const routes = route.routes
+    .filter((child) => !(child.path && closed.has(child.path)))
+    .map((child) => filterClosedMenu(child, closed))
+    .filter((child) => child.syntheticGroup ? Boolean(child.routes?.length) : true);
+  return { ...route, routes: routes.length ? routes : undefined };
+}
+
 const SETTINGS_KEY = "aiworkin-enterprise-pro-settings";
 const IDENTITY_GUIDE: Record<string, string> = {
   ENTERPRISE_USER: "请先到「身份与资质」提交用户信息。",
@@ -155,16 +174,38 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
   const isAdmin = Boolean(me?.identities?.includes("PLATFORM_ADMIN"));
   const isPlatformArea = pathname === "/admin" || pathname.startsWith("/admin/");
   const identity = me?.currentIdentity;
-  // 管理员在「站点设置」隐藏的业务服务 / 开放集成菜单项与 AI增值服务整组：站配置经 SiteBrandProvider 全局透出，保存后即时生效。
+  // 管理员在「站点设置」隐藏的用户侧菜单项（含首页与各分组）：站配置经 SiteBrandProvider 全局透出，保存后即时生效。
   const siteBrand = useSiteBrand();
-  const menuRoute = withRouteIcons(
-    navigationFor(
-      me,
-      siteBrand.businessMenuHidden || [],
-      siteBrand.integrationMenuHidden || [],
-      Boolean(siteBrand.aiServicesHidden),
+  // 功能开关（§5.10）：登录后拉有效目录，closed 节点的 path 集合用于菜单过滤；身份切换重拉。
+  const [closedMenuPaths, setClosedMenuPaths] = useState<string[]>([]);
+  useEffect(() => {
+    if (!me?.userId) {
+      setClosedMenuPaths([]);
+      return;
+    }
+    let alive = true;
+    void governanceApi
+      .menu()
+      .then((nodes) => {
+        if (alive)
+          setClosedMenuPaths(
+            (nodes || [])
+              .filter((node) => node.state === "closed" && node.path)
+              .map((node) => node.path),
+          );
+      })
+      // fail-open：接口失败保持现有菜单（直链与业务接口另有后端 FEATURE_CLOSED 拦截）
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [me?.userId, identity]);
+  const menuRoute = filterClosedMenu(
+    withRouteIcons(
+      navigationFor(me, siteBrand.hiddenMenuPaths || []),
+      t,
     ),
-    t,
+    new Set(closedMenuPaths),
   );
   const identityOptions = [
     ...BUSINESS_IDENTITIES,
@@ -174,7 +215,7 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
     label: identityLabel(value, me?.enterprise?.subjectType),
   }));
 
-  const changeIdentity = async (next: string, destination = "/") => {
+  const changeIdentity = async (next: string, destination = "/dashboard") => {
     if (switchingIdentity) return;
     if (!me?.identities.includes(next)) {
       modal.confirm({
@@ -227,6 +268,8 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
   return (
     <div id="enterprise-pro-layout" className="enterprise-pro-layout">
       <IdentitySelectModal />
+      <UsageTracker />
+      <TermsGate />
       <ProLayout
         {...settings}
         key={identity || "loading"}
@@ -249,7 +292,7 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
               onClick={(event) => {
                 if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                 event.preventDefault();
-                router.push(item.path || "/");
+                router.push(item.path || "/dashboard");
               }}
             >
               {dom}
@@ -266,21 +309,23 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
           },
         }}
         breadcrumbRender={(routers = []) => [
-          { path: "/", title: siteBrand.siteName || PRODUCT_NAME },
+          { path: "/dashboard", title: siteBrand.siteName || PRODUCT_NAME },
           ...routers,
         ]}
         itemRender={(route) => {
           const href =
             "path" in route && typeof route.path === "string"
               ? route.path
-              : "/";
+              : "/dashboard";
           const title =
             ("title" in route && route.title) ||
             ("breadcrumbName" in route && route.breadcrumbName) ||
             href;
-          return <Link href={href || "/"}>{title}</Link>;
+          return <Link href={href || "/dashboard"}>{title}</Link>;
         }}
         actionsRender={() => [
+          <OrgContextSwitcher key="org-context" />,
+          <PageAssistant key="assistant" />,
           <PointsBalanceChip key="points" />,
           <LanguageSwitcher key="lang" compact />,
           <NotificationBell key="notifications" />,
@@ -354,13 +399,13 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
                     icon: <AppstoreOutlined />,
                     label: t("切换到平台管理"),
                     disabled: switchingIdentity,
-                    onClick: () => void changeIdentity("PLATFORM_ADMIN", "/admin/overview"),
+                    onClick: () => void changeIdentity("PLATFORM_ADMIN", "/dashboard"),
                   }, { type: "divider" as const }] : []),
                   ...(isPlatformArea ? [{
                     key: "back",
                     icon: <AppstoreOutlined />,
                     label: t("返回高管驾驶舱"),
-                    onClick: () => router.push("/"),
+                    onClick: () => router.push("/dashboard"),
                   }, { type: "divider" as const }] : []),
                   {
                     key: "help",
@@ -374,6 +419,12 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
                     icon: <UserOutlined />,
                     label: t("身份与资质"),
                     onClick: () => router.push("/identity"),
+                  },
+                  {
+                    key: "invite",
+                    icon: <GiftOutlined />,
+                    label: t("邀请注册"),
+                    onClick: () => router.push("/invite"),
                   },
                   { type: "divider" },
                   {
@@ -402,7 +453,7 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
             subTitle={t("平台管理使用独立的身份和导航。")}
             extra={isAdmin
               ? <Button type="primary" onClick={() => void changeIdentity("PLATFORM_ADMIN", pathname)}>{t("以平台管理员身份进入")}</Button>
-              : <Button onClick={() => router.replace("/")}>{t("返回高管驾驶舱")}</Button>}
+              : <Button onClick={() => router.replace("/dashboard")}>{t("返回高管驾驶舱")}</Button>}
           />
         ) : <Fragment key={`${me.userId}:${identity}`}>{children}</Fragment>}
       </ProLayout>

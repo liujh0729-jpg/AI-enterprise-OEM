@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { QxyOpenApiClient, qxyRequestSignature } from './qxy-openapi.client';
 import { QxySettingsService } from './qxy-settings.service';
+import { stub } from '../../test/doubles';
 
 const credentials = { appkey: 'unit-app', secret: 'unit-secret' };
 const md5 = (value: string) => createHash('md5').update(value).digest('hex');
@@ -31,7 +32,7 @@ describe('Qixiangyun OpenAPI', () => {
     fetchMock = jest.fn();
     global.fetch = fetchMock;
     settings = { resolve: jest.fn().mockResolvedValue(credentials) };
-    client = new QxyOpenApiClient(settings as unknown as QxySettingsService);
+    client = new QxyOpenApiClient(stub<QxySettingsService>(settings));
   });
   afterEach(() => {
     global.fetch = originalFetch;

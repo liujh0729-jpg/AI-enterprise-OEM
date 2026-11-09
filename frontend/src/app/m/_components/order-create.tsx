@@ -197,7 +197,7 @@ export function MobileOrderCreate({
     );
   }
 
-  if (optionsQuery.isError) return <Alert type="error" message={optionsQuery.error.message} action={<Button onClick={() => void optionsQuery.refetch()}>重试</Button>} />;
+  if (optionsQuery.isError) return <Alert type="error" title={optionsQuery.error.message} action={<Button onClick={() => void optionsQuery.refetch()}>重试</Button>} />;
 
   return (
     <div className="m-view">
@@ -264,7 +264,7 @@ export function MobileOrderCreate({
               <Spin />
             </div>
           ) : productsQuery.isError ? (
-            <Alert type="error" message={productsQuery.error.message} action={<Button onClick={() => void productsQuery.refetch()}>重试</Button>} />
+            <Alert type="error" title={productsQuery.error.message} action={<Button onClick={() => void productsQuery.refetch()}>重试</Button>} />
           ) : products.length ? (
             <>
               {products.map((product) => (

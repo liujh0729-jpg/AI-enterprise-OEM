@@ -83,7 +83,7 @@ export class LowCodeAssetsService {
   async uploadAsset(
     user: CurrentUser,
     raw: unknown,
-    token: string,
+    _token: string,
     body: {
       name: string;
       contentType: string;
@@ -106,13 +106,10 @@ export class LowCodeAssetsService {
     const labels = [this.labelOf(project.id)];
     if (fieldKey) labels.push(`${this.labelOf(project.id)}-${fieldKey}`);
     const file = new File([bytes], filename);
-    const asset = await this.digitalAssets.upload(
-      owner,
-      token,
-      file,
-      { name: rawName, labels },
-      user,
-    );
+    const asset = await this.digitalAssets.upload(owner, file, {
+      name: rawName,
+      labels,
+    });
     return {
       id: asset.id,
       name: asset.name,

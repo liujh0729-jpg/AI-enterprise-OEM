@@ -2,7 +2,14 @@
 
 import { BankOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
 import { Button } from "antd";
-import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import { Notice, PageHero, Panel } from "@/components/ui/panel";
 import { PAGE_META } from "@/config/routes";
@@ -80,6 +87,14 @@ function IdentityContent() {
   const [tick, setTick] = useState(0);
   /** 手动选中的身份；未手动选择时跟随当前身份。 */
   const [picked, setPicked] = useState<string | null>(null);
+  /** 点击卡片后递增，触发滚动到下方对应身份的填写板块。 */
+  const [scrollSignal, setScrollSignal] = useState(0);
+  const formRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!scrollSignal) return;
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [scrollSignal]);
 
   const reload = useCallback(() => {
     setTick((value) => value + 1);
@@ -182,7 +197,10 @@ function IdentityContent() {
                 key={identity}
                 type="button"
                 className={`identity-pick${on ? " identity-pick-active" : ""}`}
-                onClick={() => setPicked(identity)}
+                onClick={() => {
+                  setPicked(identity);
+                  setScrollSignal((value) => value + 1);
+                }}
               >
                 <span className="identity-pick-head">
                   <span className="identity-pick-ico">
@@ -225,62 +243,64 @@ function IdentityContent() {
         </Notice>
       ) : null}
 
-      {active === "ENTERPRISE_USER" ? (
-        <>
-          <Notice variant="info">
-            {isAdmin ? "平台管理员可直接切换到用户身份。办理本人业务所需的主体资料可在下方维护。" : <>
-            用户身份需要提交：{materialOf("ENTERPRISE_USER", subjectType).material}
-            （主体类型三选一：企业 / 个体工商户 / 个人）。
-            {qualified.ENTERPRISE_USER
-              ? `当前已具备该身份资质（主体类型「${subjectLabel(subjectType)}」），可在顶栏切换到用户。`
-              : "提交后立即具备该身份，可在顶栏切换到用户。"}
-            {personal
-              ? "个人用户可正常进入「财税服务」与「跨境出海」浏览服务商名录、查看需求信息并申请加入服务商；「签约 / 申报 / 账套 / 发布需求」四类办理需以「企业」或「个体工商户」主体，变更主体类型后重新提交认证即可办理。"
-              : ""}
-            </>}
-          </Notice>
-          <Panel title="用户信息（用户身份资质 · 提交即生效）">
-            <EnterpriseForm key={`enterprise-${tick}`} onSaved={reload} />
-          </Panel>
-          {personal ? null : (
-            <Panel title="外报凭据（电子税务局 / 电子口岸 · 密文存储）">
-              <ExternalCredentialPanel key={`cred-${tick}`} />
+      <div ref={formRef} style={{ scrollMarginTop: 16 }}>
+        {active === "ENTERPRISE_USER" ? (
+          <>
+            <Notice variant="info">
+              {isAdmin ? "平台管理员可直接切换到用户身份。办理本人业务所需的主体资料可在下方维护。" : <>
+              用户身份需要提交：{materialOf("ENTERPRISE_USER", subjectType).material}
+              （主体类型三选一：企业 / 个体工商户 / 个人）。
+              {qualified.ENTERPRISE_USER
+                ? `当前已具备该身份资质（主体类型「${subjectLabel(subjectType)}」），可在顶栏切换到用户。`
+                : "提交后立即具备该身份，可在顶栏切换到用户。"}
+              {personal
+                ? "个人用户可正常进入「财税服务」与「跨境出海」浏览服务商名录、查看需求信息并申请加入服务商；「签约 / 申报 / 账套 / 发布需求」四类办理需以「企业」或「个体工商户」主体，变更主体类型后重新提交认证即可办理。"
+                : ""}
+              </>}
+            </Notice>
+            <Panel title="用户信息（用户身份资质 · 提交即生效）">
+              <EnterpriseForm key={`enterprise-${tick}`} onSaved={reload} />
             </Panel>
-          )}
-        </>
-      ) : null}
+            {personal ? null : (
+              <Panel title="外报凭据（电子税务局 / 电子口岸 · 密文存储）">
+                <ExternalCredentialPanel key={`cred-${tick}`} />
+              </Panel>
+            )}
+          </>
+        ) : null}
 
-      {active === "SERVICE_PROVIDER" ? (
-        <>
-          <Notice variant="info">
-            {isAdmin ? "平台管理员可直接切换到服务商身份。下方保留本人服务商备案的提交与维护入口。" : <>
-            服务商身份需要提交：{IDENTITY_MATERIAL.SERVICE_PROVIDER.material}。
-            {qualified.SERVICE_PROVIDER
-              ? "当前已具备该身份资质，可在顶栏切换到服务商。"
-              : "提交后由平台管理员审核，通过后即可在顶栏切换到服务商。"}
-            </>}
-          </Notice>
-          <Panel title="服务商备案申请">
-            <ProviderApplicationPanel key={`provider-${tick}`} onSaved={reload} />
-          </Panel>
-        </>
-      ) : null}
+        {active === "SERVICE_PROVIDER" ? (
+          <>
+            <Notice variant="info">
+              {isAdmin ? "平台管理员可直接切换到服务商身份。下方保留本人服务商备案的提交与维护入口。" : <>
+              服务商身份需要提交：{IDENTITY_MATERIAL.SERVICE_PROVIDER.material}。
+              {qualified.SERVICE_PROVIDER
+                ? "当前已具备该身份资质，可在顶栏切换到服务商。"
+                : "提交后由平台管理员审核，通过后即可在顶栏切换到服务商。"}
+              </>}
+            </Notice>
+            <Panel title="服务商备案申请">
+              <ProviderApplicationPanel key={`provider-${tick}`} onSaved={reload} />
+            </Panel>
+          </>
+        ) : null}
 
-      {active === "PROVIDER_STAFF" ? (
-        <>
-          <Notice variant="info">
-            {isAdmin ? "平台管理员可直接切换到职员 / 代理人身份。下方保留本人个人资料的提交与维护入口。" : <>
-            职员 / 代理人身份需要提交：{IDENTITY_MATERIAL.PROVIDER_STAFF.material}。
-            {qualified.PROVIDER_STAFF
-              ? "当前已成为服务商职员/代理人，可承办工单。"
-              : "资料提交后，需由服务商邀请绑定（或申请挂靠）通过，才能切换到该身份。"}
-            </>}
-          </Notice>
-          <Panel title="个人资料（职员/代理人身份资质）">
-            <StaffProfileForm key={`staff-${tick}`} onSaved={reload} />
-          </Panel>
-        </>
-      ) : null}
+        {active === "PROVIDER_STAFF" ? (
+          <>
+            <Notice variant="info">
+              {isAdmin ? "平台管理员可直接切换到职员 / 代理人身份。下方保留本人个人资料的提交与维护入口。" : <>
+              职员 / 代理人身份需要提交：{IDENTITY_MATERIAL.PROVIDER_STAFF.material}。
+              {qualified.PROVIDER_STAFF
+                ? "当前已成为服务商职员/代理人，可承办工单。"
+                : "资料提交后，需由服务商邀请绑定（或申请挂靠）通过，才能切换到该身份。"}
+              </>}
+            </Notice>
+            <Panel title="个人资料（职员/代理人身份资质）">
+              <StaffProfileForm key={`staff-${tick}`} onSaved={reload} />
+            </Panel>
+          </>
+        ) : null}
+      </div>
     </>
   );
 }

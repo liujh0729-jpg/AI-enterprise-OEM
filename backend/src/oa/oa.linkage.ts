@@ -13,6 +13,7 @@ import { text } from '../common/api';
 import { CATEGORY_LABELS } from '../common/constants';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { toJsonInput } from '../common/json-input';
 import { ContractsService } from '../contracts/contracts.service';
 import { CrmScopeService, type CrmContext } from '../crm/crm.scope';
 import { CrmSettingsService } from '../crm/crm.settings.service';
@@ -352,12 +353,12 @@ export class OaLinkageService {
           targetId: item.targetId,
           action,
           status: 'PENDING',
-          result: {
+          result: toJsonInput({
             on: text(rule.on) || 'APPROVED',
             params: jsonObject(rule.params),
             title: item.title,
             subtitle: item.subtitle,
-          } as unknown as Prisma.InputJsonValue,
+          }),
         });
       }
     }
@@ -742,7 +743,7 @@ export class OaLinkageService {
       data: {
         status: outcome.status,
         error: outcome.error.slice(0, 500),
-        result: outcome.result as never,
+        result: toJsonInput(outcome.result),
         executedAt:
           outcome.status === 'DONE' || outcome.status === 'FAILED'
             ? new Date()
@@ -774,9 +775,7 @@ export class OaLinkageService {
     targetType: string,
     keyword: string,
   ): Promise<OaLinkSearchItem[]> {
-    const contains = keyword
-      ? { contains: keyword }
-      : undefined;
+    const contains = keyword ? { contains: keyword } : undefined;
     if (targetType === 'CRM_CUSTOMER') {
       const base = await this.crmScope.scopeWhereAsync(ctx, 'CORE');
       const rows = await this.prisma.crmCustomer.findMany({

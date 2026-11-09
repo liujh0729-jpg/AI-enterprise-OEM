@@ -34,6 +34,9 @@
     "test:query-plans": "node scripts/test-isolated-migration.mjs --query-plans",
     "test:geo-recovery": "node scripts/verify-geo-collection-recovery.mjs",
     "check:architecture": "node scripts/check-architecture.mjs",
+    "audit:escapes": "node scripts/escape-audit.mjs --json=docs/escape-report.json --md=docs/escape-report.md",
+    "check:escape-budget": "node scripts/escape-audit.mjs --check",
+    "test:escape-audit": "node --test scripts/verify-escape-audit.mjs",
     "test:agent-security": "node --test scripts/verify-agent-security.mjs",
     "test:creative-community": "node --test scripts/verify-creative-community.mjs"
   },

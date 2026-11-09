@@ -3,6 +3,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 import { BiScopeService, BiContext } from './bi.scope';
 import { BiQueryService } from './bi.query.service';
 
@@ -56,9 +57,7 @@ export class BiDashboardService {
     const keyword = text(query.keyword).trim();
     const where = {
       ownerUserId: ctx.ownerUserId,
-      ...(keyword
-        ? { name: { contains: keyword } }
-        : {}),
+      ...(keyword ? { name: { contains: keyword } } : {}),
     };
     const [rows, total] = await Promise.all([
       this.prisma.biDashboard.findMany({
@@ -160,8 +159,8 @@ export class BiDashboardService {
     }
     const data = {
       name,
-      layout: (Array.isArray(body.layout) ? body.layout : []) as never,
-      config: (body.config || {}) as never,
+      layout: toJsonInput(Array.isArray(body.layout) ? body.layout : []),
+      config: toJsonInput(body.config || {}),
     };
     const row = id
       ? await this.prisma.biDashboard.update({ where: { id }, data })
@@ -182,8 +181,8 @@ export class BiDashboardService {
           chartId: Number(item.chartId) || 0,
           type: text(item.type, 'CHART'),
           title: text(item.title).slice(0, 80),
-          position: (item.position || {}) as never,
-          config: (item.config || {}) as never,
+          position: toJsonInput(item.position || {}),
+          config: toJsonInput(item.config || {}),
           sort: index,
         },
       });

@@ -2,7 +2,7 @@
 
 import { App, Button, Divider, Form, Input, Select, Space } from "antd";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { Panel } from "@/components/ui/panel";
 import {
@@ -44,7 +44,7 @@ export function SettingsPanel() {
   const [models, setModels] = useState<string[]>([]);
   const [llmBusy, setLlmBusy] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const { data, message: errorMsg } = await rpaApi.settings();
     if (errorMsg) {
       message.error(errorMsg);
@@ -60,9 +60,9 @@ export function SettingsPanel() {
       });
       setHasApiKey(data.hasBitbrowserApiKey);
     }
-  };
+  }, [message]);
 
-  const loadLlm = async () => {
+  const loadLlm = useCallback(async () => {
     const setting = await rpaApi.llmSetting();
     if (!setting.message) {
       setLlm(setting.data);
@@ -73,13 +73,12 @@ export function SettingsPanel() {
     if (!modelsData.message) {
       setModels(modelsData.data?.models ?? []);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void load();
     void loadLlm();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 首屏只跑一次
-  }, []);
+  }, [load, loadLlm]);
 
   const submit = async () => {
     setSaving(true);

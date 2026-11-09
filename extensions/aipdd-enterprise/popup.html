@@ -73,8 +73,8 @@
 </head>
 <body>
   <header>
-    <h1>AIPDD Enterprise 分发助手</h1>
-    <div class="ver">v1.2.0 · 多平台内容分发</div>
+    <h1>AIPDD Enterprise 分发与获客助手</h1>
+    <div class="ver">v1.3.0 · 内容分发与 AI 获客</div>
   </header>
   <main>
     <ol>
@@ -82,15 +82,16 @@
       <li>打开 <b>AIPDD Enterprise → 工作台 → 营销工具 → 多平台内容分发</b>。</li>
       <li>在内容台账点「分发」，插件会自动打开各平台创作页填充并发布。</li>
       <li>「仅填充」模式下请回到平台页人工确认后再点发布。</li>
+      <li>获客在 <b>营销工具 → AI 获客</b>：点「连接插件」后，插件按监控源打开平台搜索页与评论区采集线索，触达只执行你已确认的任务。</li>
     </ol>
-    <div class="tip">发布结果会自动回写到台账；填充失败时标签页会保留，可在工具页「人工补记」。</div>
+    <div class="tip">发布与采集结果都会自动回写；失败时标签页会保留，可在工具页「人工补记」。遇登录墙/验证码/风控会立即停下，插件不读 Cookie、不绕过验证码。</div>
     <div class="trust">
       <div class="trust-row">
         <span>当前站点</span>
         <span class="trust-origin" id="origin">—</span>
       </div>
       <button id="trustBtn" class="trust-btn" type="button" disabled>加载中…</button>
-      <div class="trust-status" id="status">只有信任的站点才能触发插件分发（安全默认）。</div>
+      <div class="trust-status" id="status">只有信任的站点才能触发插件分发与获客（安全默认）。</div>
     </div>
   </main>
   <script src="popup.js"></script>

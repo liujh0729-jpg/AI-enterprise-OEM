@@ -11,8 +11,11 @@ import {
   EditOutlined,
   FileAddOutlined,
   InfoCircleOutlined,
+  KeyOutlined,
   LoadingOutlined,
   PaperClipOutlined,
+  PayCircleOutlined,
+  PictureOutlined,
   PlusOutlined,
   ReadOutlined,
   RightOutlined,
@@ -64,6 +67,13 @@ import {
   uploadContentMedia,
 } from "@/api/content";
 import { Notice, Panel } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
+import {
+  AssetReferencePicker,
+  REFERENCE_MEDIA_LABEL,
+  nextReferenceLabel,
+  referencesFromAssets,
+} from "@/components/content/asset-reference-picker";
 
 type ToolLine = { name: string; state: "running" | "ok" | "failed"; text?: string };
 /** 「自动」时模型会在首行标注本轮选的分身；拆出来单独显示成徽标，正文不重复。 */
@@ -100,6 +110,7 @@ const TOOL_LABELS: Record<string, string> = {
   read_library: "精读资料",
   propose_library_edit: "起草改写",
   publish_to_library: "回流资料库",
+  save_to_kb: "沉淀到知识库",
 };
 
 /** 本站 MCP Server 的六个元工具：名字仍是标识符，界面上按契约标题显示。 */
@@ -153,7 +164,6 @@ const MODEL_KIND_LABELS: Record<ContentAgentMode, string> = {
 };
 /** 视频模式勾「超清」后的目标分辨率；MediaKit 生成式超分认这四档 */
 const UPSCALE_RESOLUTIONS = ["1080p", "2k", "4k"];
-const REFERENCE_MEDIA_LABEL = { image: "图片", video: "视频", audio: "音频" } as const;
 const IMAGE_SIZE_FALLBACK = ["1024x1024", "1024x1536", "1536x1024"];
 /** 上游没声明时长范围（自定义渠道）时的兜底区间 */
 const VIDEO_DURATION_MIN = 1;
@@ -247,17 +257,17 @@ function pickTurnResult(
   return done[done.length - 1];
 }
 
-/** 参考文件按类型从 1 编号（图片1 / 视频1 / 音频1），删掉中间的也不重排，@ 引用保持稳定。 */
-function nextLabel(references: ContentAgentReference[], media: ContentAgentReference["media"]) {
-  const used = references
-    .filter((item) => item.media === media)
-    .map((item) => Number(item.label.replace(/[^\d]/g, "")) || 0);
-  return `${REFERENCE_MEDIA_LABEL[media]}${Math.max(0, ...used) + 1}`;
-}
-
-type AddPanel = "root" | "skills" | "plugins" | "experts" | "library" | "connectors";
+type AddPanel =
+  | "root"
+  | "references"
+  | "skills"
+  | "plugins"
+  | "experts"
+  | "library"
+  | "connectors";
 
 const ADD_PANEL_TITLES: Record<Exclude<AddPanel, "root">, string> = {
+  references: "添加参考文件",
   skills: "选择技能",
   plugins: "选择插件",
   experts: "选择专家",
@@ -385,6 +395,9 @@ export function AgentChatPanel({
   const router = useRouter();
   const [conversations, setConversations] = useState<ContentConversation[]>([]);
   const [personas, setPersonas] = useState<ContentAgentPersona[]>([]);
+  /** 多分身协作：2–3 个分身各起草一份、互相评审，最后由第一位汇总 */
+  const [collaborate, setCollaborate] = useState(false);
+  const [collaborateIds, setCollaborateIds] = useState<number[]>([]);
   const [activeId, setActiveId] = useState(0);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -425,6 +438,8 @@ export function AgentChatPanel({
   // 「+」浮层：模型设置 / 添加参考文件 / 选择技能 / 选择插件 / 选择专家（模型选择直接摆在输入框下方）
   const [addOpen, setAddOpen] = useState(false);
   const [addPanel, setAddPanel] = useState<AddPanel>("root");
+  /** 从数字资产管理挑参考文件的弹窗 */
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
   const [skills, setSkills] = useState<ContentAgentSkill[]>([]);
   const [plugins, setPlugins] = useState<ContentAgentPlugin[]>([]);
   const [experts, setExperts] = useState<ContentAgentExpert[]>([]);
@@ -623,8 +638,13 @@ export function AgentChatPanel({
         // 读不到模型清单时仍可输入，发送前会提示先选模型
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 首屏只跑一次
-  }, []);
+  }, [
+    conversationToOpen,
+    onConversationOpened,
+    loadConversations,
+    openConversation,
+    loadChannelModels,
+  ]);
 
   /** 切模式：带上这个模式自己的渠道与模型；第一次切到该模式时才去拉它的模型清单。 */
   const switchMode = (next: ContentAgentMode) => {
@@ -756,6 +776,7 @@ export function AgentChatPanel({
   }, [loading]);
 
   // 输入区高度随模式、参考文件、报错提示变化：每次渲染都对一次，保证给两栏留的空位不多不少
+  // 读的只有 ref、且写回有等值守卫，不会自激；规则给的「空依赖数组」会丢掉逐次同步，故豁免。
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     const composer = composerRef.current;
@@ -828,8 +849,7 @@ export function AgentChatPanel({
       alive = false;
     };
     // 只响应「换了一位专家」；回调用最新引用即可，不必重跑
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expertToUse]);
+  }, [expertToUse, onExpertConsumed, message]);
 
   // 有轮次在跑就每秒走一次表，让「已等待 N 秒」自己动——出图出片几分钟里可能收不到任何进度
   useEffect(() => {
@@ -959,7 +979,7 @@ export function AgentChatPanel({
             continue;
           }
           next.push({
-            label: nextLabel(next, media),
+            label: nextReferenceLabel(next, media),
             fileName: uploaded.name || file.name,
             url: uploaded.url,
             media,
@@ -987,6 +1007,34 @@ export function AgentChatPanel({
     conversations.find((item) => item.id === activeId)?.personaId || 0;
   const currentPersonaName =
     conversations.find((item) => item.id === activeId)?.personaName || "";
+  // 勾上协作时默认选前 3 个分身；分身被删后自动收敛
+  useEffect(() => {
+    if (!collaborate) return;
+    setCollaborateIds((prev) => {
+      const valid = prev
+        .filter((id) => personas.some((item) => item.id === id))
+        .slice(0, 3);
+      return valid.length >= 2 ? valid : personas.slice(0, 3).map((item) => item.id);
+    });
+  }, [collaborate, personas]);
+  // 换到绑了模型的分身时，把它的默认渠道/模型同步到文本选择器，界面与实际执行一致
+  const appliedPersonaRef = useRef(0);
+  useEffect(() => {
+    if (!currentPersonaId) {
+      appliedPersonaRef.current = 0;
+      return;
+    }
+    const row = personas.find((item) => item.id === currentPersonaId);
+    if (!row || appliedPersonaRef.current === row.id) return;
+    if (!row.channelId && !row.model) {
+      appliedPersonaRef.current = row.id;
+      return;
+    }
+    const channelId = row.channelId > 0 ? row.channelId : selections.text.channelId;
+    if (!channelId) return;
+    appliedPersonaRef.current = row.id;
+    void loadChannelModels("text", channelId, { channelId, model: row.model });
+  }, [currentPersonaId, personas, selections.text.channelId, loadChannelModels]);
   const pickedSkills = skills.filter((skill) => skillIds.includes(skill.id));
   const pickedPlugins = plugins.filter((plugin) => pluginIds.includes(plugin.id));
   const pickedLibrary = library.filter((item) => libraryIds.includes(item.id));
@@ -1000,10 +1048,8 @@ export function AgentChatPanel({
             icon={<FileAddOutlined aria-hidden />}
             label="添加参考文件"
             meta={`${references.length} 个`}
-            onClick={() => {
-              setAddOpen(false);
-              fileRef.current?.click();
-            }}
+            chevron
+            onClick={() => setAddPanel("references")}
           />
           <AddRow
             icon={<ToolOutlined aria-hidden />}
@@ -1055,7 +1101,32 @@ export function AgentChatPanel({
           title={ADD_PANEL_TITLES[addPanel]}
           onBack={() => setAddPanel("root")}
         >
-          {addPanel === "skills" ? (
+          {addPanel === "references" ? (
+            <div style={{ display: "grid", gap: 4 }}>
+              <AddRow
+                icon={<FileAddOutlined aria-hidden />}
+                label="从本地上传"
+                meta={uploading ? "上传中…" : "图片 / 视频 / 音频"}
+                disabled={uploading}
+                onClick={() => {
+                  setAddOpen(false);
+                  fileRef.current?.click();
+                }}
+              />
+              <AddRow
+                icon={<PictureOutlined aria-hidden />}
+                label="从数字资产选择"
+                meta="复用已传素材"
+                onClick={() => {
+                  setAddOpen(false);
+                  setAssetPickerOpen(true);
+                }}
+              />
+              <span className="text-12 muted" style={{ padding: "2px 8px" }}>
+                {`本轮已有 ${references.length} 个参考文件；按类型自动编号，用 @ 在对话里调取。`}
+              </span>
+            </div>
+          ) : addPanel === "skills" ? (
             <div style={{ display: "grid", gap: 8 }}>
               {auxLoading ? <Spin size="small" /> : null}
               {auxError ? (
@@ -1373,6 +1444,11 @@ export function AgentChatPanel({
     const turnLibraryIds = libraryIds;
     const turnConnectorIds = connectorIds;
     const turnMode = mode;
+    // 只有文本模式支持协作；不足 2 个分身就当普通回合跑
+    const turnPersonaIds =
+      mode === "text" && collaborate && collaborateIds.length >= 2
+        ? collaborateIds.slice(0, 3)
+        : [];
     const turnTextChannel = selections.text.channelId;
     const turnTextModel = selections.text.model;
     const turnImageChannel = current.channelId;
@@ -1471,6 +1547,7 @@ export function AgentChatPanel({
         libraryIds: turnLibraryIds,
         connectorIds: turnConnectorIds,
         personaId: currentPersonaId,
+        personaIds: turnPersonaIds,
         onEvent: ({ event, data }) => {
             sawEvent = true;
             let payload: Record<string, unknown> = {};
@@ -1676,6 +1753,22 @@ export function AgentChatPanel({
 
       <Panel
         title="对话"
+        extra={
+          <>
+            <Button
+              icon={<KeyOutlined aria-hidden />}
+              onClick={() => router.push("/developer/keys")}
+            >
+              管理API Key
+            </Button>
+            <Button
+              icon={<PayCircleOutlined aria-hidden />}
+              onClick={() => router.push("/points")}
+            >
+              积分充值
+            </Button>
+          </>
+        }
         titleExtra={
           activeConversation?.expertName || currentPersonaName ? (
             <span className="text-12 muted">
@@ -1822,8 +1915,7 @@ export function AgentChatPanel({
                           rel="noreferrer"
                           title="打开原图"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element -- 远端直链，不走图片优化 */}
-                          <img src={media.url} alt="生成结果" />
+                          <RawImg src={media.url} alt="生成结果" />
                         </a>
                       ))}
                     </div>
@@ -2068,6 +2160,16 @@ export function AgentChatPanel({
             hidden
             onChange={(event) => void addReferences(event.target.files)}
           />
+          <AssetReferencePicker
+            open={assetPickerOpen}
+            existingUrls={references.map((item) => item.url)}
+            onCancel={() => setAssetPickerOpen(false)}
+            onPick={(assets) => {
+              setReferences((prev) => referencesFromAssets(prev, assets));
+              setAssetPickerOpen(false);
+              setAddPanel("root");
+            }}
+          />
           {modelsError ? (
             <Notice variant="error">
               {modelsError}{" "}
@@ -2125,6 +2227,40 @@ export function AgentChatPanel({
                 ]}
                 onChange={(value: number) => void applyPersona(value)}
               />
+            ) : null}
+            {personas.length >= 2 && mode === "text" ? (
+              <>
+                <span
+                  className="text-12 muted"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  多分身协作
+                  <Switch
+                    size="small"
+                    checked={collaborate}
+                    onChange={(value) => {
+                      setCollaborate(value);
+                      if (!value) setCollaborateIds([]);
+                    }}
+                  />
+                </span>
+                {collaborate ? (
+                  <Select
+                    mode="multiple"
+                    style={{ minWidth: 240 }}
+                    maxCount={3}
+                    value={collaborateIds}
+                    placeholder="选 2–3 个分身（第一位负责汇总）"
+                    options={personas.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                    onChange={(values: number[]) =>
+                      setCollaborateIds(values.slice(0, 3))
+                    }
+                  />
+                ) : null}
+              </>
             ) : null}
             <Select
               style={{ width: 160 }}

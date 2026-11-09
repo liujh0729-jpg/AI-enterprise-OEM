@@ -174,11 +174,9 @@ export class OaInboxService {
     let count = 0;
 
     // 发票列表的装饰行只显式声明了名称/状态等列，单据号与主键仍在对象上，这里按记录取值。
-    const invoices = (
-      (await this.invoice.list(user, 'REQUESTED')) as unknown as Array<
-        Record<string, unknown>
-      >
-    ).filter((row) => row.canReview === true);
+    const invoices = (await this.invoice.list(user, 'REQUESTED')).filter(
+      (row) => row.canReview === true,
+    );
     count += invoices.length;
     items.push(
       ...invoices.slice(0, ITEM_LIMIT).map((row) => ({

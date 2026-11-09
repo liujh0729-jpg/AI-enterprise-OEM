@@ -3,6 +3,13 @@ import { ComfyClient, MAX_DOWNLOAD_BYTES } from './comfy.client';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityService } from '../identity/identity.service';
+import type { UserLookupService } from '../directory/user-lookup.service';
+import type { OssService } from '../oss/oss.service';
+import type { ComfyCrypto } from './comfy-crypto';
+import type { CommunityAwardService } from './community-award.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 创意社区服务的口径单测：钉住「纯 BYOK 的运行链路」和「跨账号读写收口」两组不变量。
@@ -213,13 +220,13 @@ function build() {
     save: jest.fn(),
   };
   const service = new CommunityService(
-    prisma as never,
-    identity as never,
-    users as never,
-    oss as never,
-    comfy as unknown as ComfyClient,
-    crypto as never,
-    awards as never,
+    stub<PrismaService>(prisma),
+    stub<IdentityService>(identity),
+    stub<UserLookupService>(users),
+    stub<OssService>(oss),
+    stub<ComfyClient>(comfy),
+    stub<ComfyCrypto>(crypto),
+    stub<CommunityAwardService>(awards),
   );
   // 目录取数：默认按 code / id 取到的都是同一行，具体用例再覆盖
   const byCode = (overrides?: Record<string, unknown>) => {

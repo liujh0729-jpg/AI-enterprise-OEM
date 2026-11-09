@@ -7,7 +7,67 @@ export interface FooterLink {
 }
 
 /** 系统支持的语言码（与前端 lib/i18n 清单一致）：简体中文 / English / Tiếng Việt / 日本語 / العربية / Français / Español / Русский。 */
-export const SUPPORTED_LANGUAGES = ['zh-CN', 'en', 'vi', 'ja', 'ar', 'fr', 'es', 'ru'] as const;
+export const SUPPORTED_LANGUAGES = [
+  'zh-CN',
+  'en',
+  'vi',
+  'ja',
+  'ar',
+  'fr',
+  'es',
+  'ru',
+] as const;
+
+/**
+ * 菜单路径白名单化：站内菜单以单个 `/` 开头，外链菜单以 http(s):// 开头（去掉协议相对写法 `//host`）；
+ * 顺带 trim、截断、去重并限量，避免脏值写进站点配置。
+ */
+function normalizeMenuPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const paths = value
+    .filter((p): p is string => typeof p === 'string')
+    .map((p) => p.trim().slice(0, 512))
+    .filter((p) =>
+      p.startsWith('/') ? !p.startsWith('//') : /^https?:\/\/\S+$/i.test(p),
+    );
+  return [...new Set(paths)].slice(0, 128);
+}
+
+/**
+ * 「业务服务」板块（与前端 routes.ts 该分组同源）：管理员可逐板块隐藏「需求信息 / 服务市集」两个页签。
+ * 值取 `<板块>:<角色>`（角色 demand＝需求信息 / services＝服务市集），如 `marketing:services`。
+ */
+export const BOARD_TAB_BOARDS = [
+  'marketing',
+  'supply',
+  'tax',
+  'overseas',
+  'flex',
+  'logistics',
+  'smart',
+  'ip',
+  'legal',
+  'think-tank',
+  'asset',
+  'market',
+] as const;
+export const BOARD_TAB_ROLES = ['demand', 'services'] as const;
+const MAX_BOARD_TAB_TOKENS = BOARD_TAB_BOARDS.length * BOARD_TAB_ROLES.length;
+
+/** 板块页签 token 白名单化：只认 `<已知板块>:<已知角色>`，去重限量，脏值一律丢弃。 */
+export function normalizeBoardTabs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const boards = new Set<string>(BOARD_TAB_BOARDS);
+  const roles = new Set<string>(BOARD_TAB_ROLES);
+  const tokens = value
+    .filter((v): v is string => typeof v === 'string')
+    .map((v) => v.trim().slice(0, 64))
+    .filter((v) => {
+      const [board, role, ...rest] = v.split(':');
+      return rest.length === 0 && boards.has(board) && roles.has(role);
+    });
+  return [...new Set(tokens)].slice(0, MAX_BOARD_TAB_TOKENS);
+}
 
 export interface SiteSettings {
   siteName: string;
@@ -17,12 +77,16 @@ export interface SiteSettings {
   footerLinks: FooterLink[];
   /** AIPDD 推荐码：管理员填入后，用户绑定 AIPDD Key 页面会引导新注册携带该码（邀请佣金归管理员）并赠送算力。 */
   aipddReferralCode: string;
-  /** 被隐藏的业务服务菜单路径（如 ["/tax"]）：仅控制菜单显示，直接访问链接不受影响。 */
-  businessMenuHidden: string[];
-  /** 被隐藏的「开放集成」菜单路径（如 ["/developer/docs"]）：仅控制菜单显示，默认全部可见。 */
-  integrationMenuHidden: string[];
-  /** 「AI增值服务」分组是否隐藏：默认可见（false）。 */
-  aiServicesHidden: boolean;
+  /**
+   * 被隐藏的用户侧菜单路径：覆盖前台侧栏每一条菜单（含首页入口与「AI增值服务」的外链，外链存完整 URL）。
+   * 仅控制菜单显示，直接访问链接不受影响；某分组内的菜单项全部隐藏后该分组自动消失。
+   */
+  hiddenMenuPaths: string[];
+  /**
+   * 被隐藏的「业务服务」板块页签（token = `<板块>:<角色>`，角色 demand＝需求信息 / services＝服务市集）：
+   * 管理员逐板块选择是否展示这两个页签；对所有身份一致生效，仅控制展示，直链/接口不受限（与 hiddenMenuPaths 同口径）。
+   */
+  hiddenBoardTabs: string[];
   /** 默认语言码（SUPPORTED_LANGUAGES 之一）：新用户首次进站按此语言展示界面，可在前台随时切换。 */
   defaultLanguage: string;
   /**
@@ -33,7 +97,13 @@ export interface SiteSettings {
 }
 
 /**
- * 站点级设置（存 system_settings 键值表，单一 JSON 键）：名称 / logo / 简介 / ICP 备案号 / 页脚链接 / AIPDD 推荐码 / 业务服务菜单显隐 / 开放集成菜单显隐 / AI增值服务显隐 / 默认语言 / 站点对外地址。
+ * 内置备案号占位：部署后由管理员在「站点设置 → ICP 备案号」改成真实备案号。
+ * 未配置过站点设置、或历史配置里备案号为空时都用它，保证官网首页页脚有备案信息。
+ */
+const DEFAULT_ICP_RECORD = '京ICP备2026000001号-1';
+
+/**
+ * 站点级设置（存 system_settings 键值表，单一 JSON 键）：名称 / logo / 简介 / ICP 备案号 / 页脚链接 / AIPDD 推荐码 / 用户侧菜单显隐 / 业务服务板块页签显隐 / 默认语言 / 站点对外地址。
  * 前端 SSR 读取渲染标题、logo、页脚备案，管理员保存后即时生效。
  */
 export class SiteSettingsService {
@@ -46,14 +116,14 @@ export class SiteSettingsService {
       siteName: process.env.SITE_NAME || '企业服务工作台',
       siteLogo: process.env.SITE_LOGO || '',
       siteDesc: process.env.SITE_DESC || '',
-      icpRecord: process.env.ICP_RECORD || '',
+      icpRecord: process.env.ICP_RECORD || DEFAULT_ICP_RECORD,
       footerLinks: [],
       aipddReferralCode: process.env.AIPDD_REFERRAL_CODE || '',
-      businessMenuHidden: [],
-      integrationMenuHidden: [],
-      aiServicesHidden: false,
+      hiddenMenuPaths: [],
+      hiddenBoardTabs: [],
       defaultLanguage: SUPPORTED_LANGUAGES.includes(
-        (process.env.SITE_DEFAULT_LANGUAGE ?? '') as (typeof SUPPORTED_LANGUAGES)[number],
+        (process.env.SITE_DEFAULT_LANGUAGE ??
+          '') as (typeof SUPPORTED_LANGUAGES)[number],
       )
         ? process.env.SITE_DEFAULT_LANGUAGE!
         : 'zh-CN',
@@ -74,38 +144,31 @@ export class SiteSettingsService {
         siteName: stored.siteName?.trim() || base.siteName,
         siteLogo: stored.siteLogo ?? base.siteLogo,
         siteDesc: stored.siteDesc ?? base.siteDesc,
-        icpRecord: stored.icpRecord ?? base.icpRecord,
+        icpRecord: stored.icpRecord?.trim() || base.icpRecord,
         footerLinks: Array.isArray(stored.footerLinks)
           ? stored.footerLinks
               .filter(
                 (l): l is FooterLink =>
-                  !!l && typeof l.label === 'string' && typeof l.url === 'string',
+                  !!l &&
+                  typeof l.label === 'string' &&
+                  typeof l.url === 'string',
               )
-              .map((l) => ({ label: l.label.slice(0, 64), url: l.url.slice(0, 512) }))
+              .map((l) => ({
+                label: l.label.slice(0, 64),
+                url: l.url.slice(0, 512),
+              }))
           : base.footerLinks,
         aipddReferralCode:
           typeof stored.aipddReferralCode === 'string'
             ? stored.aipddReferralCode.trim().slice(0, 64)
             : base.aipddReferralCode,
-        businessMenuHidden: Array.isArray(stored.businessMenuHidden)
-          ? stored.businessMenuHidden
-              .filter((p): p is string => typeof p === 'string' && p.startsWith('/'))
-              .map((p) => p.slice(0, 64))
-              .slice(0, 32)
-          : base.businessMenuHidden,
-        integrationMenuHidden: Array.isArray(stored.integrationMenuHidden)
-          ? stored.integrationMenuHidden
-              .filter((p): p is string => typeof p === 'string' && p.startsWith('/'))
-              .map((p) => p.slice(0, 64))
-              .slice(0, 32)
-          : base.integrationMenuHidden,
-        aiServicesHidden:
-          typeof stored.aiServicesHidden === 'boolean'
-            ? stored.aiServicesHidden
-            : base.aiServicesHidden,
+        hiddenMenuPaths: normalizeMenuPaths(stored.hiddenMenuPaths),
+        hiddenBoardTabs: normalizeBoardTabs(stored.hiddenBoardTabs),
         defaultLanguage:
           typeof stored.defaultLanguage === 'string' &&
-          (SUPPORTED_LANGUAGES as readonly string[]).includes(stored.defaultLanguage)
+          (SUPPORTED_LANGUAGES as readonly string[]).includes(
+            stored.defaultLanguage,
+          )
             ? stored.defaultLanguage
             : base.defaultLanguage,
         // 库里存过就以库为准（管理员清空即回落到当前访问域名，不再取环境变量）
@@ -141,41 +204,33 @@ export class SiteSettingsService {
       footerLinks:
         body.footerLinks !== undefined
           ? body.footerLinks
-              .filter((l) => l && typeof l.label === 'string' && typeof l.url === 'string')
+              .filter(
+                (l) =>
+                  l && typeof l.label === 'string' && typeof l.url === 'string',
+              )
               .slice(0, 20)
-              .map((l) => ({ label: l.label.slice(0, 64), url: l.url.slice(0, 512) }))
+              .map((l) => ({
+                label: l.label.slice(0, 64),
+                url: l.url.slice(0, 512),
+              }))
           : current.footerLinks,
       aipddReferralCode:
         body.aipddReferralCode !== undefined
           ? String(body.aipddReferralCode).trim().slice(0, 64)
           : current.aipddReferralCode,
-      businessMenuHidden:
-        body.businessMenuHidden !== undefined
-          ? [
-              ...new Set(
-                body.businessMenuHidden
-                  .filter((p) => typeof p === 'string' && p.startsWith('/'))
-                  .map((p) => p.slice(0, 64)),
-              ),
-            ].slice(0, 32)
-          : current.businessMenuHidden,
-      integrationMenuHidden:
-        body.integrationMenuHidden !== undefined
-          ? [
-              ...new Set(
-                body.integrationMenuHidden
-                  .filter((p) => typeof p === 'string' && p.startsWith('/'))
-                  .map((p) => p.slice(0, 64)),
-              ),
-            ].slice(0, 32)
-          : current.integrationMenuHidden,
-      aiServicesHidden:
-        typeof body.aiServicesHidden === 'boolean'
-          ? body.aiServicesHidden
-          : current.aiServicesHidden,
+      hiddenMenuPaths:
+        body.hiddenMenuPaths !== undefined
+          ? normalizeMenuPaths(body.hiddenMenuPaths)
+          : current.hiddenMenuPaths,
+      hiddenBoardTabs:
+        body.hiddenBoardTabs !== undefined
+          ? normalizeBoardTabs(body.hiddenBoardTabs)
+          : current.hiddenBoardTabs,
       defaultLanguage:
         body.defaultLanguage !== undefined &&
-        (SUPPORTED_LANGUAGES as readonly string[]).includes(body.defaultLanguage)
+        (SUPPORTED_LANGUAGES as readonly string[]).includes(
+          body.defaultLanguage,
+        )
           ? body.defaultLanguage
           : current.defaultLanguage,
       // 只保留协议 + 域名：非法值（非 http(s)、带空格或凭据）归零，等于交给当前访问域名
@@ -186,7 +241,10 @@ export class SiteSettingsService {
     };
     await this.prisma.systemSetting.upsert({
       where: { key: SiteSettingsService.SITE_KEY },
-      create: { key: SiteSettingsService.SITE_KEY, value: JSON.stringify(next) },
+      create: {
+        key: SiteSettingsService.SITE_KEY,
+        value: JSON.stringify(next),
+      },
       update: { value: JSON.stringify(next) },
     });
     // 域名改了，后台任务（IM 推送等）持有的缓存立刻作废

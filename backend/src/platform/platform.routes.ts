@@ -1,24 +1,28 @@
 import type { Context } from 'hono';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { z } from '@enterprise/contracts';
-import { AiworkinClient } from '../aiworkin/aiworkin.client';
 import { ok } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
-import { upstreamTokenOrNull } from '../common/upstream-token';
 import type { CurrentUser } from '../auth/current-user';
 import type { ApiEnv } from '../http/types';
 import type { Services } from '../http/services';
-import { SiteSettingsService, SUPPORTED_LANGUAGES } from './site-settings.service';
-import { ProviderDisplayService, type ProviderSyncMode } from './provider-display.service';
+import {
+  SiteSettingsService,
+  SUPPORTED_LANGUAGES,
+} from './site-settings.service';
+import {
+  HomepageSettingsService,
+  type HomepageSettings,
+} from './homepage-settings.service';
 
 export class PlatformModule {
   readonly site: SiteSettingsService;
-  readonly provider: ProviderDisplayService;
+  readonly homepage: HomepageSettingsService;
 
   constructor(services: Services) {
     this.site = new SiteSettingsService(services.prisma);
-    this.provider = new ProviderDisplayService(services.prisma, new AiworkinClient());
+    this.homepage = new HomepageSettingsService(services.prisma);
   }
 }
 
@@ -27,10 +31,16 @@ export function createPlatformModule(services: Services): PlatformModule {
 }
 
 /** 公开路由（挂在根 app，与 /api/auth/* 同通道，不走业务鉴权）：前端 SSR 读取。 */
-export function registerPlatformPublicRoutes(app: OpenAPIHono<ApiEnv>, module: PlatformModule) {
-  app.get('/api/site-config', async (c) => c.json(ok(await module.site.view())));
-  app.get('/api/providers/display', async (c) =>
-    c.json(ok(await module.provider.listPublic())),
+export function registerPlatformPublicRoutes(
+  app: OpenAPIHono<ApiEnv>,
+  module: PlatformModule,
+) {
+  app.get('/api/site-config', async (c) =>
+    c.json(ok(await module.site.view())),
+  );
+  // 官网首页（静态落地页）的可编辑内容：未登录也要能读，缺失时返回内置默认。
+  app.get('/api/homepage', async (c) =>
+    c.json(ok(await module.homepage.view())),
   );
 }
 
@@ -62,13 +72,15 @@ export function registerPlatformAdminRoutes(
         siteDesc: z.string().max(500).optional(),
         icpRecord: z.string().max(128).optional(),
         footerLinks: z
-          .array(z.object({ label: z.string().max(64), url: z.string().max(512) }))
+          .array(
+            z.object({ label: z.string().max(64), url: z.string().max(512) }),
+          )
           .max(20)
           .optional(),
         aipddReferralCode: z.string().max(64).optional(),
-        businessMenuHidden: z.array(z.string().max(64)).max(32).optional(),
-        integrationMenuHidden: z.array(z.string().max(64)).max(32).optional(),
-        aiServicesHidden: z.boolean().optional(),
+        hiddenMenuPaths: z.array(z.string().max(512)).max(128).optional(),
+        // 业务服务板块页签显隐：token = `<板块>:<角色>`，白名单与归一化在 service 里做
+        hiddenBoardTabs: z.array(z.string().max(64)).max(64).optional(),
         defaultLanguage: z.enum(SUPPORTED_LANGUAGES).optional(),
         // 站点对外地址：宽松收进来（含空串＝清空），协议/域名合法性与归一化在 service 里做
         siteUrl: z.string().max(512).optional(),
@@ -77,37 +89,18 @@ export function registerPlatformAdminRoutes(
     return json(c, await module.site.save(body), '站点设置已保存');
   });
 
-  // ---------- 服务商展示与同步 ----------
-  app.get('/enterprise/admin/providers/display', async (c) => {
+  // ---------- 首页设置（系统设置 → 首页设置页签） ----------
+  app.get('/enterprise/admin/homepage', async (c) => {
     requireAdmin(userOf(c));
-    return json(c, await module.provider.listAdmin());
+    return json(c, await module.homepage.view());
   });
-  app.put('/enterprise/admin/providers/display/:id', async (c) => {
+  app.put('/enterprise/admin/homepage', async (c) => {
     requireAdmin(userOf(c));
+    // 逐字段归一化在 service 内完成（脏值回落默认），这里只收对象。
     const body = z
-      .object({
-        visible: z.boolean().optional(),
-        sortWeight: z.number().int().min(-10000).max(10000).optional(),
-        adminNote: z.string().max(500).optional(),
-      })
-      .parse(await c.req.json());
-    return json(c, await module.provider.updateDisplay(Number(c.req.param('id')), body), '已更新');
-  });
-  app.get('/enterprise/admin/providers/sync-status', async (c) => {
-    requireAdmin(userOf(c));
-    return json(c, await module.provider.status());
-  });
-  app.put('/enterprise/admin/providers/sync-mode', async (c) => {
-    requireAdmin(userOf(c));
-    const body = z
-      .object({ mode: z.enum(['MANUAL', 'SCHEDULED']) })
-      .parse(await c.req.json());
-    return json(c, await module.provider.setSyncMode(body.mode as ProviderSyncMode), '同步策略已切换');
-  });
-  app.post('/enterprise/admin/providers/sync-now', async (c) => {
-    requireAdmin(userOf(c));
-    // 同步属尽力而为：管理员未绑定 Key 时不硬拒，而是走 service 的 SKIPPED 分支把原因回写后台。
-    const token = await upstreamTokenOrNull(c);
-    return json(c, await module.provider.syncNow(token), '已执行同步');
+      .object({})
+      .passthrough()
+      .parse(await c.req.json()) as Partial<HomepageSettings>;
+    return json(c, await module.homepage.save(body), '首页设置已保存');
   });
 }

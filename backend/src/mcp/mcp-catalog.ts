@@ -45,6 +45,8 @@ function build(operationId: string): McpOperation | undefined {
   const method = String(definition.method).toLowerCase();
   const path = String(definition.path);
   const domain = mcpDomainOfPath(path);
+  // endpoints 是几百条契约的联合，直接从联合上调 safeParse 推不出返回类型；按 z.ZodType 收口（同 toJsonSchema 的入参口径）。
+  const body: z.ZodType = definition.body;
   if (
     !domain ||
     EXCLUDED_DOMAINS.has(domain) ||
@@ -59,7 +61,7 @@ function build(operationId: string): McpOperation | undefined {
     domainLabel: agentDomainLabel(domain),
     label: agentActionLabel(operationId),
     write: method !== 'get',
-    hasBody: !definition.body.safeParse(undefined).success,
+    hasBody: !body.safeParse(undefined).success,
     pathParams: pathParamsOf(path),
   };
 }
@@ -133,7 +135,8 @@ export function validateBody(
   body: Record<string, unknown>,
 ): { ok: true } | { ok: false; message: string } {
   const definition = endpoints[operationId as keyof typeof endpoints];
-  const parsed = definition.body.safeParse(body);
+  const schema: z.ZodType = definition.body;
+  const parsed = schema.safeParse(body);
   if (parsed.success) return { ok: true };
   const first = parsed.error.issues[0];
   const path = first?.path.join('.') ?? '';
@@ -151,7 +154,8 @@ export function validateQuery(
   query: Record<string, unknown>,
 ): { ok: true } | { ok: false; message: string } {
   const definition = endpoints[operationId as keyof typeof endpoints];
-  const parsed = definition.query.safeParse(query);
+  const schema: z.ZodType = definition.query;
+  const parsed = schema.safeParse(query);
   if (parsed.success) return { ok: true };
   const first = parsed.error.issues[0];
   const path = first?.path.join('.') ?? '';

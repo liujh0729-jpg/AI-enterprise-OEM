@@ -42,7 +42,7 @@ export function ResumeTab() {
   const delItem = useOperationMutation((input: { id: number }) => socialApi.deleteResumeItem(input.id), ["social"]);
 
   useEffect(() => {
-    if (data) form.setFieldsValue(data.resume as never);
+    if (data) form.setFieldsValue(data.resume);
   }, [data, form]);
 
   const onSave = async (values: ResumeData["resume"]) => {

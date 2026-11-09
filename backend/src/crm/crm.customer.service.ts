@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import {
   COLLAB_TYPE_LABELS,
@@ -23,6 +25,7 @@ import { CrmSettingsService } from './crm.settings.service';
 type CustomerRow = {
   id: number;
   ownerUserId: string;
+  partyId: number;
   name: string;
   nameNorm: string;
   ownerId: string;
@@ -109,6 +112,7 @@ export class CrmCustomerService {
     }
     return rows.map((row) => ({
       id: row.id,
+      partyId: row.partyId,
       name: row.name,
       ownerId: row.ownerId,
       ownerName: names.get(row.ownerId) || '',
@@ -138,7 +142,7 @@ export class CrmCustomerService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx);
-    const where: Record<string, unknown> = { ...base, deletedAt: null };
+    const where: Prisma.CrmCustomerWhereInput = { ...base, deletedAt: null };
     const view = text(query.view, 'all');
     if (view === 'mine') where.ownerId = ctx.actorId;
     if (view === 'pool') {
@@ -148,36 +152,41 @@ export class CrmCustomerService {
     if (query.poolId) where.poolId = Number(query.poolId);
     if (query.ownerId) where.ownerId = text(query.ownerId);
     const keyword = text(query.keyword).trim();
-    if (keyword)
-      where.OR = [{ name: { contains: keyword } }];
+    if (keyword) where.OR = [{ name: { contains: keyword } }];
     const [rows, total] = await Promise.all([
       this.prisma.crmCustomer.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmCustomer.count({ where: where as never }),
+      this.prisma.crmCustomer.count({ where }),
     ]);
     return { list: await this.viewRows(rows, ctx), total, page, pageSize };
   }
 
   private async findOne(ctx: CrmContext, rawId: string) {
     const id = Number(rawId);
-    const base = await this.scope.scopeWhereAsync(ctx);
-    const where = base.ownerId
-      ? {
-          ...base,
-          id,
-          deletedAt: null,
-          OR: [
-            { ownerId: base.ownerId },
-            { collaborations: { some: { userId: ctx.actorId } } },
-          ],
-        }
-      : { ...base, id, deletedAt: null };
+    const { ownerId: ownerFilter, ...base } =
+      await this.scope.scopeWhereAsync(ctx);
+    const where: Prisma.CrmCustomerWhereInput = {
+      ...base,
+      id,
+      deletedAt: null,
+    };
+    if (ownerFilter !== undefined) {
+      // 协作客户与客户表无关系字段，先取本人被邀请协作的客户 id
+      const collab = await this.prisma.crmCustomerCollaboration.findMany({
+        where: { ownerUserId: ctx.ownerUserId, userId: ctx.actorId },
+        select: { customerId: true },
+      });
+      where.OR = [
+        { ownerId: ownerFilter },
+        { id: { in: collab.map((row) => row.customerId) } },
+      ];
+    }
     const row = await this.prisma.crmCustomer.findFirst({
-      where: where as never,
+      where,
     });
     if (!row)
       throw new BusinessException(ErrorCode.NOT_FOUND, '客户不存在或无权查看');
@@ -586,6 +595,40 @@ export class CrmCustomerService {
     };
   }
 
+  /** 客户与统一主体双向绑定：显式 partyId 优先，否则按名称认领/建档。 */
+  private async partyIdFor(
+    ctx: CrmContext,
+    name: string,
+    requested = 0,
+  ): Promise<number> {
+    const orgKey = this.scope.orgKey(ctx);
+    if (requested > 0) {
+      const party = await this.prisma.bizParty.findFirst({
+        where: { id: requested, ...orgKey },
+        select: { id: true },
+      });
+      if (!party)
+        throw new BusinessException(ErrorCode.NOT_FOUND, '外部主体不存在');
+      return requested;
+    }
+    const existing = await this.prisma.bizParty.findFirst({
+      where: { ...orgKey, name },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await this.prisma.bizParty.create({
+      data: {
+        ...orgKey,
+        kind: 'CUSTOMER',
+        name,
+        source: 'CRM',
+        createdBy: ctx.actorId,
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
   async create(user: CurrentUser, body: Record<string, unknown>) {
     const ctx = await this.scope.requireMember(user);
     this.scope.assertCan(ctx, 'write');
@@ -602,6 +645,8 @@ export class CrmCustomerService {
     const row = await this.prisma.crmCustomer.create({
       data: {
         ownerUserId: ctx.ownerUserId,
+        ...this.scope.orgKey(ctx),
+        partyId: await this.partyIdFor(ctx, name, Number(body.partyId) || 0),
         name,
         nameNorm: normName(name),
         ownerId,
@@ -610,7 +655,7 @@ export class CrmCustomerService {
         province: text(body.province).slice(0, 40),
         city: text(body.city).slice(0, 40),
         remark: text(body.remark).slice(0, 2000),
-        custom: jsonObject(body.custom) as never,
+        custom: toJsonInput(jsonObject(body.custom)),
       },
     });
     await this.settings.log(
@@ -646,7 +691,7 @@ export class CrmCustomerService {
     const ctx = await this.scope.requireMember(user);
     this.scope.assertCan(ctx, 'write');
     const row = await this.findOne(ctx, rawId);
-    const data: Record<string, unknown> = {};
+    const data: Prisma.CrmCustomerUncheckedUpdateInput = {};
     for (const key of [
       'name',
       'industry',
@@ -659,7 +704,17 @@ export class CrmCustomerService {
       }
     }
     if (body.name !== undefined) data.nameNorm = normName(body.name);
-    if (body.custom !== undefined) data.custom = jsonObject(body.custom);
+    if (body.custom !== undefined)
+      data.custom = toJsonInput(jsonObject(body.custom));
+    if (body.partyId !== undefined) {
+      data.partyId = await this.partyIdFor(
+        ctx,
+        row.name,
+        Number(body.partyId) || 0,
+      );
+    } else if (!row.partyId) {
+      data.partyId = await this.partyIdFor(ctx, row.name);
+    }
     if (body.ownerId !== undefined) {
       const ownerId = text(body.ownerId);
       if (!(await this.isMember(ctx, ownerId))) {
@@ -672,7 +727,7 @@ export class CrmCustomerService {
     }
     const updated = await this.prisma.crmCustomer.update({
       where: { id: row.id },
-      data: data as never,
+      data,
     });
     await this.settings.log(
       ctx.ownerUserId,
@@ -1021,11 +1076,11 @@ export class CrmCustomerService {
       adminId: text(body.adminId),
       auto: Boolean(body.auto),
       enabled: body.enabled === undefined ? true : Boolean(body.enabled),
-      scopeIds: asArray(body.scopeIds) as never,
-      pickRule: jsonObject(body.pickRule) as never,
-      recycleRule: (Array.isArray(body.recycleRule)
-        ? body.recycleRule
-        : []) as never,
+      scopeIds: asArray(body.scopeIds),
+      pickRule: toJsonInput(jsonObject(body.pickRule)),
+      recycleRule: toJsonInput(
+        Array.isArray(body.recycleRule) ? body.recycleRule : [],
+      ),
     };
     if (!data.name)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写客户公海名称');
@@ -1117,7 +1172,7 @@ export class CrmCustomerService {
       emailNorm: normEmail(body.email),
       title: text(body.title).slice(0, 60),
       ownerId: text(body.ownerId) || ctx.actorId,
-      custom: jsonObject(body.custom) as never,
+      custom: toJsonInput(jsonObject(body.custom)),
     };
     const id = int(body.id);
     if (id) {

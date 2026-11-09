@@ -78,6 +78,17 @@ export type AgentGrantItem = {
   forbiddenReason: string;
 };
 
+/** 连接器授权一行：粒度是整条自建 MCP 连接器，不是单个工具。 */
+export type AgentConnectorGrant = {
+  connectorId: number;
+  name: string;
+  enabled: boolean;
+  toolCount: number;
+  lastError: string;
+  lastCheckedAt: string | null;
+  allowed: boolean;
+};
+
 /** 授权闸清单（后端 agentGrantsSchema 的形状）。 */
 export type AgentGrants = {
   total: number;
@@ -85,12 +96,17 @@ export type AgentGrants = {
   forbiddenCount: number;
   domains: { domain: string; label: string; total: number; granted: number }[];
   items: AgentGrantItem[];
+  connectors: AgentConnectorGrant[];
+  connectorGrantedCount: number;
 };
 
 export type AgentGrantSaveResult = {
   granted: number;
   revoked: number;
   actions: string[];
+  connectorsGranted: number;
+  connectorsRevoked: number;
+  connectorIds: number[];
 };
 
 /** 取数：失败不抛错，交页面提示（与 data-table/_components/common.ts 同口径）。 */
@@ -129,10 +145,17 @@ export const memoryApi = {
     ),
   clear: () => api.clear({ body: {} }) as Promise<AgentClearResult>,
   grants: () => load<AgentGrants>(api.grants({})),
-  /** 整份覆盖：传当前勾选的全部动作，未传的视为取消授权；新增授权要带登录密码，由服务端再验一次。 */
-  saveGrants: (actions: string[], password?: string) =>
+  /**
+   * 整份覆盖：传当前勾选的全部动作与连接器，未传的视为取消授权；
+   * 新增授权要带登录密码，由服务端再验一次。
+   */
+  saveGrants: (actions: string[], connectorIds: number[], password?: string) =>
     api.saveGrants({
-      body: { actions, ...(password ? { password } : {}) },
+      body: {
+        actions,
+        connectorIds,
+        ...(password ? { password } : {}),
+      },
     }) as Promise<AgentGrantSaveResult>,
 };
 

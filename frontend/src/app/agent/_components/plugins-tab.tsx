@@ -40,13 +40,32 @@ export function AgentPluginsTab() {
   );
 }
 
+function permissionLines(permissions?: ContentAgentPlugin["permissions"]) {
+  if (!permissions) return [] as string[];
+  return [
+    ...permissions.network.map((entry) => `访问网络域名 ${entry}`),
+    ...permissions.fs.map((entry) => `读写文件 ${entry}`),
+    ...permissions.exec.map((entry) => `执行命令 ${entry}`),
+    ...permissions.secrets.map((entry) => `使用密钥 ${entry}`),
+  ];
+}
+
+function reviewTag(status?: string) {
+  if (status === "passed") return { color: "success", text: "AI 审查通过" };
+  if (status === "rejected") return { color: "error", text: "审查未通过" };
+  if (status === "needsAdmin") return { color: "warning", text: "待人工复核" };
+  if (status === "pending" || status === "reviewing")
+    return { color: "processing", text: "审查中" };
+  return null;
+}
+
 /**
  * Agent 插件：一个插件包＝plugin.json（或 .claude-plugin/plugin.json）里的名称与说明，
  * 加上 PLUGIN.md / README.md 正文与包内其余文本文件；同名插件重传即覆盖更新。
  * 也可以从「插件中心」安装，README 直接存成插件正文。页面上只能启停与删除。
  */
 function MyPluginsPanel() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [plugins, setPlugins] = useState<ContentAgentPlugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -80,8 +99,8 @@ function MyPluginsPanel() {
       const row = await importPluginPackage(file);
       message.success(
         row
-          ? `已导入插件「${row.name}」${row.fileCount ? `（含 ${row.fileCount} 个附件）` : ""}`
-          : "已导入插件包",
+          ? `已导入插件「${row.name}」${row.fileCount ? `（含 ${row.fileCount} 个附件）` : ""}，AI 审查通过；请在列表里启用${row.permissionsDeclared ? "（已声明权限，需先确认）" : ""}`
+          : "已导入插件包，AI 审查通过",
       );
       await load();
     } catch (caught) {
@@ -91,12 +110,19 @@ function MyPluginsPanel() {
     }
   };
 
-  const toggle = async (plugin: ContentAgentPlugin, enabled: boolean) => {
+  const applyToggle = async (
+    plugin: ContentAgentPlugin,
+    enabled: boolean,
+    confirmPermissions: boolean,
+  ) => {
     setToggling(plugin.id);
     try {
       const row = await contentApi.togglePlugin({
         params: { id: String(plugin.id) },
-        body: { enabled },
+        body: {
+          enabled,
+          ...(confirmPermissions ? { confirmPermissions: true } : {}),
+        },
       });
       if (row) {
         setPlugins((prev) =>
@@ -108,6 +134,38 @@ function MyPluginsPanel() {
     } finally {
       setToggling(0);
     }
+  };
+
+  const toggle = async (plugin: ContentAgentPlugin, enabled: boolean) => {
+    // 1.2 权限二次确认：声明了权限的插件，启用前必须让用户看到清单并明确同意
+    if (enabled && plugin.permissionsDeclared && !plugin.permissionsAcknowledged) {
+      const lines = permissionLines(plugin.permissions);
+      const confirmed = await new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: `启用「${plugin.name}」前请确认权限`,
+          content: (
+            <div style={{ display: "grid", gap: 6 }}>
+              <span className="text-12 muted">
+                这个插件包声明了以下能力；确认后才允许模型在站内使用它。
+              </span>
+              {lines.map((line) => (
+                <span key={line} className="text-12">
+                  · {line}
+                </span>
+              ))}
+            </div>
+          ),
+          okText: "确认并启用",
+          cancelText: "取消",
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!confirmed) return;
+      await applyToggle(plugin, true, true);
+      return;
+    }
+    await applyToggle(plugin, enabled, false);
   };
 
   const remove = async (id: number) => {
@@ -166,6 +224,15 @@ function MyPluginsPanel() {
                 <Tag color={plugin.enabled ? "success" : "default"}>
                   {plugin.enabled ? "启用中" : "已停用"}
                 </Tag>
+                {(() => {
+                  const tag = reviewTag(plugin.reviewStatus);
+                  return tag ? <Tag color={tag.color}>{tag.text}</Tag> : null;
+                })()}
+                {plugin.permissionsDeclared ? (
+                  <Tag color="warning">
+                    声明 {permissionLines(plugin.permissions).length} 项权限
+                  </Tag>
+                ) : null}
                 {plugin.source === "skillhub" ? (
                   <Tag color="blue">
                     {plugin.sourceSlug ? `SkillHub · ${plugin.sourceSlug}` : "SkillHub"}
@@ -194,6 +261,17 @@ function MyPluginsPanel() {
               </div>
               {plugin.description ? (
                 <span className="text-12 muted">{plugin.description}</span>
+              ) : null}
+              {plugin.reviewMessage && plugin.reviewStatus !== "passed" ? (
+                <span className="text-12" style={{ color: "var(--danger, #cf1322)" }}>
+                  {plugin.reviewMessage}
+                </span>
+              ) : null}
+              {plugin.permissionsDeclared ? (
+                <span className="text-12 muted">
+                  声明权限：{permissionLines(plugin.permissions).join("；")}
+                  {plugin.permissionsAcknowledged ? "（已确认）" : "（启用前需确认）"}
+                </span>
               ) : null}
               {plugin.content ? (
                 <span className="text-12 muted" style={{ whiteSpace: "pre-wrap" }}>

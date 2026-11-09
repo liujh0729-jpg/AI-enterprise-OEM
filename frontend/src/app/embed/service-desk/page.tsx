@@ -3,6 +3,7 @@
 import { Button, Input, Rate, Space, Spin } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { publicDeskApi } from "@/api/collab";
+import { RawImg } from "@/components/ui/raw-img";
 
 type Message = {
   id: number;
@@ -185,8 +186,7 @@ export default function ServiceDeskEmbedPage() {
     <div className="embed-chat">
       <header>
         <div className="embed-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element -- 站点头像是外部直链，不走图片优化 */}
-          {avatar ? <img className="embed-avatar" src={avatar} alt="" /> : null}
+          {avatar ? <RawImg className="embed-avatar" src={avatar} alt="" /> : null}
           <div className="embed-brand-text">
             <strong>{title}</strong>
             <span className="muted">

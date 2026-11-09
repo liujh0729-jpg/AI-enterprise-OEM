@@ -4,7 +4,8 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { geoChat, geoChatMulti, type ChatMessage } from '../geo/geo-llm.client';
+import { aiChat } from '../ai/ai-gateway';
+import { type ChatMessage } from '../geo/geo-llm.client';
 import { httpRequest, TransportError } from '../http/transport';
 import { ModelKeyService } from '../aiworkin/model-key.service';
 import {
@@ -56,7 +57,7 @@ export class RpaLlmService {
     const row = await this.prisma.rpaLlmSetting.findUnique({
       where: { userId: user.userId },
     });
-    const key = await this.modelKeys.status(token);
+    const key = this.modelKeys.status(token);
     return {
       configured: key.configured,
       keyMasked: key.keyMasked,
@@ -84,7 +85,7 @@ export class RpaLlmService {
       'RPA配置默认模型',
       `默认模型${row.model ? ` ${row.model}` : '（清空）'}`,
     );
-    const key = await this.modelKeys.status(token);
+    const key = this.modelKeys.status(token);
     return {
       configured: key.configured,
       keyMasked: key.keyMasked,
@@ -104,7 +105,7 @@ export class RpaLlmService {
 
   /** 拉模型列表：既当作可选模型的来源，也当作「这把 Key 到底通不通」的校验。 */
   async models(user: CurrentUser, token?: string) {
-    const apiKey = await this.modelKeys.requireKey(token);
+    const apiKey = this.modelKeys.requireKey(token);
     const baseUrl = this.baseUrl();
     try {
       const response = await httpRequest<string>(`${baseUrl}/models`, {
@@ -180,24 +181,25 @@ export class RpaLlmService {
         `「${SCRIPT_FILE_TYPE_LABELS[fileType]}」要在比特浏览器客户端里画好再导出登记，AI 写脚本只能产出：${writable.map((type) => SCRIPT_FILE_TYPE_LABELS[type]).join(' / ')}`,
       );
     }
-    const apiKey = await this.modelKeys.requireKey(token);
     const setting = await this.prisma.rpaLlmSetting.findUnique({
       where: { userId: user.userId },
     });
-    const model = text(body.model).trim() || setting?.model || '';
-    if (!model) {
-      throw new BusinessException(
-        ErrorCode.BAD_REQUEST,
-        '请选择文字模型（或先把默认模型存进配置）',
-      );
-    }
-    const reply = await geoChat({
-      baseUrl: this.baseUrl(),
-      apiKey,
-      model,
-      prompt: buildPrompt(requirement, fileType, deviceType),
+    const reply = await aiChat(this.prisma, {
+      userId: user.userId,
+      token,
+      model: text(body.model).trim(),
+      moduleModel: setting?.model || '',
+      module: 'rpa',
+      operation: 'generate',
+      messages: [
+        {
+          role: 'user',
+          content: buildPrompt(requirement, fileType, deviceType),
+        },
+      ],
       maxTokens: GENERATE_MAX_TOKENS,
       timeoutMs: GENERATE_TIMEOUT_MS,
+      purpose: 'chat',
     });
     const content = extractPayload(reply.reply, fileType);
     const paramsSchema = extractParamsSchema(reply.reply);
@@ -210,7 +212,7 @@ export class RpaLlmService {
     return {
       deviceType,
       fileType,
-      model,
+      model: reply.model,
       content,
       paramsSchema,
       suggestedName: suggestName(requirement, fileType, deviceType),
@@ -278,17 +280,9 @@ export class RpaLlmService {
         ? (body.currentParams as Record<string, unknown>)
         : {};
 
-    const apiKey = await this.modelKeys.requireKey(token);
     const setting = await this.prisma.rpaLlmSetting.findUnique({
       where: { userId: user.userId },
     });
-    const model = text(body.model).trim() || setting?.model || '';
-    if (!model) {
-      throw new BusinessException(
-        ErrorCode.BAD_REQUEST,
-        '请选择文字模型（或先把默认模型存进配置）',
-      );
-    }
 
     const systemPrompt = buildParamsSystemPrompt(
       script.name,
@@ -299,14 +293,16 @@ export class RpaLlmService {
       { role: 'system', content: systemPrompt },
       ...messages,
     ];
-    const reply = await geoChatMulti({
-      baseUrl: this.baseUrl(),
-      apiKey,
-      model,
+    const reply = await aiChat(this.prisma, {
+      userId: user.userId,
+      token,
+      model: text(body.model).trim(),
+      moduleModel: setting?.model || '',
+      module: 'rpa',
+      operation: 'chat_params',
       messages: chatMessages,
       maxTokens: 2000,
       timeoutMs: 60000,
-      userId: user.userId,
       purpose: 'chat',
     });
     const extracted = extractParamsFromReply(reply.reply, schema);

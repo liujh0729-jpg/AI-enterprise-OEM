@@ -111,10 +111,12 @@ try {
   const extension = meta.data?.extension ?? {};
   assert(extension.name === "AIPDD Enterprise", "插件名 AIPDD Enterprise");
   assert(/^\/downloads\/aipdd-enterprise-v.+\.(zip)$/.test(extension.downloadPath || ""), `下载路径合规（${extension.downloadPath}）`);
-  // 版本三处对齐：后台元数据 = manifest.json = 前端实际存在的 zip。
+  // 版本四处对齐：后台元数据 = manifest.json = 插件 README 标题 = 前端实际存在的 zip。
   // 只对得上版本号不够，用户点「下载插件」拿到 404 才是真故障。
   const manifestVersion = JSON.parse(readFileSync(join(root, "extensions/aipdd-enterprise/manifest.json"), "utf8")).version;
   assert(extension.version === manifestVersion, `元数据版本与 manifest 一致（${extension.version} / ${manifestVersion}）`);
+  const readmeVersion = (readFileSync(join(root, "extensions/aipdd-enterprise/README.md"), "utf8").match(/浏览器插件（v([0-9.]+)）/) || [])[1] || "";
+  assert(readmeVersion === manifestVersion, `README 标题版本与 manifest 一致（${readmeVersion} / ${manifestVersion}）`);
   assert(existsSync(join(root, "frontend/public", extension.downloadPath)), "下载路径对应的 zip 确实在前端静态目录", extension.downloadPath);
   // zip 交付质量：用 Compress-Archive 重打包会写反斜杠条目名，macOS/Linux 解压后没有目录→装不上；
   // 重新打包一律走 scripts/pack-extension.mjs，这里钉住分隔符合规与文件名版本对齐。

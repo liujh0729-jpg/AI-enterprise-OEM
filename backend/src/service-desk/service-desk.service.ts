@@ -28,6 +28,8 @@ import { UserLookupService } from '../directory/user-lookup.service';
 import { NotificationService } from '../notifications/notification.service';
 import { OssService } from '../oss/oss.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { geoChatMulti, type ChatMessage } from '../geo/geo-llm.client';
 
 type Emit = (
@@ -35,6 +37,23 @@ type Emit = (
   data: Record<string, unknown>,
 ) => void | Promise<void>;
 type Listener = (event: string, data: Record<string, unknown>) => void;
+
+/** 获客接待上下文（A8）：剧本段落 + 转人工触发词 + 回复后的档案写回。 */
+export type AcqReceptionInput = {
+  ownerUserId: string;
+  conversationId: number;
+  channelId: number;
+  externalUserId: string;
+  externalUserName: string;
+  message: string;
+};
+
+export type AcqReceptionContext = {
+  sections: { name: string; text: string }[];
+  handoffTriggers: string[];
+  handoffText: string;
+  afterReply: (reply: string) => Promise<void>;
+};
 
 const MAX_MESSAGE = 4000;
 
@@ -68,6 +87,20 @@ export class ServiceDeskService {
     quantity: number,
     refId?: string,
   ) => Promise<void>;
+
+  /**
+   * 知识库召回钩子（AI 底座 §5 P1-A 统一挂载，services.ts 装配）：
+   * 按客服 consumerType 召回片段拼进系统提示；未装配或失败时静默跳过，不影响回复。
+   */
+  kbRecall?: (ownerUserId: string, query: string) => Promise<string>;
+
+  /**
+   * 获客接待钩子（A8）：按渠道会话解析销售剧本与客户档案，
+   * 返回要并入系统提示的段落，以及回复后的档案/跟进写回。未装配时保持原客服行为。
+   */
+  acqReception?: (
+    input: AcqReceptionInput,
+  ) => Promise<AcqReceptionContext | null>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -210,7 +243,7 @@ export class ServiceDeskService {
       where: { id: row.id },
       data: {
         ...(body.businessHours !== undefined
-          ? { businessHours: body.businessHours as never }
+          ? { businessHours: toJsonInput(body.businessHours) }
           : {}),
         ...(typeof body.welcomeText === 'string'
           ? { welcomeText: body.welcomeText.slice(0, 1000) }
@@ -241,10 +274,10 @@ export class ServiceDeskService {
           ? { aiModel: body.aiModel.slice(0, 128) }
           : {}),
         ...(Array.isArray(body.aiHandoffKeywords)
-          ? { aiHandoffKeywords: body.aiHandoffKeywords as never }
+          ? { aiHandoffKeywords: toJsonInput(body.aiHandoffKeywords) }
           : {}),
         ...(Array.isArray(body.libraryIds)
-          ? { libraryIds: body.libraryIds as never }
+          ? { libraryIds: toJsonInput(body.libraryIds) }
           : {}),
         ...(typeof body.requireContact === 'boolean'
           ? { requireContact: body.requireContact }
@@ -254,7 +287,7 @@ export class ServiceDeskService {
               retentionDays: Math.min(3650, Math.max(7, body.retentionDays)),
             }
           : {}),
-      } as never,
+      },
     });
     return this.settingView(updated);
   }
@@ -340,8 +373,8 @@ export class ServiceDeskService {
         where: { id: exist.id },
         data: {
           name,
-          allowedOrigins: origins as never,
-          appearance: appearance as never,
+          allowedOrigins: toJsonInput(origins),
+          appearance: toJsonInput(appearance),
           ...(typeof body.enabled === 'boolean'
             ? { enabled: body.enabled }
             : {}),
@@ -363,8 +396,8 @@ export class ServiceDeskService {
         ownerUserId: user.userId,
         siteKey: `sk_${randomBytes(12).toString('hex')}`,
         name,
-        allowedOrigins: origins as never,
-        appearance: appearance as never,
+        allowedOrigins: toJsonInput(origins),
+        appearance: toJsonInput(appearance),
       },
     });
     return this.siteView(row);
@@ -750,6 +783,8 @@ export class ServiceDeskService {
       conversation = await this.prisma.serviceDeskConversation.create({
         data: {
           ownerUserId: channel.ownerUserId,
+          orgType: 'ENTERPRISE',
+          orgUserId: channel.ownerUserId,
           siteId: 0,
           visitorId: visitor.id,
           channelId: channel.id,
@@ -873,6 +908,7 @@ export class ServiceDeskService {
       extra?: Record<string, string>;
     },
     content: string,
+    throwOnError = false,
   ) {
     if (!content.trim()) return;
     const channel = await this.prisma.serviceDeskChannel.findFirst({
@@ -910,6 +946,7 @@ export class ServiceDeskService {
           data: { lastError: message },
         })
         .catch(() => undefined);
+      if (throwOnError) throw error;
       if (!channel.lastError) {
         await this.prisma.serviceDeskMessage
           .create({
@@ -955,7 +992,7 @@ export class ServiceDeskService {
         where: { id: exist.id },
         data: {
           name,
-          categories: categories as never,
+          categories: toJsonInput(categories),
           ...(typeof body.enabled === 'boolean'
             ? { enabled: body.enabled }
             : {}),
@@ -969,7 +1006,11 @@ export class ServiceDeskService {
       };
     }
     const row = await this.prisma.serviceDeskGroup.create({
-      data: { ownerUserId: user.userId, name, categories: categories as never },
+      data: {
+        ownerUserId: user.userId,
+        name,
+        categories: toJsonInput(categories),
+      },
     });
     return {
       id: row.id,
@@ -1156,6 +1197,7 @@ export class ServiceDeskService {
       assigneeUserId: string;
       visitorId: number;
       status: string;
+      crmLeadId: number;
       subject: string;
       sourceUrl: string;
       unreadForAgent: number;
@@ -1188,6 +1230,7 @@ export class ServiceDeskService {
       status: row.status,
       statusLabel:
         SERVICE_DESK_CONVERSATION_STATUS_LABELS[row.status] || row.status,
+      crmLeadId: row.crmLeadId,
       subject: row.subject,
       sourceUrl: row.sourceUrl,
       unread: row.unreadForAgent,
@@ -1371,11 +1414,103 @@ export class ServiceDeskService {
     };
   }
 
-  private async touchConversation(id: number, patch: Record<string, unknown>) {
+  private async touchConversation(
+    id: number,
+    patch: Prisma.ServiceDeskConversationUncheckedUpdateInput,
+  ) {
     return this.prisma.serviceDeskConversation.update({
       where: { id },
-      data: patch as never,
+      data: patch,
     });
+  }
+
+  /**
+   * 客服会话转 CRM 线索：同一会话幂等，访客昵称/联系方式直接带入线索，
+   * 会话主题与最近消息进备注，方便销售接着聊。需要 CRM 成员（或账号所有者）权限。
+   */
+  async convertToCrm(
+    user: CurrentUser,
+    ownerUserId: string,
+    id: number,
+    body: Record<string, unknown>,
+  ) {
+    await this.requireMember(user, ownerUserId);
+    if (ownerUserId !== user.userId) {
+      const member = await this.prisma.crmMember.findUnique({
+        where: {
+          ownerUserId_memberUserId: {
+            ownerUserId,
+            memberUserId: user.userId,
+          },
+        },
+      });
+      if (!member || member.status !== 'ACTIVE' || member.role === 'READONLY') {
+        throw new BusinessException(
+          ErrorCode.FORBIDDEN,
+          '需要 CRM 成员权限才能转线索',
+        );
+      }
+    }
+    const row = await this.prisma.serviceDeskConversation.findFirst({
+      where: { id, ownerUserId },
+    });
+    if (!row) throw new BusinessException(ErrorCode.NOT_FOUND, '会话不存在');
+    if (row.crmLeadId > 0) {
+      return { conversationId: row.id, crmLeadId: row.crmLeadId };
+    }
+    const visitor = await this.prisma.serviceDeskVisitor.findUnique({
+      where: { id: row.visitorId },
+    });
+    const rawContact = text(visitor?.contact).trim();
+    const digits = rawContact.replace(/\D/g, '');
+    const phone =
+      text(body.phone).trim() || (/^1\d{10}$/.test(digits) ? digits : '');
+    const email =
+      text(body.email).trim() ||
+      (rawContact.includes('@') ? rawContact.slice(0, 120) : '');
+    const name =
+      text(body.name).trim() ||
+      visitor?.nickname ||
+      row.externalUserName ||
+      row.subject ||
+      `访客 #${row.visitorId}`;
+    const latest = await this.prisma.serviceDeskMessage.findFirst({
+      where: { conversationId: row.id, senderType: 'visitor' },
+      orderBy: { id: 'desc' },
+    });
+    const lead = await this.prisma.crmLead.create({
+      data: {
+        ownerUserId,
+        orgType: row.orgType || 'ENTERPRISE',
+        orgUserId: row.orgUserId || ownerUserId,
+        name: name.slice(0, 120),
+        contactName: name.slice(0, 60),
+        phone: phone.slice(0, 40),
+        phoneNorm: phone.replace(/\D/g, '').slice(0, 40),
+        email: email.slice(0, 120),
+        emailNorm: email.toLowerCase().slice(0, 160),
+        source: '在线客服',
+        stage: 'NEW',
+        ownerId: row.assigneeUserId || user.userId,
+        remark: [
+          row.subject ? `会话主题：${row.subject}` : '',
+          latest ? `最近咨询：${latest.content.slice(0, 500)}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n')
+          .slice(0, 4000),
+        custom: toJsonInput({
+          serviceDeskConversationId: row.id,
+          externalChatId: row.externalChatId,
+          externalUserId: row.externalUserId,
+        }),
+      },
+    });
+    await this.prisma.serviceDeskConversation.update({
+      where: { id: row.id },
+      data: { crmLeadId: lead.id },
+    });
+    return { conversationId: row.id, crmLeadId: lead.id };
   }
 
   async send(
@@ -1959,8 +2094,16 @@ export class ServiceDeskService {
         role: item.senderType === 'visitor' ? 'user' : 'assistant',
         content: item.content,
       }));
-    const system = `你是企业客服助手。只依据下面的知识回答，不承诺价格、合同条款、赔付与时效；不确定时建议转人工。\n\n知识：\n${this.knowledge(
-      faqs,
+    const lastVisitor = [...messages]
+      .reverse()
+      .find((item) => item.senderType === 'visitor');
+    const acq = lastVisitor
+      ? await this.acqContext(row, lastVisitor.content)
+      : null;
+    const system = `${this.systemPrompt(
+      false,
+      this.knowledge(faqs),
+      acq?.sections || [],
     )}\n\n请给出：1) 建议回复（可直接发送）；2) 一句话会话摘要。用「回复：」「摘要：」两段输出。${
       instruction ? `\n客服补充要求：${instruction}` : ''
     }`;
@@ -2008,10 +2151,11 @@ export class ServiceDeskService {
     });
     const lastVisitor = messages.find((item) => item.senderType === 'visitor');
     if (!lastVisitor) return;
-    const faqAnswer = await this.findFaqAnswer(
-      ownerUserId,
-      lastVisitor.content,
-    );
+    // 获客接待：有销售剧本时，剧本边界优先于 FAQ 与知识库
+    const acq = await this.acqContext(row, lastVisitor.content);
+    const faqAnswer = acq?.sections.length
+      ? ''
+      : await this.findFaqAnswer(ownerUserId, lastVisitor.content);
     if (faqAnswer && mode !== 'OFF') {
       await this.appendAi(
         ownerUserId,
@@ -2029,14 +2173,28 @@ export class ServiceDeskService {
         item.toLowerCase(),
       );
       const content = lastVisitor.content.toLowerCase();
-      if (keywords.some((key) => key && content.includes(key))) {
-        await this.handoff(ownerUserId, conversationId, '命中转人工关键词');
+      const triggerHit = (acq?.handoffTriggers || []).some(
+        (word) => word && lastVisitor.content.includes(word),
+      );
+      if (triggerHit || keywords.some((key) => key && content.includes(key))) {
+        await this.handoff(
+          ownerUserId,
+          conversationId,
+          triggerHit ? '命中剧本转人工触发词' : '命中转人工关键词',
+        );
         return;
       }
     }
     const faqs = await this.prisma.serviceDeskFaq.findMany({
       where: { ownerUserId, enabled: true },
     });
+    // 知识库召回（统一挂载）：把客服绑定空间的片段并进「知识」，未装配则跳过
+    const kbContext = this.kbRecall
+      ? await this.kbRecall(ownerUserId, lastVisitor.content).catch(() => '')
+      : '';
+    const knowledge = [this.knowledge(faqs), kbContext.trim()]
+      .filter(Boolean)
+      .join('\n\n');
     const history: ChatMessage[] = messages
       .reverse()
       .filter((item) => item.senderType !== 'system' && item.content)
@@ -2044,13 +2202,7 @@ export class ServiceDeskService {
         role: item.senderType === 'visitor' ? 'user' : 'assistant',
         content: item.content,
       }));
-    const system = pureAi
-      ? `你是企业官网客服助手。只依据知识回答，不承诺价格/合同/赔付/时效，不编造；不要承诺转接人工客服，遇到不确定的问题就请访客补充信息或留下联系方式，说明会尽快回复。\n\n知识：\n${this.knowledge(
-          faqs,
-        )}`
-      : `你是企业官网客服助手。只依据知识回答，不承诺价格/合同/赔付/时效，不编造；不确定就回答「我帮你转接人工客服」。\n\n知识：\n${this.knowledge(
-          faqs,
-        )}`;
+    const system = this.systemPrompt(pureAi, knowledge, acq?.sections || []);
     let reply = '';
     try {
       reply = await this.callModel(ownerUserId, system, history);
@@ -2086,13 +2238,59 @@ export class ServiceDeskService {
       await this.handoff(ownerUserId, conversationId, 'AI 判断需要人工');
       return;
     }
+    const finalText = reply.trim().slice(0, 2000);
     await this.appendAi(
       ownerUserId,
       conversationId,
-      reply.trim().slice(0, 2000),
+      finalText,
       'ai',
       channelTarget,
     );
+    if (acq) await acq.afterReply(finalText).catch(() => undefined);
+  }
+
+  private async acqContext(
+    row: {
+      id: number;
+      ownerUserId: string;
+      channelId: number;
+      externalUserId: string;
+      externalUserName: string;
+    },
+    message: string,
+  ): Promise<AcqReceptionContext | null> {
+    if (!this.acqReception) return null;
+    try {
+      return await this.acqReception({
+        ownerUserId: row.ownerUserId,
+        conversationId: row.id,
+        channelId: row.channelId,
+        externalUserId: row.externalUserId,
+        externalUserName: row.externalUserName,
+        message,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /** 组装顺序：平台安全约束 → 剧本边界 → 知识 → 客户档案 → 最近会话（会话走 history）。 */
+  private systemPrompt(
+    pureAi: boolean,
+    knowledge: string,
+    sections: { name: string; text: string }[],
+  ) {
+    const base = pureAi
+      ? '你是企业官网客服助手。不承诺价格/合同/赔付/时效，不编造；不要承诺转接人工客服，遇到不确定的问题就请访客补充信息或留下联系方式，说明会尽快回复。'
+      : '你是企业官网客服助手。不承诺价格/合同/赔付/时效，不编造；不确定就回答「我帮你转接人工客服」。';
+    if (!sections.length) return `${base}\n\n知识：\n${knowledge}`;
+    const playbook = sections
+      .map((item) => `## ${item.name}\n${item.text}`)
+      .join('\n\n');
+    const tail = pureAi
+      ? '按上面的销售剧本接待：剧本边界优先于知识，剧本没写到的按知识回答；仍不确定就请对方补充信息或留下联系方式。'
+      : '按上面的销售剧本接待：剧本边界优先于知识，剧本没写到的按知识回答；仍不确定就使用转人工话术并请求人工介入。';
+    return `${base}\n\n${tail}\n\n${playbook}\n\n知识：\n${knowledge}`;
   }
 
   private async appendAi(
@@ -2140,6 +2338,81 @@ export class ServiceDeskService {
         channelTarget,
         content,
       );
+    }
+  }
+
+  /**
+   * 获客跟进借用服务台外发通道（企微）：按外部用户找最近未关闭会话，
+   * 用同一条送达逻辑把跟进消息发出去；失败如实返回原因，不假装已发。
+   */
+  async sendFollowUpText(input: {
+    ownerUserId: string;
+    channel: string;
+    externalUserId: string;
+    text: string;
+  }): Promise<{ ok: boolean; ref?: string; error?: string }> {
+    const ownerUserId = input.ownerUserId;
+    const channels = await this.prisma.serviceDeskChannel.findMany({
+      where: { ownerUserId, enabled: true },
+      select: { id: true, kind: true },
+    });
+    const ids = channels
+      .filter((item) => String(item.kind).startsWith('wecom'))
+      .map((item) => item.id);
+    if (!ids.length) {
+      return { ok: false, error: '未配置企业微信客服渠道' };
+    }
+    const row = await this.prisma.serviceDeskConversation.findFirst({
+      where: {
+        ownerUserId,
+        channelId: { in: ids },
+        externalUserId: input.externalUserId,
+        status: { not: 'closed' },
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+    if (!row) {
+      return {
+        ok: false,
+        error: '找不到该客户的企微会话：请等客户先发消息，或改用其他渠道跟进',
+      };
+    }
+    const target = this.channelTargetOf(row);
+    if (!target) return { ok: false, error: '会话缺少渠道信息' };
+    const content = input.text.slice(0, 2000);
+    const message = await this.prisma.serviceDeskMessage.create({
+      data: { conversationId: row.id, senderType: 'system', content },
+    });
+    await this.touchConversation(row.id, { lastMessageAt: new Date() });
+    this.publish(`conv:${row.id}`, 'message', {
+      message: {
+        id: message.id,
+        conversationId: row.id,
+        senderType: 'system',
+        senderName: '系统',
+        contentType: 'text',
+        content,
+        attachmentUrl: '',
+        attachmentName: '',
+        attachmentSize: 0,
+        createdAt: message.createdAt.toISOString(),
+      },
+    });
+    this.publish(`owner:${ownerUserId}`, 'conversation', {
+      id: row.id,
+      aiReplied: false,
+    });
+    try {
+      await this.deliverChannel(ownerUserId, row.id, target, content, true);
+      return { ok: true, ref: `conv:${row.id}` };
+    } catch (error) {
+      return {
+        ok: false,
+        error: (error instanceof Error
+          ? error.message
+          : '企微通道发送失败'
+        ).slice(0, 300),
+      };
     }
   }
 
@@ -2255,6 +2528,8 @@ export class ServiceDeskService {
       conversation = await this.prisma.serviceDeskConversation.create({
         data: {
           ownerUserId: site.ownerUserId,
+          orgType: 'ENTERPRISE',
+          orgUserId: site.ownerUserId,
           siteId: site.id,
           visitorId: visitor.id,
           sourceUrl: text(input.sourceUrl).slice(0, 500),

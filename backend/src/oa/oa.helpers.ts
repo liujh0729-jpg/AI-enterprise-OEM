@@ -5,7 +5,10 @@ import type {
   OaLinkageRule,
   OaListColumn,
 } from '@enterprise/contracts';
-import { ORG_BUSINESS_SCOPE_LABELS } from '@enterprise/contracts';
+import {
+  ORG_BUSINESS_SCOPE_LABELS,
+  oaFieldSchema,
+} from '@enterprise/contracts';
 import { text } from '../common/api';
 
 export const num = (value: unknown, fallback = 0) => {
@@ -96,6 +99,8 @@ export const normalizeField = (
   if (!key) return null;
   const type = asString(row.type, 20) || 'text';
   const options = normalizeOptions(row.options);
+  // 默认值来自表单设计器的 JSON，按契约收紧到 string | number | boolean | string[]
+  const fieldDefault = oaFieldSchema.shape.default.safeParse(row.default);
   return {
     key,
     label: asString(row.label, 60) || key,
@@ -103,7 +108,9 @@ export const normalizeField = (
     required: row.required === true,
     placeholder: asString(row.placeholder, 120),
     help: asString(row.help, 200),
-    ...(row.default === undefined ? {} : { default: row.default as never }),
+    ...(fieldDefault.success && fieldDefault.data !== undefined
+      ? { default: fieldDefault.data }
+      : {}),
     options: OPTION_TYPES.has(type) ? options : [],
     visibleWhen: normalizeCondition(row.visibleWhen),
     refTarget: asString(row.refTarget, 32),

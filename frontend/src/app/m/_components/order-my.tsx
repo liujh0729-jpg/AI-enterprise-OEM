@@ -101,7 +101,7 @@ export function MobileOrderMine({
     );
   }
 
-  if (ordersQuery.isError) return <Alert type="error" message={ordersQuery.error.message} action={<Button onClick={() => void refetch()}>重试</Button>} />;
+  if (ordersQuery.isError) return <Alert type="error" title={ordersQuery.error.message} action={<Button onClick={() => void refetch()}>重试</Button>} />;
 
   return (
     <div className="m-view">

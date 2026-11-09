@@ -2,7 +2,10 @@
 import { legalRequestViewSchema } from '@enterprise/contracts';
 
 import { BulbOutlined, UnorderedListOutlined } from "@ant-design/icons";
-import { Button, Checkbox, DatePicker, Form, Input, Modal, Table } from "antd";
+import { App, Button, Checkbox, DatePicker, Form, Input, Modal, Select, Table } from "antd";
+import { useState } from "react";
+import { aiApi, type AiLegalReview } from "@/api/ai";
+import { AiLevelTag, AiModeTag } from "@/components/ai-result";
 import { CategoryField } from "@/components/category-field";
 import {
   DemandChannelModal,
@@ -126,6 +129,35 @@ export function RequestsTab() {
   });
   const { rows, loading, demandRegion, setDemandRegion, editing } = board;
 
+  const { message } = App.useApp();
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewRole, setReviewRole] = useState<"BUYER" | "SELLER" | "NEUTRAL">(
+    "NEUTRAL",
+  );
+  const [review, setReview] = useState<AiLegalReview | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+
+  const runReview = async () => {
+    if (!reviewText.trim()) {
+      message.warning("请先粘贴合同或条款文本");
+      return;
+    }
+    setReviewing(true);
+    setReview(null);
+    try {
+      setReview(
+        await aiApi.legalReview({
+          body: { text: reviewText, role: reviewRole },
+        }),
+      );
+    } catch (error) {
+      message.error((error as Error).message || "审查失败");
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   const enterprise = (me?.enterprise || null) as Record<string, unknown> | null;
   const enterpriseId = Number(enterprise?.id || 0);
 
@@ -149,11 +181,14 @@ export function RequestsTab() {
       <Panel
         title="需求消息"
         extra={
-          isEnterprise ? (
-            <Button type="primary" onClick={board.openCreate}>
-              ＋ 发起法律需求
-            </Button>
-          ) : null
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button onClick={() => setReviewOpen(true)}>AI 合同审查</Button>
+            {isEnterprise ? (
+              <Button type="primary" onClick={board.openCreate}>
+                ＋ 发起法律需求
+              </Button>
+            ) : null}
+          </div>
         }
       >
         <p className="text-12 muted" style={{ marginTop: 0, marginBottom: 12 }}>
@@ -297,6 +332,64 @@ export function RequestsTab() {
         <p className="text-12 muted" style={{ marginBottom: 0 }}>
           <BulbOutlined aria-hidden /> 可先发起需求，在需求消息中补充材料说明与交付方式。
         </p>
+      </Modal>
+
+      <Modal
+        open={reviewOpen}
+        title="AI 合同审查"
+        width={760}
+        onCancel={() => setReviewOpen(false)}
+        footer={<Button onClick={() => setReviewOpen(false)}>关闭</Button>}
+      >
+        <p className="text-12 muted" style={{ marginTop: 0 }}>
+          粘贴合同或条款文本，AI 仅提示风险与修改方向，不替代正式法律意见。
+        </p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <Select
+            value={reviewRole}
+            style={{ width: 160 }}
+            onChange={(value: "BUYER" | "SELLER" | "NEUTRAL") =>
+              setReviewRole(value)
+            }
+            options={[
+              { value: "NEUTRAL", label: "中立审阅" },
+              { value: "BUYER", label: "站在采购方" },
+              { value: "SELLER", label: "站在供应方" },
+            ]}
+          />
+          <Button type="primary" loading={reviewing} onClick={() => void runReview()}>
+            开始审查
+          </Button>
+        </div>
+        <Input.TextArea
+          rows={8}
+          value={reviewText}
+          onChange={(event) => setReviewText(event.target.value)}
+          placeholder="例如：本合同自签署之日起自动续约一年……"
+        />
+        {review ? (
+          <div style={{ marginTop: 12 }}>
+            <AiModeTag mode={review.mode} model={review.model} />
+            <div style={{ marginTop: 6 }}>{review.summary}</div>
+            {review.risks.map((risk, index) => (
+              <div
+                key={`${index}-${risk.risk}`}
+                style={{ borderTop: "1px dashed #eee", padding: "8px 0" }}
+              >
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <AiLevelTag level={risk.level} />
+                  <strong>{risk.risk}</strong>
+                </div>
+                {risk.clause ? (
+                  <div className="muted text-12">原文：{risk.clause}</div>
+                ) : null}
+                {risk.suggestion ? (
+                  <div className="text-12">建议：{risk.suggestion}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </Modal>
 
       <DemandChannelModal

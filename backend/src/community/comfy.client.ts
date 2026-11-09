@@ -640,7 +640,7 @@ export class ComfyClient {
           accept: 'application/json',
           'user-agent': 'AIworkin-Enterprise',
         },
-        body: form as unknown as BodyInit,
+        body: form,
         timeoutMs: 60000,
         maxBytes: 8 * 1024 * 1024,
         redirect: 'manual',

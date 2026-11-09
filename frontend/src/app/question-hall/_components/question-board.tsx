@@ -82,7 +82,7 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(
-    async (nextPage = page) => {
+    async (nextPage: number) => {
       setLoading(true);
       try {
         const data = await questionHallApi.questions({
@@ -117,14 +117,13 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
         setLoading(false);
       }
     },
-    [page, status, keyword, view],
+    [status, keyword, view],
   );
 
   useEffect(() => {
     void reload(1);
     setPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, status, keyword]);
+  }, [reload]);
 
   useEffect(() => {
     void questionHallApi
@@ -145,14 +144,17 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
     }
   }, [message]);
 
-  const openDetail = (id: number) => {
-    setDetailId(id);
-    setDetail(null);
-    setReplyText("");
-    setReplyPersonaId(0);
-    setReplyTo(null);
-    void loadDetail(id);
-  };
+  const openDetail = useCallback(
+    (id: number) => {
+      setDetailId(id);
+      setDetail(null);
+      setReplyText("");
+      setReplyPersonaId(0);
+      setReplyTo(null);
+      void loadDetail(id);
+    },
+    [loadDetail],
+  );
 
   const closeDetail = () => {
     setDetailId(0);
@@ -166,8 +168,7 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
       new URLSearchParams(window.location.search).get("id") || 0,
     );
     if (id > 0) openDetail(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [openDetail]);
 
   const submitAsk = async () => {
     if (!draft.title.trim()) {
@@ -218,7 +219,7 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
       setDetail(data);
       setReplyText("");
       setReplyTo(null);
-      await reload();
+      await reload(page);
     } catch (caught) {
       message.error((caught as Error).message || "发言失败");
     } finally {
@@ -231,7 +232,7 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
     try {
       await work();
       message.success(tip);
-      await reload();
+      await reload(page);
       if (detailId) await loadDetail(detailId);
     } catch (caught) {
       message.error((caught as Error).message || "操作失败");
@@ -287,7 +288,7 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
         await questionHallApi.remove({ params: { id: String(id) } });
         message.success("专题讨论已删除");
         closeDetail();
-        await reload();
+        await reload(page);
       },
     });
   };
@@ -304,7 +305,7 @@ export function QuestionBoard({ view }: { view: QuestionHallView }) {
         });
         message.success("发言已删除");
         if (detailId) await loadDetail(detailId);
-        await reload();
+        await reload(page);
       },
     });
   };

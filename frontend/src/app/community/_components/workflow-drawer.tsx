@@ -99,8 +99,7 @@ export function WorkflowDrawer({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code]);
+  }, [code, loadRuns, message]);
 
   /** 有进行中的运行才轮询；全部落终态后自动停，抽屉关了也不再打接口。 */
   useEffect(() => {

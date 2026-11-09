@@ -19,7 +19,6 @@ const json = (
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
   const auth = bearerOf(req);
-  // eslint-disable-next-line no-console
   console.log(`[mock-upstream] ${req.method} ${url.pathname} auth=${auth}`);
 
   // GET /market/listings/mine → 我的挂单分页（回显 auth 到第一条目）
@@ -54,6 +53,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, '127.0.0.1', () => {
-  // eslint-disable-next-line no-console
   console.log(`[mock-upstream] listening on http://127.0.0.1:${port}`);
 });

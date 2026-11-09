@@ -12,6 +12,7 @@ import {
 } from './community-workflow-registry';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode, type ErrorCodeValue } from '../common/error-code';
+import { stub } from '../../test/doubles';
 
 /**
  * 社区工作流登记的校验口径单测。
@@ -289,7 +290,11 @@ describe('validateSlots', () => {
   it('类型白名单，下拉必须带候选值', async () => {
     expect(
       await messageOf(() =>
-        validateSlots(graph, [slot({ type: 'node' as never })], NODE_NAMES),
+        validateSlots(
+          graph,
+          [slot(stub<Partial<CommunityRegistrySlot>>({ type: 'node' }))],
+          NODE_NAMES,
+        ),
       ),
     ).toContain('类型不支持');
     expect(

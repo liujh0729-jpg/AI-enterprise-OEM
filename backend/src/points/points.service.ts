@@ -6,11 +6,7 @@ import { PointsSettingsService } from './points-settings.service';
 
 /** 入账类型：与 point_transactions.type 注释一致。 */
 export type CreditType =
-  | 'RECHARGE'
-  | 'RECHARGE_BONUS'
-  | 'EARN'
-  | 'TRANSFER_IN'
-  | 'ADMIN_ADJUST';
+  'RECHARGE' | 'RECHARGE_BONUS' | 'EARN' | 'TRANSFER_IN' | 'ADMIN_ADJUST';
 
 export interface LedgerInput {
   scene?: string;
@@ -54,7 +50,9 @@ export class PointsService {
       });
     } catch {
       // 并发创建撞 unique：回读即可
-      return (await this.prisma.pointAccount.findUnique({ where: { userId } }))!;
+      return (await this.prisma.pointAccount.findUnique({
+        where: { userId },
+      }))!;
     }
   }
 
@@ -162,7 +160,11 @@ export class PointsService {
   /** 当日已消费（含转出）绝对值合计，供熔断判断。 */
   private async spendToday(userId: string) {
     const agg = await this.prisma.pointTransaction.aggregate({
-      where: { userId, type: { in: ['SPEND', 'TRANSFER_OUT'] }, createdAt: { gte: dayStart() } },
+      where: {
+        userId,
+        type: { in: ['SPEND', 'TRANSFER_OUT'] },
+        createdAt: { gte: dayStart() },
+      },
       _sum: { amount: true },
     });
     return Math.abs(toNum(agg._sum.amount));
@@ -172,11 +174,7 @@ export class PointsService {
    * 赠送：邀请码或用户名解析对手方，双向原子流水。
    * 校验：转账开关、金额下限、当日笔数/额度上限、手续费率。
    */
-  async transfer(
-    fromUserId: string,
-    identifier: string,
-    amount: number,
-  ) {
+  async transfer(fromUserId: string, identifier: string, amount: number) {
     const cfg = await this.settings.view();
     if (!cfg.transferEnabled) {
       throw new BusinessException(ErrorCode.FORBIDDEN, '积分赠送功能已关闭');
@@ -190,23 +188,36 @@ export class PointsService {
     }
     const target = await this.resolveUser(identifier);
     if (!target) {
-      throw new BusinessException(ErrorCode.NOT_FOUND, '接收方不存在：请检查邀请码或用户名');
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        '接收方不存在：请检查邀请码或用户名',
+      );
     }
     const toUserId = String(target.id);
     if (toUserId === fromUserId) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '不能赠送给自己');
     }
     if (target.status !== 'ACTIVE') {
-      throw new BusinessException(ErrorCode.FORBIDDEN, '接收方账户状态异常，无法接收赠送');
+      throw new BusinessException(
+        ErrorCode.FORBIDDEN,
+        '接收方账户状态异常，无法接收赠送',
+      );
     }
     // 当日赠送限额（笔数 + 总额）
     const since = dayStart();
     const todayOut = await this.prisma.pointTransaction.aggregate({
-      where: { userId: fromUserId, type: 'TRANSFER_OUT', createdAt: { gte: since } },
+      where: {
+        userId: fromUserId,
+        type: 'TRANSFER_OUT',
+        createdAt: { gte: since },
+      },
       _sum: { amount: true },
       _count: { _all: true },
     });
-    if (cfg.transferDailyCount > 0 && todayOut._count._all >= cfg.transferDailyCount) {
+    if (
+      cfg.transferDailyCount > 0 &&
+      todayOut._count._all >= cfg.transferDailyCount
+    ) {
       throw new BusinessException(
         ErrorCode.FORBIDDEN,
         `今日赠送笔数已达上限（${cfg.transferDailyCount} 笔）`,
@@ -228,7 +239,10 @@ export class PointsService {
     const out = await this.debit(fromUserId, 'TRANSFER_OUT', value, {
       scene: 'gift',
       counterparty: toUserId,
-      remark: fee > 0 ? `赠送给 ${target.username}（含手续费 ${fee}）` : `赠送给 ${target.username}`,
+      remark:
+        fee > 0
+          ? `赠送给 ${target.username}（含手续费 ${fee}）`
+          : `赠送给 ${target.username}`,
     });
     const inRes = await this.credit(toUserId, 'TRANSFER_IN', received, {
       scene: 'gift',
@@ -253,7 +267,10 @@ export class PointsService {
     }
     const target = await this.resolveUser(identifier);
     if (!target) {
-      throw new BusinessException(ErrorCode.NOT_FOUND, '接收方不存在：请检查邀请码或用户名');
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        '接收方不存在：请检查邀请码或用户名',
+      );
     }
     return {
       exists: true,
@@ -291,9 +308,20 @@ export class PointsService {
     // 未配置或未启用：视为免费，不拦截业务
     if (!pricing || !pricing.enabled || calc.amount <= 0) {
       await this.prisma.usageEvent.create({
-        data: { userId, code, quantityAmount: calc.qty, occurredAt: new Date(), billed: 0, remark: '免费额内/未计费' },
+        data: {
+          userId,
+          code,
+          quantityAmount: calc.qty,
+          occurredAt: new Date(),
+          billed: 0,
+          remark: '免费额内/未计费',
+        },
       });
-      return { charged: 0, balance: toNum((await this.ensureAccount(userId)).balanceAmount), skipped: true };
+      return {
+        charged: 0,
+        balance: toNum((await this.ensureAccount(userId)).balanceAmount),
+        skipped: true,
+      };
     }
     const debit = await this.debit(userId, 'SPEND', calc.amount, {
       scene: code,
@@ -319,8 +347,14 @@ export class PointsService {
    * 计费计算共用口径：METERED 才扣；月免费额（freeQuotaAmount）按自然月已用量抵扣，
    * 只扣超出部分；低于 minCharge 起扣额按起扣。FREE / 未启用 / 额内都返回 amount=0。
    */
-  private async computeChargeable(userId: string, code: string, quantity: number) {
-    const pricing = await this.prisma.modulePricing.findUnique({ where: { code } });
+  private async computeChargeable(
+    userId: string,
+    code: string,
+    quantity: number,
+  ) {
+    const pricing = await this.prisma.modulePricing.findUnique({
+      where: { code },
+    });
     if (!pricing || !pricing.enabled) {
       return { pricing, amount: 0, qty: Number(quantity.toFixed(4)) };
     }
@@ -363,7 +397,12 @@ export class PointsService {
    * 模块实时扣费的统一入口（业务侧钩子用）：成功就扣，余额不足绝不把已完成
    * 的业务接口改成报错，只把账户转入欠费冻结态（宽限策略见日批）；其它异常静默。
    */
-  async chargeSafely(userId: string, code: string, quantity: number, refId = ''): Promise<void> {
+  async chargeSafely(
+    userId: string,
+    code: string,
+    quantity: number,
+    refId = '',
+  ): Promise<void> {
     try {
       await this.charge(userId, code, quantity, refId);
     } catch (error) {
@@ -454,7 +493,9 @@ export class PointsService {
       });
       const withinDailyInvite =
         cfg.inviteDailyCount <= 0 || grantedToday < cfg.inviteDailyCount;
-      const withinBudget = await this.withinRewardBudget(cfg.inviteRewardSignup);
+      const withinBudget = await this.withinRewardBudget(
+        cfg.inviteRewardSignup,
+      );
       if (withinDailyInvite && withinBudget) {
         await this.credit(String(inviterId), 'EARN', cfg.inviteRewardSignup, {
           scene: 'invite',
@@ -489,8 +530,11 @@ export class PointsService {
       },
     });
     if (already) return 0;
-    let reward = Number(((paidAmountPoints * cfg.inviteRechargePercent) / 100).toFixed(4));
-    if (cfg.inviteRechargeCap > 0) reward = Math.min(reward, cfg.inviteRechargeCap);
+    let reward = Number(
+      ((paidAmountPoints * cfg.inviteRechargePercent) / 100).toFixed(4),
+    );
+    if (cfg.inviteRechargeCap > 0)
+      reward = Math.min(reward, cfg.inviteRechargeCap);
     if (reward <= 0) return 0;
     if (!(await this.withinRewardBudget(reward))) return 0;
     await this.credit(String(inviterId), 'EARN', reward, {
@@ -561,13 +605,17 @@ export class PointsService {
     }
     const [accounts, total] = await this.prisma.$transaction([
       this.prisma.pointAccount.findMany({
-        where: key ? { userId: { in: matchedUsers.map((u) => String(u.id)) } } : {},
+        where: key
+          ? { userId: { in: matchedUsers.map((u) => String(u.id)) } }
+          : {},
         orderBy: { balanceAmount: 'desc' },
         skip: (page - 1) * size,
         take: size,
       }),
       this.prisma.pointAccount.count({
-        where: key ? { userId: { in: matchedUsers.map((u) => String(u.id)) } } : {},
+        where: key
+          ? { userId: { in: matchedUsers.map((u) => String(u.id)) } }
+          : {},
       }),
     ]);
     const ids = accounts.map((a) => a.userId);

@@ -32,9 +32,9 @@ type SessionValue = {
 const SessionContext = createContext<SessionValue | null>(null);
 
 /** 无需已有会话的公开路径：这些页面拿到 401 时不能把人踢回登录页。 */
-const SESSION_FREE_PATHS = ['/login'];
+const SESSION_FREE_PATHS = ['/', '/login'];
 /** 访客公开通道（官网客服 iframe）不参与登录态。 */
-const SESSION_FREE_PREFIXES = ['/embed/'];
+const SESSION_FREE_PREFIXES = ['/embed/', '/survey/'];
 const sessionFree = (path = window.location.pathname) =>
   SESSION_FREE_PATHS.includes(path) ||
   SESSION_FREE_PREFIXES.some((prefix) => path.startsWith(prefix));
@@ -81,7 +81,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     connection.onmessage=()=>{void clearPrivate().then(refresh).catch(()=>setLoading(false));};
     const expired=()=>{if(sessionFree())return;void clearPrivate().then(()=>{window.location.assign('/login?reason=expired&next='+encodeURIComponent(window.location.pathname+window.location.search));});};
     window.addEventListener('enterprise-session-expired',expired);
-    // This counter fences async responses; it is intentionally read at cleanup.
+    // 这个自增计数用于作废在途响应，只在清理函数里读，不需要作为依赖触发重订阅。
     // eslint-disable-next-line react-hooks/exhaustive-deps
     return ()=>{generation.current++;connection.close();channel.current=null;window.removeEventListener('enterprise-session-expired',expired);};
   },[refresh,clearPrivate]);

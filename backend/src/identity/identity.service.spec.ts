@@ -1,7 +1,15 @@
 import { CurrentUser } from '../auth/current-user';
 import { BUSINESS_IDENTITIES } from '../common/constants';
+import type {
+  ProviderApplication,
+  ProviderStaff,
+} from '../../generated/prisma';
 import { IdentityService } from './identity.service';
 import { readIdentitySnapshot } from './identity-snapshot';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { UserLookupService } from '../directory/user-lookup.service';
+import type { OssService } from '../oss/oss.service';
+import { stub } from '../../test/doubles';
 
 jest.mock('./identity-snapshot', () => ({ readIdentitySnapshot: jest.fn() }));
 
@@ -30,9 +38,9 @@ function setup(role = 'user', userId = 'identity-test') {
     }),
   };
   const service = new IdentityService(
-    prisma as never,
-    users as never,
-    {} as never,
+    stub<PrismaService>(prisma),
+    stub<UserLookupService>(users),
+    stub<OssService>(),
   );
   jest.mocked(readIdentitySnapshot).mockImplementation(async (_, id) => {
     const [
@@ -157,12 +165,14 @@ describe('administrator business identity switching', () => {
   it('preserves switching among actually qualified identities for ordinary accounts', async () => {
     const { service, user, prisma } = setup();
     prisma.enterpriseProfile.findFirst.mockResolvedValue({ id: 1 });
-    prisma.providerApplication.findMany.mockResolvedValue([
-      { status: 'APPROVED', providerType: 'TAX_FINANCE', serviceItems: '' },
-    ] as never);
-    prisma.providerStaff.findMany.mockResolvedValue([
-      { providerUserId: 'provider', status: 'ACTIVE' },
-    ] as never);
+    prisma.providerApplication.findMany.mockResolvedValue(
+      stub<ProviderApplication[]>([
+        { status: 'APPROVED', providerType: 'TAX_FINANCE', serviceItems: '' },
+      ]),
+    );
+    prisma.providerStaff.findMany.mockResolvedValue(
+      stub<ProviderStaff[]>([{ providerUserId: 'provider', status: 'ACTIVE' }]),
+    );
 
     for (const identity of BUSINESS_IDENTITIES) {
       await service.switchIdentity(user, identity);

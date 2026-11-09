@@ -9,9 +9,8 @@ const EMPTY: SiteConfig = {
   siteDesc: "",
   icpRecord: "",
   footerLinks: [],
-  businessMenuHidden: [],
-  integrationMenuHidden: [],
-  aiServicesHidden: false,
+  hiddenMenuPaths: [],
+  hiddenBoardTabs: [],
 };
 const SiteBrandContext = createContext<SiteConfig>(EMPTY);
 

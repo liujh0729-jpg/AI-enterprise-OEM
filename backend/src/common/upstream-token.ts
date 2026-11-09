@@ -39,7 +39,10 @@ function currentUserId(c: Context): string {
 export async function upstreamToken(c: Context): Promise<string> {
   const userId = currentUserId(c);
   if (!resolver)
-    throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, '凭证解析器未初始化');
+    throw new BusinessException(
+      ErrorCode.SERVICE_UNAVAILABLE,
+      '凭证解析器未初始化',
+    );
   return requestMemo(`upstream-token:${userId}`, () => resolver!(userId));
 }
 
@@ -48,7 +51,10 @@ export async function upstreamTokenOrNull(c: Context): Promise<string> {
   try {
     return await upstreamToken(c);
   } catch (error) {
-    if (error instanceof BusinessException && error.errorCode === ErrorCode.FORBIDDEN)
+    if (
+      error instanceof BusinessException &&
+      error.errorCode === ErrorCode.FORBIDDEN
+    )
       return '';
     throw error;
   }

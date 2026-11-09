@@ -39,7 +39,7 @@ export class ContentAssetService {
     const localKey = local?.keyCipher
       ? this.crypto.decrypt(local.keyCipher)
       : '';
-    const apiKey = localKey || (await this.modelKeys.requireKey(token));
+    const apiKey = localKey || this.modelKeys.requireKey(token);
     const baseUrl = aipddBaseUrl();
     return { apiKey, baseUrl, origin: AipddAssetClient.origin(baseUrl) };
   }

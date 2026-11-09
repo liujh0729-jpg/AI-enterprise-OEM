@@ -18,12 +18,14 @@ import {
   serviceMarketTab,
 } from "@/components/service-publish-tab";
 import { type HeroTab } from "@/components/ui/panel";
+import { filterBoardTabs } from "@/lib/board-tabs";
 import { isProviderAccount } from "@/lib/can-work-on";
 import {
   SMART_SUB_ITEMS,
   SUBITEM_LABELS,
 } from "@/lib/provider-categories";
 import { useSession } from "@/lib/session";
+import { useSiteBrand } from "@/lib/site-brand";
 
 type SmartRow=import('@enterprise/contracts').SmartRow;
 
@@ -85,12 +87,16 @@ export default function SmartServicePage() {
   /** 回复公开池工单是机构级动作（后端 requireRoles SERVICE_PROVIDER）：仅服务商账号本人可见 */
   const canAcceptOrder = isProviderAccount(me);
   const [tab, setTab] = useState("requests");
+  const { hiddenBoardTabs } = useSiteBrand();
   const tabs: HeroTab[] = [
     { key: "requests", label: <><UnorderedListOutlined aria-hidden /> 需求信息</> },
     // 资源库页签恒排末尾（全站口径）：没有代理人库时，服务商库放最后
     { key: "providers", label: <><TagOutlined aria-hidden /> IT服务商</> },
     serviceMarketTab("IT服务市集"),
   ];
+  // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染，命中当前页签则回退到第一个可见页签。
+  const visibleTabs = filterBoardTabs("smart", tabs, hiddenBoardTabs);
+  const activeTab = visibleTabs.some((item) => item.key === tab) ? tab : visibleTabs[0]?.key || "";
   const myUserId = me?.userId || "";
 
   const board = useDemandBoard<SmartRow>({
@@ -122,8 +128,8 @@ export default function SmartServicePage() {
         title: "IT服务",
         desc: "IT服务商（平台备案服务商名录，按「AI实施 / 软件开发 / 算力服务 / 硬件服务 / 数据服务」分区 → 企业按细项发起签约，同一细项不限服务商）· 需求信息（IT服务需求消息通道：企业提交需求，已签约服务商自动直派，未签约进入公开需求池，服务商直接回复即接单）。",
       }}
-      tabs={tabs}
-      activeTab={tab}
+      tabs={visibleTabs}
+      activeTab={activeTab}
       onTabChange={setTab}
       board={board}
       toDemand={toDemand}

@@ -3,7 +3,10 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
-import { DistributionContent, DistributionPublishLog } from '../../generated/prisma';
+import {
+  DistributionContent,
+  DistributionPublishLog,
+} from '../../generated/prisma';
 import {
   DISTRIBUTION_MEDIA_TYPE_LABELS,
   DISTRIBUTION_LOG_STATUS_LABELS,
@@ -25,11 +28,12 @@ import {
  * 不支持样式的渠道由插件投递前降纯文本（简书降 Markdown）。
  */
 
-/** 插件发布信息：zip 由前端 public 静态目录分发，上架商店后补 chromeStoreUrl。 */
-const EXTENSION_INFO = {
+/** 插件发布信息：zip 由前端 public 静态目录分发，上架商店后补 chromeStoreUrl。
+ * v1.3.0 起同一个插件同时承担分发与 AI 获客（采集/触达），不是第二个插件。 */
+export const EXTENSION_INFO = {
   name: 'AIPDD Enterprise',
-  version: '1.2.0',
-  downloadPath: '/downloads/aipdd-enterprise-v1.2.0.zip',
+  version: '1.3.0',
+  downloadPath: '/downloads/aipdd-enterprise-v1.3.0.zip',
   chromeStoreUrl: '',
 };
 
@@ -37,10 +41,7 @@ const platformByCode = new Map(
   DISTRIBUTION_PLATFORMS.map((platform) => [platform.code, platform]),
 );
 
-function labelOf(
-  labels: Record<string, string>,
-  value: string,
-): string {
+function labelOf(labels: Record<string, string>, value: string): string {
   return labels[value] ?? value;
 }
 
@@ -98,7 +99,7 @@ export class DistributionService {
 
   // ---------- 平台与插件元信息 ----------
 
-  async meta(_user: CurrentUser) {
+  meta() {
     return {
       platforms: DISTRIBUTION_PLATFORMS.map((platform) => ({
         code: platform.code,
@@ -148,7 +149,12 @@ export class DistributionService {
         take: pageSize,
       }),
     ]);
-    return pageOf(rows.map((row) => this.viewOf(row)), total, page, pageSize);
+    return pageOf(
+      rows.map((row) => this.viewOf(row)),
+      total,
+      page,
+      pageSize,
+    );
   }
 
   async create(user: CurrentUser, body: Record<string, unknown>) {
@@ -169,11 +175,7 @@ export class DistributionService {
     return this.viewOf(row);
   }
 
-  async update(
-    user: CurrentUser,
-    id: number,
-    body: Record<string, unknown>,
-  ) {
+  async update(user: CurrentUser, id: number, body: Record<string, unknown>) {
     const input = distributionEndpoints.Distribution_update.body.parse(body);
     const row = await this.mustGet(user, id);
     const mediaType = input.mediaType ?? row.mediaType;
@@ -186,7 +188,9 @@ export class DistributionService {
         ...(input.content !== undefined
           ? { content: contentForSave(input.content) }
           : {}),
-        ...(input.mediaType !== undefined ? { mediaType: input.mediaType } : {}),
+        ...(input.mediaType !== undefined
+          ? { mediaType: input.mediaType }
+          : {}),
         ...(input.images !== undefined ? { images: input.images } : {}),
         ...(input.platformCodes !== undefined
           ? { platformCodes: input.platformCodes }
@@ -206,13 +210,18 @@ export class DistributionService {
       where: { contentId: row.id },
       orderBy: { createdAt: 'desc' },
     });
-    return { content: this.viewOf(row), logs: logs.map((log) => this.logOf(log)) };
+    return {
+      content: this.viewOf(row),
+      logs: logs.map((log) => this.logOf(log)),
+    };
   }
 
   async remove(user: CurrentUser, id: number) {
     const row = await this.mustGet(user, id);
     await this.prisma.$transaction(async (tx) => {
-      await tx.distributionPublishLog.deleteMany({ where: { contentId: row.id } });
+      await tx.distributionPublishLog.deleteMany({
+        where: { contentId: row.id },
+      });
       await tx.distributionContent.delete({ where: { id: row.id } });
     });
     return { removed: true };
@@ -239,9 +248,8 @@ export class DistributionService {
     id: number,
     body: Record<string, unknown>,
   ) {
-    const input = distributionEndpoints.Distribution_reportLogs.body.parse(
-      body,
-    );
+    const input =
+      distributionEndpoints.Distribution_reportLogs.body.parse(body);
     const row = await this.mustGet(user, id);
     const allowed = new Set(codesOf(row.platformCodes));
     for (const log of input.logs) {
@@ -270,7 +278,8 @@ export class DistributionService {
           contentId: row.id,
           userId: row.userId,
           platformCode: log.platformCode,
-          platformName: platformByCode.get(log.platformCode)?.name ?? log.platformCode,
+          platformName:
+            platformByCode.get(log.platformCode)?.name ?? log.platformCode,
           status: log.status,
           publishedUrl: log.publishedUrl.trim(),
           errorMsg: log.errorMsg.trim(),
@@ -289,9 +298,7 @@ export class DistributionService {
             }),
           );
         } else {
-          result.push(
-            await tx.distributionPublishLog.create({ data }),
-          );
+          result.push(await tx.distributionPublishLog.create({ data }));
         }
       }
     });
@@ -308,7 +315,10 @@ export class DistributionService {
       where: { id, userId: user.userId },
     });
     if (!row) {
-      throw new BusinessException(ErrorCode.NOT_FOUND, '分发内容不存在或已删除');
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        '分发内容不存在或已删除',
+      );
     }
     return row;
   }
@@ -318,7 +328,10 @@ export class DistributionService {
     for (const code of platformCodes) {
       const platform = platformByCode.get(code);
       if (!platform) {
-        throw new BusinessException(ErrorCode.BAD_REQUEST, `不支持的平台：${code}`);
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          `不支持的平台：${code}`,
+        );
       }
       if (platform.mediaType !== mediaType) {
         throw new BusinessException(

@@ -408,7 +408,9 @@ export class BiQueryService {
       pg = row?.type !== 'MYSQL';
     }
     return (value: string) =>
-      pg ? `"${value.replace(/"/g, '""')}"` : `\`${value.replace(/`/g, '``')}\``;
+      pg
+        ? `"${value.replace(/"/g, '""')}"`
+        : `\`${value.replace(/`/g, '``')}\``;
   }
 
   /** 图表：按维度/指标/过滤生成聚合 SQL。 */

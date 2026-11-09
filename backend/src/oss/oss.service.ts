@@ -3,10 +3,11 @@ import { Logger } from '../common/logger';
 import { createHash, createHmac } from 'node:crypto';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
-import { attachmentContentType } from './attachment-files';
+import { objectContentType } from './attachment-files';
 import {
   OSS_CONFIG,
   ossEncodePath,
+  ossHostOf,
   ossObjectKey,
   ossPublicUrl,
 } from './oss.config';
@@ -18,6 +19,12 @@ import type {
 export type OssUploadResult = {
   key: string;
   url: string;
+  size: number;
+  contentType: string;
+};
+
+export type OssObjectStat = {
+  exists: boolean;
   size: number;
   contentType: string;
 };
@@ -86,6 +93,190 @@ export class OssService {
     return this.put(config, path, content);
   }
 
+  /**
+   * 浏览器直传签名（PostObject 表单）：前端拿到 `url` + `fields` 后把文件塞进表单直接
+   * POST 到桶，大文件不再过后端。签名是 HMAC-SHA1 policy，`content-length-range` 限死上限。
+   */
+  async signFormPost(
+    path: string,
+    options: { maxBytes?: number; expiresSeconds?: number } = {},
+  ) {
+    const config = this.settings
+      ? await this.settings.resolve()
+      : this.environment();
+    const { accessKeyId, accessKeySecret, securityToken } =
+      this.credentials(config);
+    const key = ossObjectKey(path, config);
+    const expiresSeconds = Math.min(
+      Math.max(Number(options.expiresSeconds) || 600, 60),
+      3600,
+    );
+    const maxBytes = Math.max(Number(options.maxBytes) || 0, 1);
+    const expiration = new Date(
+      Date.now() + expiresSeconds * 1000,
+    ).toISOString();
+    const policy = Buffer.from(
+      JSON.stringify({
+        expiration,
+        conditions: [
+          { bucket: config.bucket },
+          { key },
+          ['content-length-range', 0, maxBytes],
+        ],
+      }),
+    ).toString('base64');
+    const signature = createHmac('sha1', accessKeySecret)
+      .update(policy)
+      .digest('base64');
+    return {
+      url: `https://${ossHostOf(config)}`,
+      fields: {
+        key,
+        policy,
+        OSSAccessKeyId: accessKeyId,
+        signature,
+        ...(securityToken ? { 'x-oss-security-token': securityToken } : {}),
+      },
+      key,
+      publicUrl: ossPublicUrl(key, config),
+      expiresAt: expiration,
+    };
+  }
+
+  /**
+   * 删除单个对象。key 必须是 `upload()` 返回的完整对象键（已含目录前缀）。
+   * 幂等：对象本来就不存在（404）视为删除成功。
+   */
+  async remove(key: string): Promise<void> {
+    const fullKey = String(key || '').replace(/^\/+/, '');
+    if (!fullKey) return;
+    const config = this.settings
+      ? await this.settings.resolve()
+      : this.environment();
+    const headers = this.signedHeaders(config, 'DELETE', fullKey);
+    try {
+      const response = await httpRequest<string>(
+        ossPublicUrl(fullKey, config),
+        {
+          method: 'DELETE',
+          headers,
+          timeoutMs: 20000,
+          readAs: 'text',
+          operation: 'oss:delete',
+          redirect: 'error',
+        },
+      );
+      if (!response.ok && response.status !== 404) {
+        const code =
+          /<Code>([A-Za-z0-9]+)<\/Code>/.exec(response.data)?.[1] || 'Unknown';
+        const requestId = response.headers.get('x-oss-request-id') || '';
+        this.logger.warn(
+          `OSS 删除失败: status=${response.status} code=${code} requestId=${requestId}`,
+        );
+        throw new BusinessException(
+          ErrorCode.SERVICE_UNAVAILABLE,
+          `文件存储暂时不可用，请联系管理员（OSS ${response.status} / ${code}）`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof BusinessException) throw error;
+      this.logger.warn(
+        `OSS 删除失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new BusinessException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        '文件存储暂时不可用，请稍后重试',
+      );
+    }
+  }
+
+  /** 对象元信息（HEAD）：不存在返回 exists=false，其它错误照常抛 503。 */
+  async stat(key: string): Promise<OssObjectStat> {
+    const fullKey = String(key || '').replace(/^\/+/, '');
+    if (!fullKey) return { exists: false, size: 0, contentType: '' };
+    const config = this.settings
+      ? await this.settings.resolve()
+      : this.environment();
+    const headers = this.signedHeaders(config, 'HEAD', fullKey);
+    try {
+      const response = await httpRequest<string>(
+        ossPublicUrl(fullKey, config),
+        {
+          method: 'HEAD',
+          headers,
+          timeoutMs: 20000,
+          readAs: 'empty',
+          operation: 'oss:stat',
+          redirect: 'error',
+        },
+      );
+      if (response.status === 404) {
+        return { exists: false, size: 0, contentType: '' };
+      }
+      if (!response.ok) {
+        throw new BusinessException(
+          ErrorCode.SERVICE_UNAVAILABLE,
+          `文件存储暂时不可用，请联系管理员（OSS ${response.status}）`,
+        );
+      }
+      return {
+        exists: true,
+        size: Number(response.headers.get('content-length') || 0) || 0,
+        contentType: response.headers.get('content-type') || '',
+      };
+    } catch (error) {
+      if (error instanceof BusinessException) throw error;
+      this.logger.warn(
+        `OSS 元信息读取失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new BusinessException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        '文件存储暂时不可用，请稍后重试',
+      );
+    }
+  }
+
+  /** 读取对象字节（GET）：供文档抽取/回读，签名规则与 PUT/DELETE/HEAD 一致。 */
+  async read(key: string, maxBytes = 40 * 1024 * 1024): Promise<Buffer> {
+    const fullKey = String(key || '').replace(/^\/+/, '');
+    if (!fullKey)
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '对象键为空');
+    const config = this.settings
+      ? await this.settings.resolve()
+      : this.environment();
+    const headers = this.signedHeaders(config, 'GET', fullKey);
+    try {
+      const response = await httpRequest<Uint8Array>(
+        ossPublicUrl(fullKey, config),
+        {
+          method: 'GET',
+          headers,
+          timeoutMs: 30000,
+          maxBytes,
+          readAs: 'bytes',
+          operation: 'oss:read',
+          redirect: 'error',
+        },
+      );
+      if (!response.ok) {
+        throw new BusinessException(
+          ErrorCode.SERVICE_UNAVAILABLE,
+          `文件存储暂时不可用，请联系管理员（OSS ${response.status}）`,
+        );
+      }
+      return Buffer.from(response.data);
+    } catch (error) {
+      if (error instanceof BusinessException) throw error;
+      this.logger.warn(
+        `OSS 读取失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new BusinessException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        '文件存储暂时不可用，请稍后重试',
+      );
+    }
+  }
+
   /** 测试连接：用当前生效配置上传固定探针对象，返回公开访问 URL。 */
   async testConnection() {
     const config = this.settings
@@ -99,29 +290,29 @@ export class OssService {
     };
   }
 
-  private async put(
+  /** OSS V4 签名头：PUT/DELETE/HEAD/GET 共用同一套 CanonicalRequest 规则。 */
+  private signedHeaders(
     config: OssRuntimeConfig,
-    path: string,
-    content: Buffer,
-  ): Promise<OssUploadResult> {
-    const contentType = attachmentContentType(path);
+    method: 'PUT' | 'DELETE' | 'HEAD' | 'GET',
+    key: string,
+    extra: Record<string, string> = {},
+  ) {
     const { accessKeyId, accessKeySecret, securityToken } =
       this.credentials(config);
-    const key = ossObjectKey(path, config);
     const date = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
     const scope = `${date.slice(0, 8)}/${config.region}/oss/aliyun_v4_request`;
     const headers: Record<string, string> = {
-      'content-type': contentType,
       'x-oss-content-sha256': 'UNSIGNED-PAYLOAD',
       'x-oss-date': date,
       ...(securityToken ? { 'x-oss-security-token': securityToken } : {}),
+      ...extra,
     };
     const canonicalHeaders = Object.keys(headers)
       .sort()
       .map((name) => `${name}:${headers[name]}\n`)
       .join('');
     const canonicalRequest = [
-      'PUT',
+      method,
       ossEncodePath(`/${config.bucket}/${key}`),
       '',
       canonicalHeaders,
@@ -147,6 +338,19 @@ export class OssService {
       .update(stringToSign)
       .digest('hex');
     headers.authorization = `OSS4-HMAC-SHA256 Credential=${accessKeyId}/${scope},Signature=${signature}`;
+    return headers;
+  }
+
+  private async put(
+    config: OssRuntimeConfig,
+    path: string,
+    content: Buffer,
+  ): Promise<OssUploadResult> {
+    const contentType = objectContentType(path);
+    const key = ossObjectKey(path, config);
+    const headers = this.signedHeaders(config, 'PUT', key, {
+      'content-type': contentType,
+    });
     headers['content-length'] = String(content.length);
     let response: TransportResult<string>;
     try {

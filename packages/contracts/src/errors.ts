@@ -75,6 +75,42 @@ export const ErrorCode = {
     message: "账户欠费中，该操作已被暂停",
     httpStatus: 403,
   },
+  /** §5.10 菜单/功能开关：关闭即拦——菜单隐藏、直链与 MCP 同路径请求一律 403 回此码。 */
+  FEATURE_CLOSED: {
+    code: 26001,
+    message: "该功能已由平台关闭，暂不可用",
+    httpStatus: 403,
+  },
+  /** §5.9 技能包安全审查：未达「绝对安全」门（pending/rejected/needsAdmin）的包被调用时返回。 */
+  SKILL_NOT_PASSED: {
+    code: 26002,
+    message: "技能包未通过安全审查，不可调用",
+    httpStatus: 403,
+  },
+  /** 上传四组确定性门禁未通过：拒绝入库，message 带命中组与证据。 */
+  SKILL_SECURITY_REJECTED: {
+    code: 26003,
+    message: "技能包未通过上传安全检查",
+    httpStatus: 400,
+  },
+  /** 技能声明了权限，启用/首次调用前必须由用户确认。 */
+  SKILL_PERMISSIONS_UNCONFIRMED: {
+    code: 26004,
+    message: "技能声明了权限，需先确认后再启用",
+    httpStatus: 403,
+  },
+  /** 运行期行为基线/输出兜底熔断。 */
+  AGENT_SECURITY_BLOCKED: {
+    code: 26005,
+    message: "本次运行已被安全护栏中止",
+    httpStatus: 403,
+  },
+  /** 发布审核命中违规 / 疑似违规：按平台配置的阿里云内容安全结果阻断本次发布。 */
+  CONTENT_MODERATION_BLOCKED: {
+    code: 26006,
+    message: "内容未通过安全审核",
+    httpStatus: 400,
+  },
   NOT_IMPLEMENTED: {
     code: 501,
     message: "not implemented",

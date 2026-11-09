@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import {
   int,
@@ -14,13 +16,42 @@ import {
   statusLabel,
 } from './crm.helpers';
 import { CrmSettingsService } from './crm.settings.service';
+import type { MechanismService } from '../mechanisms/mechanism.service';
 
 export class CrmOrderService {
+  private mechanisms?: MechanismService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: CrmScopeService,
     private readonly settings: CrmSettingsService,
   ) {}
+
+  attachMechanisms(mechanisms: MechanismService) {
+    this.mechanisms = mechanisms;
+  }
+
+  private emitEvent(
+    ctx: CrmContext,
+    event: string,
+    payload: Record<string, unknown>,
+  ) {
+    if (!this.mechanisms) return;
+    void this.mechanisms
+      .dispatch(
+        {
+          orgType: ctx.orgType,
+          orgUserId: ctx.ownerUserId,
+          actorId: ctx.actorId,
+          isOwner: ctx.isOwner,
+          isAdmin: ctx.isAdmin,
+          department: ctx.department,
+        },
+        event,
+        payload,
+      )
+      .catch(() => undefined);
+  }
 
   private async views(rows: Array<Record<string, unknown>>, ctx: CrmContext) {
     if (!rows.length) return [];
@@ -62,6 +93,7 @@ export class CrmOrderService {
       amount: moneyStr(row.amount),
       stageId: Number(row.stageId),
       stageName: stageNames.get(Number(row.stageId)) || '',
+      projectId: Number(row.projectId),
       approvalStatus: text(row.approvalStatus),
       approvalStatusLabel: statusLabel(text(row.approvalStatus)),
       ownerId: text(row.ownerId),
@@ -76,7 +108,7 @@ export class CrmOrderService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx);
-    const where: Record<string, unknown> = { ...base, deletedAt: null };
+    const where: Prisma.CrmOrderWhereInput = { ...base, deletedAt: null };
     if (query.stageId) where.stageId = Number(query.stageId);
     const keyword = text(query.keyword).trim();
     if (keyword) {
@@ -87,12 +119,12 @@ export class CrmOrderService {
     }
     const [rows, total] = await Promise.all([
       this.prisma.crmOrder.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmOrder.count({ where: where as never }),
+      this.prisma.crmOrder.count({ where }),
     ]);
     return {
       list: await this.views(rows, ctx),
@@ -106,7 +138,7 @@ export class CrmOrderService {
     const id = Number(rawId);
     const base = await this.scope.scopeWhereAsync(ctx);
     const row = await this.prisma.crmOrder.findFirst({
-      where: { ...base, id, deletedAt: null } as never,
+      where: { ...base, id, deletedAt: null },
     });
     if (!row)
       throw new BusinessException(ErrorCode.NOT_FOUND, '订单不存在或无权查看');
@@ -210,6 +242,7 @@ export class CrmOrderService {
     const row = await this.prisma.crmOrder.create({
       data: {
         ownerUserId: ctx.ownerUserId,
+        ...this.scope.orgKey(ctx),
         name,
         number: `DD-${stamp}-${String(count + 1).padStart(4, '0')}`,
         customerId,
@@ -218,12 +251,12 @@ export class CrmOrderService {
         stageId: int(body.stageId) || stage?.id || 0,
         ownerId: text(body.ownerId) || ctx.actorId,
         remark: text(body.remark).slice(0, 2000),
-        custom: jsonObject(body.custom) as never,
-        snapshot: {
+        custom: toJsonInput(jsonObject(body.custom)),
+        snapshot: toJsonInput({
           items,
           fields: body,
           savedAt: new Date().toISOString(),
-        } as never,
+        }),
       },
     });
     for (const item of items) {
@@ -249,6 +282,17 @@ export class CrmOrderService {
       { name },
       ctx.actorId,
     );
+    this.emitEvent(ctx, 'crm.order.created', {
+      orderId: row.id,
+      number: row.number,
+      name: row.name,
+      customerId: row.customerId,
+      contractId: row.contractId,
+      amount: Number(row.amount),
+      ownerId: row.ownerId,
+      source: 'crm',
+      sourceId: String(row.id),
+    });
     return (await this.views([row], ctx))[0];
   }
 
@@ -266,18 +310,19 @@ export class CrmOrderService {
         '审批中的订单不能修改',
       );
     }
-    const data: Record<string, unknown> = {};
+    const data: Prisma.CrmOrderUncheckedUpdateInput = {};
     if (body.name !== undefined) data.name = text(body.name).slice(0, 160);
     if (body.amount !== undefined) data.amount = money(body.amount);
     if (body.remark !== undefined)
       data.remark = text(body.remark).slice(0, 2000);
     if (body.ownerId !== undefined) data.ownerId = text(body.ownerId);
-    if (body.custom !== undefined) data.custom = jsonObject(body.custom);
+    if (body.custom !== undefined)
+      data.custom = toJsonInput(jsonObject(body.custom));
     if (body.contractId !== undefined) data.contractId = int(body.contractId);
     if (body.customerId !== undefined) data.customerId = int(body.customerId);
     const updated = await this.prisma.crmOrder.update({
       where: { id: row.id },
-      data: data as never,
+      data,
     });
     await this.settings.log(
       ctx.ownerUserId,

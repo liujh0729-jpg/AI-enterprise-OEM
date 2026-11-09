@@ -1,5 +1,11 @@
 import { CurrentUser } from '../auth/current-user';
+import { UserLookupService } from '../directory/user-lookup.service';
 import { IdentityService } from '../identity/identity.service';
+import { OssService } from '../oss/oss.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { QxyService } from '../qixiangyun/qxy.service';
+import { ContactResolver } from '../shared/contacts.service';
+import { stub } from '../../test/doubles';
 import { InvoiceService } from './invoice.service';
 
 const reviewer = new CurrentUser('reviewer', 'reviewer', 'admin');
@@ -34,10 +40,10 @@ describe('invoice authorization and submission', () => {
     };
     const identity = { isPlatformAdmin: () => false };
     const service = new InvoiceService(
-      prisma as never,
-      identity as never,
-      {} as never,
-      {} as never,
+      stub<PrismaService>(prisma),
+      stub<IdentityService>(identity),
+      stub<QxyService>(),
+      stub<ContactResolver>(),
     );
     await expect(
       service.create(outsider, { enterpriseId: 42, buyerName: '购方' }),
@@ -87,10 +93,10 @@ describe('invoice authorization and submission', () => {
     };
     const contacts = { stage: jest.fn().mockResolvedValue({}) };
     const service = new InvoiceService(
-      prisma as never,
-      identity as never,
-      qxy as never,
-      contacts as never,
+      stub<PrismaService>(prisma),
+      stub<IdentityService>(identity),
+      stub<QxyService>(qxy),
+      stub<ContactResolver>(contacts),
     );
     const outcomes = await Promise.allSettled([
       service.approve(reviewer, 7),
@@ -141,10 +147,10 @@ describe('invoice authorization and submission', () => {
         .mockRejectedValue(new Error('upstream timeout')),
     };
     const service = new InvoiceService(
-      prisma as never,
-      identity as never,
-      qxy as never,
-      { stage: async () => ({}) } as never,
+      stub<PrismaService>(prisma),
+      stub<IdentityService>(identity),
+      stub<QxyService>(qxy),
+      stub<ContactResolver>({ stage: async () => ({}) }),
     );
     await expect(service.approve(reviewer, 7)).rejects.toThrow(
       'upstream timeout',
@@ -173,10 +179,10 @@ describe('invoice authorization and submission', () => {
       canWorkOn: jest.fn().mockResolvedValue(false),
     };
     const service = new InvoiceService(
-      prisma as never,
-      identity as never,
-      {} as never,
-      {} as never,
+      stub<PrismaService>(prisma),
+      stub<IdentityService>(identity),
+      stub<QxyService>(),
+      stub<ContactResolver>(),
     );
     expect(await service.list(outsider)).toEqual([]);
     await expect(service.detail(outsider, 7)).rejects.toThrow('无权查看');
@@ -191,11 +197,15 @@ describe('provider assignment', () => {
       providerAssignment: { upsert: jest.fn() },
     };
     const identity = new IdentityService(
-      prisma as never,
-      {} as never,
-      {} as never,
+      stub<PrismaService>(prisma),
+      stub<UserLookupService>(),
+      stub<OssService>(),
     );
-    jest.spyOn(identity, 'requireRoles').mockResolvedValue(undefined as never);
+    jest
+      .spyOn(identity, 'requireRoles')
+      .mockResolvedValue(
+        stub<Awaited<ReturnType<IdentityService['requireRoles']>>>(),
+      );
     await expect(
       identity.assignEnterprise(outsider, 42, 'staff'),
     ).rejects.toThrow('未与该企业建立生效签约');

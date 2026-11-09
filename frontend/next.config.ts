@@ -21,12 +21,17 @@ const nextConfig: NextConfig = {
     return [
       ...livecode,
       { source: "/api/:path*", destination: `${backendUrl}/api/:path*` },
+      // 模型广场的 OpenAI 兼容网关挂在后端根路径 /v1，本机没有 Nginx 时也透传，
+      // 这样页面里给出的调用示例可以直接跑通。
+      { source: "/v1/:path*", destination: `${backendUrl}/v1/:path*` },
     ];
   },
   // 平台管理后台入口落到侧栏菜单的第一个板块（板块清单见 src/config/routes.ts 的 ADMIN_SECTIONS）
   async redirects() {
     return [
-      { source: "/admin", destination: "/admin/overview", permanent: false },
+      { source: "/admin", destination: "/admin/users", permanent: false },
+      // 平台数据总览已并入高管驾驶舱，旧地址重定向避免站内收藏/历史链接失效
+      { source: "/admin/overview", destination: "/dashboard", permanent: false },
       // AIPDD Key 绑定已并入「开放集成 → API Key 管理」，旧地址重定向避免站内收藏/历史链接失效
       {
         source: "/developer/aipdd",

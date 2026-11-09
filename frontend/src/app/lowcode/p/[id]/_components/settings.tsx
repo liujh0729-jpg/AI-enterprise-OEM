@@ -1211,7 +1211,7 @@ function PermissionModal({
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="所有者与管理员始终拥有全部权限；这里配置的是该角色在数据与页面上的可见范围。"
+        title="所有者与管理员始终拥有全部权限；这里配置的是该角色在数据与页面上的可见范围。"
       />
       {loading ? (
         <EmptyState text="正在加载权限…" />
@@ -1480,8 +1480,7 @@ function RuleModal({
       ...special,
       ...(entity?.fields || []).map((field) => ({ value: field.fieldKey, label: field.name })),
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail.entities]);
+  }, [detail, form]);
 
   return (
     <Modal open title={rule ? "编辑数据规则" : "新建数据规则"} width={560} confirmLoading={saving} onCancel={onClose} onOk={() => void save()} destroyOnHidden>

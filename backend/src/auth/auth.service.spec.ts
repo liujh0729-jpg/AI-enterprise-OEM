@@ -2,6 +2,10 @@ import { sign } from 'jsonwebtoken';
 import { createHmac } from 'node:crypto';
 import { AuthService } from './auth.service';
 import { issueSsoSession } from './token';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { UserLookupService } from '../directory/user-lookup.service';
+import type { AccountService } from '../account/account.service';
+import { stub } from '../../test/doubles';
 
 /** 当前实现只接受本站自签会话（issuer=enterprise-sso），并核对账号版本。 */
 describe('local session authentication boundary', () => {
@@ -24,18 +28,25 @@ describe('local session authentication boundary', () => {
   it('accepts a locally signed session and validates its token version', async () => {
     const account = accounts();
     const auth = new AuthService(
-      {} as never,
-      {} as never,
-      account as never,
+      stub<PrismaService>(),
+      stub<UserLookupService>(),
+      stub<AccountService>(account),
     );
     await expect(
-      auth.authenticate('GET', '/enterprise/me', issueSsoSession('42', 'unit', 'user', 3)),
+      auth.authenticate(
+        'GET',
+        '/enterprise/me',
+        issueSsoSession('42', 'unit', 'user', 3),
+      ),
     ).resolves.toMatchObject({ userId: '42', username: 'unit' });
     expect(account.assertSessionValid).toHaveBeenCalledWith('42', 3);
   });
 
   it('rejects the request when the account module is not wired', async () => {
-    const auth = new AuthService({} as never, {} as never);
+    const auth = new AuthService(
+      stub<PrismaService>(),
+      stub<UserLookupService>(),
+    );
     await expect(
       auth.authenticate('GET', '/enterprise/me', issueSsoSession('42', 'unit')),
     ).rejects.toThrow('会话无效');
@@ -61,31 +72,38 @@ describe('local session authentication boundary', () => {
           { issuer: 'enterprise-sso', expiresIn: 300 },
         ),
     ],
-  ] as const)('rejects %s before touching the account module', async (_, access) => {
-    const account = accounts();
-    const auth = new AuthService({} as never, {} as never, account as never);
-    await expect(
-      auth.authenticate('GET', '/enterprise/me', access()),
-    ).rejects.toThrow();
-    expect(account.assertSessionValid).not.toHaveBeenCalled();
-  });
+  ] as const)(
+    'rejects %s before touching the account module',
+    async (_, access) => {
+      const account = accounts();
+      const auth = new AuthService(
+        stub<PrismaService>(),
+        stub<UserLookupService>(),
+        stub<AccountService>(account),
+      );
+      await expect(
+        auth.authenticate('GET', '/enterprise/me', access()),
+      ).rejects.toThrow();
+      expect(account.assertSessionValid).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects a disabled API key owner before recording a successful API call', async () => {
     const updateMany = jest.fn();
     const create = jest.fn();
     const auth = new AuthService(
-      {
+      stub<PrismaService>({
         apiKey: {
           findFirst: jest.fn().mockResolvedValue({ id: 1, userId: 'disabled' }),
           updateMany,
         },
         auditLog: { create },
-      } as never,
-      {
+      }),
+      stub<UserLookupService>({
         requireActiveUser: jest
           .fn()
           .mockRejectedValue(new Error('user disabled')),
-      } as never,
+      }),
     );
     await expect(
       auth.authenticate('GET', '/api/v1/contracts', undefined, 'unit-key'),

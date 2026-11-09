@@ -7,7 +7,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { runInRequestContext, currentRequest } from '../common/request-context';
 import { resolveSiteUrl } from '../common/site-url';
-import { AuthService, isPublicRequest } from '../auth/auth.service';
+import { AuthService } from '../auth/auth.service';
 import {
   registerUpstreamTokenResolver,
   registerBaseDataTokenResolver,
@@ -45,14 +45,26 @@ import {
 } from '../social/hiring.routes';
 import { registerRoutes } from './routes';
 import { registerAutomationRoutes } from './automation-routes';
+import { featureGateMiddleware } from '../feature/feature-gate.middleware';
+import { publishReviewMiddleware } from '../moderation/publish-review.middleware';
+import { registerPublishReviewRoutes } from '../moderation/publish-review.routes';
 import { registerMcpRoutes } from '../mcp/mcp-routes';
 import { registerLivecodePublic } from '../livecode/livecode.public';
 import { registerServiceDeskPublic } from '../service-desk/service-desk.public';
+import { registerSurveyPublic } from '../survey/survey.public';
+import { registerMechanismPublic } from '../mechanisms/mechanism.public';
+import { registerScrmPublic } from '../wecom-scrm/scrm-callback';
+import { registerScrmSidebarPublic } from '../wecom-scrm/scrm-sidebar.service';
+import { registerGapsPublic } from '../gaps/gaps.public';
+import { registerModelPlazaPublic } from '../model-plaza/model-plaza.public';
+import { registerHardwarePublic } from '../hardware/hardware.public';
+import { registerHardwareMachineRoutes } from '../hardware/hardware.machine';
 import { McpService } from '../mcp/mcp.service';
 import { handleError, validationHook } from './error-handler';
 import { bearerApiKey } from '../mcp/mcp-auth';
 import { agentIntentMiddleware } from '../agent-memory/agent-memory.middleware';
 import type { Services } from './services';
+import type { Context, Input } from 'hono';
 import type { ApiEnv } from './types';
 
 export function canonicalPath(path: string) {
@@ -130,7 +142,7 @@ export function createApp(services: Services) {
   registerBaseDataTokenResolver((userId) =>
     account.aipdd.baseDataToken(userId),
   );
-  // M4 平台后台：站点设置（前端 SSR 读取）与服务商展示/同步。
+  // M4 平台后台：站点设置（前端 SSR 读取）。
   const platform = createPlatformModule(services);
   // 积分与充值：复用 services.ts 已构造的积分域实例，仅负责路由组装。
   const points = createPointsModule(services);
@@ -202,7 +214,7 @@ export function createApp(services: Services) {
       ],
     }),
   );
-  app.use('*', async (c, next) => {
+  app.use('*', async (c: Context<ApiEnv, string, Input>, next) => {
     if (
       !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) &&
       (c.req.header('cookie') || c.req.path.startsWith('/api/auth/'))
@@ -234,7 +246,6 @@ export function createApp(services: Services) {
       onError: () => {
         throw new BusinessException(ErrorCode.PAYLOAD_TOO_LARGE);
       },
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- Hono widens validator input in middleware.
     })(c, next);
   });
   registerSessionRoutes(app, account);
@@ -245,21 +256,23 @@ export function createApp(services: Services) {
   registerPointsPublicRoutes(app, points);
   const business = new OpenAPIHono<ApiEnv>({ defaultHook: validationHook });
   business.onError(handleError);
-  business.use('*', async (c, next) => {
-    const path = canonicalPath(c.req.path),
-      publicRequest = isPublicRequest(c.req.method, path);
+  business.use('*', async (c: Context<ApiEnv, string, Input>, next) => {
+    const path = canonicalPath(c.req.path);
     const apiKey =
       c.req.header('x-api-key') ?? bearerApiKey(c.req.header('authorization'));
     const token =
-      apiKey && path.startsWith('/api/v1/')
-        ? undefined
-        : await sessionToken(c, publicRequest);
+      apiKey && path.startsWith('/api/v1/') ? undefined : sessionToken(c);
     c.set('accessToken', token);
     c.set('user', await auth.authenticate(c.req.method, path, token, apiKey));
     await next();
   });
   // 意图中间件在鉴权之后、业务路由之前：全站写请求只在这一处进记忆，业务服务不各自埋点。
   business.use('*', agentIntentMiddleware(services.agentMemory));
+  // §5.10 功能开关拦截：鉴权后、路由前，菜单隐藏的板块直链/MCP 转发同口径 403 FEATURE_CLOSED；
+  // 平台管理/认证会话/账户计费/合规退出四组 protected 前缀在中间件内部直接跳过。
+  business.use('*', featureGateMiddleware(services.feature.toggle));
+  // 发布审核：鉴权与功能开关之后、业务路由之前，按路径拦截发帖 / 简历 / 需求 / 服务发布。
+  business.use('*', publishReviewMiddleware(services.publishReview));
   registerRoutes(business, services);
   registerAccountBusinessRoutes(business, account, (user) =>
     services.identity.requireAdmin(user),
@@ -279,6 +292,13 @@ export function createApp(services: Services) {
   registerPointsRoutes(business, points, (user) =>
     services.identity.requireAdmin(user),
   );
+  // L0 平台治理（§5.9/§5.10/§5.12）由契约 moduleHandlers 注册（Platform_/Points_），
+  // 菜单对登录用户开放，其余管理端动作在控制器内统一 requireAdmin。
+  // 发布审核（阿里云内容安全）：配置、测试与拦截台账，平台管理员专属。
+  registerPublishReviewRoutes(business, services.publishReview, (user) =>
+    services.identity.requireAdmin(user),
+  );
+  // L1 知识库底座（§10）由契约 moduleHandlers 注册（Kb_*），可见性闸在服务内部收口。
   // M5 社交路由挂 business：继承统一鉴权与平台级封禁即时拦截，无需各自判重。
   registerSocialRoutes(business, social);
   registerListingRoutes(business, listing);
@@ -289,6 +309,9 @@ export function createApp(services: Services) {
   services.builtinMcp.current = (user, requestId, name, args) =>
     mcpService.callTool(user, requestId, name, args);
   registerMcpRoutes(business, services, mcpService);
+  // 智能硬件对外通道：REST `/api/v1/hardware/**` 与独立 MCP `/api/v1/hardware/mcp`，
+  // 与平台 MCP 各自一套；继承 business 的 ek_ Key 鉴权、功能开关与审计。
+  registerHardwareMachineRoutes(business, services);
   // IM 连接事件回调（飞书 / 企业微信）：原样回挑战值，不经契约层信封。
   business.post('/enterprise/im/events/:provider/:token', async (c) => {
     const body = await c.req
@@ -309,7 +332,7 @@ export function createApp(services: Services) {
         error instanceof BusinessException ? error.message : 'invalid event';
       const status =
         error instanceof BusinessException ? error.getStatus() : 400;
-      return c.json({ code: status, message }, status as never);
+      return c.json({ code: status, message }, status);
     }
   });
   // 飞书事件订阅回调：飞书要求原样返回 { challenge }，所以不经契约层的统一信封。
@@ -382,9 +405,23 @@ export function createApp(services: Services) {
   );
   // MCP 端点不在统一信封的 `endpoints` 表里（它按 JSON-RPC 自成一格），所以单独转发一次。
   app.post(MCP_ENDPOINT_PATH, (c) => business.fetch(c.req.raw));
+  // 硬件机器通道（含独立 MCP 端点）也不在契约表里，整段前缀转发给 business 走 Key 鉴权。
+  app.all('/api/v1/hardware/*', (c) => business.fetch(c.req.raw));
   // 活码落地页 / 官网脚本 / 访客客服通道：公开、免登录，不走统一信封
   registerLivecodePublic(app, services);
   registerServiceDeskPublic(app, services);
+  registerSurveyPublic(app, services);
+  // 资产公开分享与 OIDC 外部身份源回跳：免登录，路径带 /api/public 前缀。
+  registerMechanismPublic(app, services);
+  // 企微事件回调（安全模式验签）与员工侧边栏 H5：免登录，靠密钥/票据自证。
+  registerScrmPublic(app, services);
+  registerScrmSidebarPublic(app, services);
+  // 附录 B 公开通道：预约 / 报价 PDF / 条款正文，路径带 /api/public 前缀。
+  registerGapsPublic(app, services);
+  // 模型广场对外网关：OpenAI 兼容的 /v1/*，自带 Key 鉴权与积分结算，不走统一信封。
+  registerModelPlazaPublic(app, services);
+  // 智能硬件设备通道：/api/public/hardware/**，只认设备令牌，免登录、不进功能开关（关板块不掐心跳）。
+  registerHardwarePublic(app, services);
   app.notFound((c) =>
     c.json({ code: 404, message: '接口不存在', data: null }, 404),
   );

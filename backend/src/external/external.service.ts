@@ -1,4 +1,4 @@
-import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CurrentUser } from '../auth/current-user';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
@@ -185,7 +185,7 @@ export class ExternalService {
         period: decl.period,
         taxType: decl.taxType,
         targetSystem: guide.system,
-        payload: built.payload as unknown as Prisma.InputJsonValue,
+        payload: toJsonInput(built.payload),
         payloadHash: built.payloadHash,
         status: 'QUEUED',
         guide,
@@ -271,7 +271,7 @@ export class ExternalService {
       take: 200,
     });
     return Promise.all(
-      rows.map((row) => this.decorate(user, row as unknown as SubmissionRow)),
+      rows.map((row) => this.decorate(user, row as SubmissionRow)),
     );
   }
   /** 按业务单据取外报任务（申报单详情用，同单据同属期唯一）。 */
@@ -282,7 +282,7 @@ export class ExternalService {
       orderBy: { id: 'desc' },
     });
     return Promise.all(
-      rows.map((row) => this.decorate(user, row as unknown as SubmissionRow)),
+      rows.map((row) => this.decorate(user, row as SubmissionRow)),
     );
   }
   async detail(user: CurrentUser, id: number) {

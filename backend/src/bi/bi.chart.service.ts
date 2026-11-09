@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { BiScopeService } from './bi.scope';
 import { BiQueryService } from './bi.query.service';
 
@@ -65,18 +67,18 @@ export class BiChartService {
     const ctx = await this.scope.requireMember(user);
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
-    const where: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+    const where: Prisma.BiChartWhereInput = { ownerUserId: ctx.ownerUserId };
     if (query.datasetId) where.datasetId = Number(query.datasetId);
     const keyword = text(query.keyword).trim();
     if (keyword) where.name = { contains: keyword };
     const [rows, total] = await Promise.all([
       this.prisma.biChart.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.biChart.count({ where: where as never }),
+      this.prisma.biChart.count({ where }),
     ]);
     return {
       list: await this.views(rows),
@@ -111,7 +113,7 @@ export class BiChartService {
       datasetId,
       name,
       chartType,
-      config: (body.config || {}) as never,
+      config: toJsonInput(body.config || {}),
     };
     const id = Number(body.id) || 0;
     if (id) {

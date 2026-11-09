@@ -109,8 +109,7 @@ export function CanvasView({
 
   useEffect(() => {
     setNodes(parseNodes(page));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page.id, page.config]);
+  }, [page]);
 
   const selected = nodes.find((node) => node.id === selectedId);
 
@@ -178,7 +177,7 @@ export function CanvasView({
           type: page.type as (typeof LOWCODE_PAGE_TYPES)[number],
           name: page.name,
           entityId: page.entityId,
-          config: { ...page.config, nodes: nodes as unknown as Record<string, unknown>[] },
+          config: { ...page.config, nodes },
           sort: page.sort,
           visible: page.visible,
         },

@@ -50,6 +50,9 @@ const SCHEMA_PG = 'backend/prisma/schema.postgres.prisma';
 /** PostgreSQL 版是 `pnpm db:gen:pg` 从 schema.prisma 派生的生产物、按约定不入库；本地存在时顺带校验，CI 只验事实源。 */
 const SCHEMA_TARGETS = [SCHEMA, SCHEMA_PG].filter((file) => existsSync(join(root, file)));
 const MIGRATION = 'backend/prisma/migrations/0011_agent_security/migration.sql';
+/** B0 连接器授权闸：授权行按「整条连接器」独立粒度，迁移必须带出 scope_type / connector_id。 */
+const MIGRATION_CONNECTOR =
+  'backend/prisma/migrations/0041_connector_grant/migration.sql';
 const SCHEDULES_TAB = 'frontend/src/app/agent/_components/schedules-tab.tsx';
 const GRANTS_PANEL = 'frontend/src/app/agent/_components/grants-panel.tsx';
 const AGENT_COMMON = 'frontend/src/app/agent/_components/common.ts';
@@ -116,8 +119,8 @@ test('放开权限的写入要二次验密，验密本身也被限流', () => {
   has(CONFIRM, /bcrypt\.compare\(/, '要比对哈希，不能存明文或只判非空');
   has(CONFIRM, /status !== 'ACTIVE'/, '封号账号即便密码对也不能放开权限');
   lacks(CONFIRM, /throw[\s\S]{0,120}\$\{password\}/, '异常文案里绝不能带出密码');
-  has(MEMORY, /async saveGrants\(userId: string, actions: string\[\], password\?/, '保存授权要收密码参数');
-  has(MEMORY, /if \(toAdd\.length\)[\s\S]{0,160}assertSensitivePassword\(/, '只在新增授权时验密，收回授权不设门槛');
+  has(MEMORY, /async saveGrants\([\s\S]{0,120}password\?[\s\S]{0,60}connectorIds: number\[\]/, '保存授权要收密码参数（并带连接器清单）');
+  has(MEMORY, /if \(toAdd\.length \|\| connectorsToAdd\.length\)[\s\S]{0,200}assertSensitivePassword\(/, '只在新增授权（动作或连接器）时验密，收回授权不设门槛');
   has(SCHEDULE, /assertWritePassword/, '定时任务放开写动作要验密');
   has(SCHEDULE, /existing\.allowWrite !== true/, '只有「从关到开」才验密');
   has(SESSION, /VERIFY_PER_USER/, '验密端点要按账号限流');
@@ -189,7 +192,20 @@ test('前端不替用户默认放开写动作，放开与新增授权都要弹�
   has(SCHEDULES_TAB, /editor\.allowWrite && !editor\.originAllowWrite/, '只有「从关到开」弹窗');
   has(SCHEDULES_TAB, /usePasswordConfirm\(\)/, '定时任务用验密弹窗');
   has(GRANTS_PANEL, /usePasswordConfirm\(\)/, '授权面板用验密弹窗');
-  has(GRANTS_PANEL, /if \(!addedCount\)/, '没新增授权时不打扰用户');
+  has(GRANTS_PANEL, /if \(!addedCount && !addedConnectors\)/, '没新增授权（动作或连接器）时不打扰用户');
   has(GRANTS_PANEL, /persist\(password\)/, '验过的密码要真的传给服务端');
-  has(AGENT_COMMON, /saveGrants: \(actions: string\[\], password\?: string\)/, '请求体带上密码字段');
+  has(AGENT_COMMON, /saveGrants: \(actions: string\[\], connectorIds: number\[\], password\?: string\)/, '请求体带上密码字段');
+});
+
+test('自建连接器的工具默认不执行：按整条连接器授权，未授权/无人值守只回草案并留痕', () => {
+  has(CONNECTORS, /connectorGate\(/, '运行期必须有连接器授权闸');
+  has(CONNECTORS, /grantedConnectors\(/, '闸门要读本人已授权的连接器 id');
+  has(CONNECTORS, /工具执行失败：/, '被拦时回的文案要能被上层判为失败，不能算成功');
+  has(CONNECTORS, /NOT_GRANTED/, '未授权的拦截原因要可区分');
+  has(CONNECTORS, /SCHEDULE_DENIED/, '无人值守的拦截原因要可区分');
+  has(MEMORY, /async grantedConnectors\(userId: string\): Promise<Set<number>>/, '授权清单要能按连接器粒度读');
+  has(MEMORY, /GRANT_SCOPE_CONNECTOR/, '连接器授权行要有独立粒度，不混进契约动作');
+  has(MEMORY, /connectorId,/, '连接器授权行要真的写 connector_id');
+  has(MIGRATION_CONNECTOR, /`scope_type`/, '迁移要加授权粒度列');
+  has(MIGRATION_CONNECTOR, /agent_action_grants_scope_key/, '唯一键要含连接器列，否则一个账号只能放开一条');
 });

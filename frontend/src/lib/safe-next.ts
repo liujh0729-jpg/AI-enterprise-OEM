@@ -1,5 +1,5 @@
 /** Only allow a path on this site as an authentication return target. */
-export function safeNextPath(raw?: string | null, fallback = "/") {
+export function safeNextPath(raw?: string | null, fallback = "/dashboard") {
   if (
     !raw ||
     !raw.startsWith("/") ||

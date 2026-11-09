@@ -2,7 +2,7 @@
 
 import { Alert, Button, Input, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { OaCc, OaOrg } from "@enterprise/contracts";
 import { oaApi } from "@/api/oa";
 import { Panel } from "@/components/ui/panel";
@@ -37,7 +37,7 @@ export function CcPanel({
   const orgQuery: OaOrgQuery = orgQueryOf(org);
   const { orgType, orgUserId } = orgQuery;
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await oaApi.cc({
@@ -53,12 +53,11 @@ export function CcPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [orgType, orgUserId, page, keyword]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgType, orgUserId, page, keyword]);
+  }, [load]);
 
   const markRead = async (row: OaCc) => {
     setBusyId(row.id);
@@ -155,7 +154,7 @@ export function CcPanel({
         <Alert
           type="error"
           showIcon
-          message={error}
+          title={error}
           style={{ marginBottom: 12 }}
         />
       ) : null}

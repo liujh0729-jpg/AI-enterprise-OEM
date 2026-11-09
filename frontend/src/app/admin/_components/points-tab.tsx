@@ -12,18 +12,28 @@ import {
   Select,
   Switch,
   Table,
-  Tabs,
 } from "antd";
 import { WalletOutlined } from "@ant-design/icons";
-import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { EmptyState, Notice, Panel, PanelTabs } from "@/components/ui/panel";
 import {
   pointsAdminApi,
+  type AiUsageModuleRow,
   type PointsAccountRow,
   type PointTxRow,
   type PricingRow,
   type RechargeOrderRow,
   type UsageEventRow,
 } from "@/api/points";
+import { billingRuleApi, type BillingRule } from "@/api/governance";
+import { GapsPromoPanel } from "@/app/points/_components/gaps-promo";
+import {
+  AI_MODULE_LABELS,
+  BILLING_SUBJECT_LABELS,
+  aiModuleLabel,
+  billingSubjectLabel,
+  fmtTokens,
+  txSceneLabel,
+} from "@/lib/ai-usage";
 import { useSiteBase } from "@/lib/site-brand";
 import { joinSiteUrl, SITE_BASE_PLACEHOLDER } from "@/lib/site-url";
 import { useOperationMutation } from "@/query/business";
@@ -36,14 +46,6 @@ import { PermissionNotice, fmtTime, useAdminData } from "./common";
    全量白名单落库（point_settings 键值表）。
    ============================================================ */
 
-const MODULE_LABELS: Record<string, string> = {
-  asset_storage: "数字资产存储",
-  bi: "BI 查询",
-  oa: "OA 单据",
-  crm: "CRM 席位",
-  ai_customer: "AI 客服会话",
-};
-
 const TX_TYPE_LABEL: Record<string, string> = {
   RECHARGE: "充值",
   RECHARGE_BONUS: "充值赠送",
@@ -52,18 +54,6 @@ const TX_TYPE_LABEL: Record<string, string> = {
   TRANSFER_IN: "收到赠送",
   TRANSFER_OUT: "赠送转出",
   ADMIN_ADJUST: "管理员调整",
-};
-
-const TX_SCENE_LABEL: Record<string, string> = {
-  register: "注册",
-  invite: "邀请",
-  asset_storage: "资产存储",
-  bi: "BI 查询",
-  oa: "OA 提交",
-  ai_customer: "AI 客服",
-  crm: "CRM 席位",
-  gift: "积分赠送",
-  admin: "管理员调整",
 };
 
 const ORDER_STATUS: Record<string, { label: string; cls: string }> = {
@@ -94,14 +84,19 @@ function stateBadge(map: Record<string, { label: string; cls: string }>, key: st
 
 /** 板块入口：五个页签同屏切换。 */
 export function PointsTab() {
+  const [tab, setTab] = useState("settings");
   return (
-    <Tabs
+    <PanelTabs
+      value={tab}
+      onChange={setTab}
       items={[
         { key: "settings", label: "计费设置", children: <SettingsPane /> },
         { key: "wechat", label: "微信支付", children: <WechatPane /> },
         { key: "pricing", label: "价目与用量", children: <PricingPane /> },
+        { key: "billing", label: "用量计费", children: <BillingRulesPane /> },
         { key: "accounts", label: "账户与调整", children: <AccountsPane /> },
         { key: "orders", label: "充值订单", children: <OrdersPane /> },
+        { key: "redeem", label: "兑换码", children: <GapsPromoPanel /> },
       ]}
     />
   );
@@ -218,7 +213,8 @@ function SettingsPane() {
                   <InputNumber
                     min={0.01}
                     step={10}
-                    addonBefore="¥"
+                    prefix="¥"
+                    style={{ width: 140 }}
                     value={tier.yuan}
                     onChange={(value) =>
                       setTiers((rows) =>
@@ -229,7 +225,8 @@ function SettingsPane() {
                   <InputNumber
                     min={0}
                     max={100}
-                    addonAfter="% 赠送"
+                    suffix="% 赠送"
+                    style={{ width: 150 }}
                     value={tier.bonusPercent}
                     onChange={(value) =>
                       setTiers((rows) =>
@@ -483,7 +480,7 @@ function PricingPane() {
   const saveRow = async (code: string) => {
     try {
       await save.mutateAsync({ code, body: drafts[code] });
-      message.success(`模块「${MODULE_LABELS[code] || code}」价目已更新`);
+      message.success(`模块「${billingSubjectLabel(code)}」价目已更新`);
       await reload();
     } catch (error) {
       if (error instanceof Error)
@@ -544,7 +541,7 @@ function PricingPane() {
                 width: 170,
                 render: (_, row) => (
                   <div>
-                    <div style={{ fontWeight: 600 }}>{MODULE_LABELS[row.code] || row.code}</div>
+                    <div style={{ fontWeight: 600 }}>{billingSubjectLabel(row.code)}</div>
                     <span className="mono text-12 muted">{row.code}</span>
                   </div>
                 ),
@@ -688,19 +685,92 @@ function PricingPane() {
 }
 
 function UsagePanel() {
+  const [module, setModule] = useState("");
   const [code, setCode] = useState("");
   const [userId, setUserId] = useState("");
   const [page, setPage] = useState(1);
-  const params = { code: code || undefined, userId: userId || undefined, page, size: 20 };
-  const { data, denied, loading, reload } = useAdminData(
+  const detailParams = {
+    module: module || undefined,
+    code: code || undefined,
+    userId: userId || undefined,
+    page,
+    size: 20,
+  };
+  const summaryParams = { userId: userId || undefined };
+  const {
+    data: summary,
+    denied,
+    loading: summaryLoading,
+    reload,
+  } = useAdminData(
+    "points-ai-usage",
+    (signal) => pointsAdminApi.aiUsageSummary(summaryParams, { signal }),
+    summaryParams,
+  );
+  const { data, loading } = useAdminData(
     "points-usage",
-    (signal) => pointsAdminApi.usage(params, { signal }),
-    params,
+    (signal) => pointsAdminApi.usage(detailParams, { signal }),
+    detailParams,
   );
 
   return (
     <>
       <PermissionNotice denied={denied} />
+      <Panel
+        title="AI 用量汇总"
+        titleBadge={
+          <span className="text-12 muted">
+            近 30 天 · {fmtPoints(summary?.totals.calls ?? 0)} 次调用 /{" "}
+            {fmtTokens(summary?.totals.tokenInAmount ?? 0)} 输入 token /{" "}
+            {fmtTokens(summary?.totals.tokenOutAmount ?? 0)} 输出 token /{" "}
+            {fmtPoints(summary?.totals.pointsAmount ?? 0)} 积分
+          </span>
+        }
+        extra={<Button onClick={() => void reload()}>刷新</Button>}
+      >
+        <div className="table-wrap">
+          <Table<AiUsageModuleRow>
+            rowKey={(row) => `${row.module}·${row.code}`}
+            loading={summaryLoading}
+            dataSource={summary?.modules ?? []}
+            size="middle"
+            pagination={false}
+            locale={{ emptyText: <EmptyState text="暂无 AI 用量记录" /> }}
+            columns={[
+              {
+                title: "板块",
+                width: 150,
+                render: (_, row) => aiModuleLabel(row.module),
+              },
+              {
+                title: "科目",
+                width: 170,
+                render: (_, row) => billingSubjectLabel(row.code),
+              },
+              { title: "调用次数", width: 110, render: (_, row) => fmtPoints(row.calls) },
+              {
+                title: "输入 token",
+                width: 130,
+                render: (_, row) => fmtTokens(row.tokenInAmount),
+              },
+              {
+                title: "输出 token",
+                width: 130,
+                render: (_, row) => fmtTokens(row.tokenOutAmount),
+              },
+              { title: "消耗积分", width: 120, render: (_, row) => fmtPoints(row.pointsAmount) },
+              {
+                title: "洞察产出",
+                width: 120,
+                render: (_, row) => {
+                  const hit = summary?.insights.find((item) => item.scope === row.module);
+                  return hit ? `${fmtPoints(hit.count)} 条` : "—";
+                },
+              },
+            ]}
+          />
+        </div>
+      </Panel>
       <Panel
         title="用量明细"
         titleBadge={<span className="text-12 muted">计量事件流水：免费额内也记行（billed=否），供对账</span>}
@@ -708,14 +778,25 @@ function UsagePanel() {
           <div style={{ display: "flex", gap: 8 }}>
             <Select
               allowClear
-              placeholder="全部模块"
+              placeholder="全部板块"
               style={{ width: 150 }}
+              value={module || undefined}
+              onChange={(value) => {
+                setModule(value || "");
+                setPage(1);
+              }}
+              options={Object.entries(AI_MODULE_LABELS).map(([value, label]) => ({ value, label }))}
+            />
+            <Select
+              allowClear
+              placeholder="全部科目"
+              style={{ width: 160 }}
               value={code || undefined}
               onChange={(value) => {
                 setCode(value || "");
                 setPage(1);
               }}
-              options={Object.entries(MODULE_LABELS).map(([value, label]) => ({ value, label }))}
+              options={Object.entries(BILLING_SUBJECT_LABELS).map(([value, label]) => ({ value, label }))}
             />
             <Input
               allowClear
@@ -727,7 +808,6 @@ function UsagePanel() {
                 setPage(1);
               }}
             />
-            <Button onClick={() => void reload()}>刷新</Button>
           </div>
         }
       >
@@ -751,19 +831,42 @@ function UsagePanel() {
                 width: 160,
                 render: (_, row) => <span className="text-12 muted">{fmtTime(row.occurredAt)}</span>,
               },
-              { title: "模块", width: 140, render: (_, row) => MODULE_LABELS[row.code] || row.code },
+              { title: "板块", width: 130, render: (_, row) => aiModuleLabel(row.module) },
+              {
+                title: "动作",
+                width: 140,
+                render: (_, row) => (
+                  <span className="text-12" title={row.model ? `模型：${row.model}` : undefined}>
+                    {row.operation || "—"}
+                  </span>
+                ),
+              },
+              { title: "科目", width: 150, render: (_, row) => billingSubjectLabel(row.code) },
               {
                 title: "用户",
-                width: 220,
+                width: 200,
                 render: (_, row) => <span className="mono text-12">{row.userId}</span>,
               },
-              { title: "数量", width: 110, render: (_, row) => fmtPoints(row.quantityAmount) },
+              { title: "数量", width: 90, render: (_, row) => fmtPoints(row.quantityAmount) },
+              {
+                title: "token 入/出",
+                width: 140,
+                render: (_, row) =>
+                  row.tokenInAmount || row.tokenOutAmount
+                    ? `${fmtTokens(row.tokenInAmount)} / ${fmtTokens(row.tokenOutAmount)}`
+                    : "—",
+              },
+              {
+                title: "积分",
+                width: 90,
+                render: (_, row) => (row.pointsAmount ? fmtPoints(row.pointsAmount) : "—"),
+              },
               {
                 title: "计费",
                 width: 90,
                 render: (_, row) => (
                   <span className={`badge ${row.billed ? "badge-green" : "badge-gray"}`}>
-                    {row.billed ? "已扣费" : "免费额内"}
+                    {row.billed ? "已扣费" : "未扣分"}
                   </span>
                 ),
               },
@@ -955,7 +1058,7 @@ function TransactionsTable({ userId }: { userId: string }) {
           render: (_, row) => <span className="text-12 muted">{fmtTime(row.createdAt)}</span>,
         },
         { title: "类型", width: 100, render: (_, row) => TX_TYPE_LABEL[row.type] || row.type },
-        { title: "场景", width: 100, render: (_, row) => TX_SCENE_LABEL[row.scene] || row.scene || "—" },
+        { title: "场景", width: 100, render: (_, row) => txSceneLabel(row.scene) },
         {
           title: "积分",
           width: 100,
@@ -1090,6 +1193,309 @@ function OrdersPane() {
           />
         </div>
       </Panel>
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------- 用量计费（§5.12） */
+
+const BILLING_METRIC_LABEL: Record<string, string> = {
+  token_in: "输入token",
+  token_out: "输出token",
+  call: "次数",
+  byte: "字节",
+  page: "页",
+};
+
+const BILLING_SCOPE_LABEL: Record<string, string> = {
+  PLATFORM: "平台默认",
+  ORG: "企业覆盖",
+  PLAN: "套餐覆盖",
+};
+
+function fmtAmount(value: string | number | null | undefined) {
+  return (Number(value) || 0).toLocaleString("zh-CN", { maximumFractionDigits: 4 });
+}
+
+/** upsert body 与契约 upsertBillingRuleBodySchema 输出同构（含 default 补齐后的必填字段）。 */
+type BillingRuleUpsertBody = {
+  code: string;
+  scope: "PLATFORM" | "ORG" | "PLAN";
+  orgUserId: string;
+  metric: "token_in" | "token_out" | "call" | "byte" | "page";
+  unitPriceAmount: number;
+  baseFeeAmount: number;
+  multiplier: number;
+  minChargeAmount: number;
+  maxChargeAmount: number;
+  budgetCapMonthly: number;
+  freeQuotaMonthly: number;
+  enabled: boolean;
+};
+
+/**
+ * BillingRule 按用量计费规则（方案 §5.12）：扣分 = baseFee + Σ(用量 × unitPrice × multiplier)。
+ * PLATFORM 默认行由种子维护（skill_review 等 AI 科目），ORG/PLAN 为覆盖行；
+ * 无任何规则行的科目自动回落旧 ModulePricing 按次口径（两路径互斥不双扣）。
+ */
+function BillingRulesPane() {
+  const { message } = App.useApp();
+  const { data, denied, loading, reload } = useAdminData("points-billing-rules", (signal) =>
+    billingRuleApi.list({}, { signal }),
+  );
+  const [editOpen, setEditOpen] = useState(false);
+  const [editing, setEditing] = useState<BillingRule | null>(null);
+  const [form] = Form.useForm();
+
+  const upsert = useOperationMutation(
+    (body: BillingRuleUpsertBody) => billingRuleApi.upsert({ body }),
+    ["points-billing-rules", "*"],
+  );
+  const remove = useOperationMutation(
+    (id: number) => billingRuleApi.remove({ body: { id } }),
+    ["points-billing-rules", "*"],
+  );
+
+  const openEdit = (row: BillingRule) => {
+    setEditing(row);
+    form.setFieldsValue({
+      code: row.code,
+      scope: row.scope,
+      orgUserId: row.orgUserId,
+      metric: row.metric,
+      unitPriceAmount: Number(row.unitPriceAmount),
+      baseFeeAmount: Number(row.baseFeeAmount),
+      multiplier: Number(row.multiplier),
+      minChargeAmount: Number(row.minChargeAmount),
+      maxChargeAmount: Number(row.maxChargeAmount),
+      budgetCapMonthly: Number(row.budgetCapMonthly),
+      freeQuotaMonthly: Number(row.freeQuotaMonthly),
+      enabled: row.enabled,
+    });
+    setEditOpen(true);
+  };
+
+  const onSubmit = async (values: Record<string, unknown>) => {
+    try {
+      await upsert.mutateAsync({
+        code: String(values.code || "").trim(),
+        scope: (String(values.scope || "PLATFORM") as BillingRuleUpsertBody["scope"]),
+        orgUserId: String(values.orgUserId || "").trim(),
+        metric: (String(values.metric || "call") as BillingRuleUpsertBody["metric"]),
+        unitPriceAmount: Number(values.unitPriceAmount) || 0,
+        baseFeeAmount: Number(values.baseFeeAmount) || 0,
+        multiplier: Number(values.multiplier) || 0,
+        minChargeAmount: Number(values.minChargeAmount) || 0,
+        maxChargeAmount: Number(values.maxChargeAmount) || 0,
+        budgetCapMonthly: Number(values.budgetCapMonthly) || 0,
+        freeQuotaMonthly: Number(values.freeQuotaMonthly) || 0,
+        enabled: values.enabled !== false,
+      });
+      message.success("计费规则已保存，即时生效（版本自增、审计留痕）");
+      setEditOpen(false);
+      await reload();
+    } catch (error) {
+      if (error instanceof Error)
+        presentMutationError(error, (text) => message.error(text));
+    }
+  };
+
+  const toggleEnabled = async (row: BillingRule) => {
+    try {
+      await upsert.mutateAsync({
+        code: row.code,
+        scope: row.scope,
+        orgUserId: row.orgUserId,
+        metric: row.metric,
+        unitPriceAmount: Number(row.unitPriceAmount),
+        baseFeeAmount: Number(row.baseFeeAmount),
+        multiplier: Number(row.multiplier),
+        minChargeAmount: Number(row.minChargeAmount),
+        maxChargeAmount: Number(row.maxChargeAmount),
+        budgetCapMonthly: Number(row.budgetCapMonthly),
+        freeQuotaMonthly: Number(row.freeQuotaMonthly),
+        enabled: !row.enabled,
+      });
+      message.success(`科目「${billingSubjectLabel(row.code)}」规则已${row.enabled ? "停用" : "启用"}`);
+      await reload();
+    } catch (error) {
+      if (error instanceof Error)
+        presentMutationError(error, (text) => message.error(text));
+    }
+  };
+
+  const onDelete = async (row: BillingRule) => {
+    try {
+      await remove.mutateAsync(row.id);
+      message.success("覆盖行已删除，回落平台默认价");
+      await reload();
+    } catch (error) {
+      if (error instanceof Error)
+        presentMutationError(error, (text) => message.error(text));
+    }
+  };
+
+  return (
+    <>
+      <PermissionNotice denied={denied} />
+      <Panel
+        title="Agent 按用量计费规则（BillingRule）"
+        titleBadge={<span className="text-12 muted">扣分 = 基础费 + Σ(用量 × 单价 × 倍率)；免费额整额免、预算帽超限本笔不计费</span>}
+        extra={<Button onClick={() => void reload()}>刷新</Button>}
+      >
+        <Notice variant="info">
+          1 元 = 10 积分口径下 AI 科目的 token/次数单价在这里配置（§8.4）；没有规则行的科目自动回落上方
+          「模块价目」的按次口径，两条路径互斥不会双扣。ORG/PLAN 覆盖行优先于平台默认行，删除覆盖行即回落默认价。
+        </Notice>
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+          <Table<BillingRule>
+            rowKey="id"
+            loading={loading}
+            dataSource={data ?? []}
+            pagination={false}
+            size="middle"
+            locale={{ emptyText: <EmptyState text="暂无计费规则（播种未执行）" /> }}
+            columns={[
+              {
+                title: "科目",
+                width: 170,
+                render: (_, row) => (
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{billingSubjectLabel(row.code)}</div>
+                    <span className="mono text-12 muted">{row.code}</span>
+                  </div>
+                ),
+              },
+              {
+                title: "作用域",
+                width: 140,
+                render: (_, row) => (
+                  <div>
+                    <span className={`badge ${row.scope === "PLATFORM" ? "badge-blue" : "badge-orange"}`}>
+                      {BILLING_SCOPE_LABEL[row.scope] || row.scope}
+                    </span>
+                    {row.orgUserId ? (
+                      <div className="mono text-12 muted">{row.orgUserId}</div>
+                    ) : null}
+                  </div>
+                ),
+              },
+              {
+                title: "计量",
+                width: 100,
+                render: (_, row) => BILLING_METRIC_LABEL[row.metric] || row.metric,
+              },
+              { title: "基础费", width: 80, render: (_, row) => fmtAmount(row.baseFeeAmount) },
+              { title: "单价", width: 90, render: (_, row) => fmtAmount(row.unitPriceAmount) },
+              { title: "倍率", width: 70, render: (_, row) => fmtAmount(row.multiplier) },
+              { title: "最低起扣", width: 90, render: (_, row) => fmtAmount(row.minChargeAmount) },
+              {
+                title: "单笔上限",
+                width: 90,
+                render: (_, row) => (Number(row.maxChargeAmount) > 0 ? fmtAmount(row.maxChargeAmount) : "不限"),
+              },
+              {
+                title: "月预算帽",
+                width: 90,
+                render: (_, row) => (Number(row.budgetCapMonthly) > 0 ? fmtAmount(row.budgetCapMonthly) : "不限"),
+              },
+              {
+                title: "月免费额",
+                width: 90,
+                render: (_, row) => (Number(row.freeQuotaMonthly) > 0 ? fmtAmount(row.freeQuotaMonthly) : "0"),
+              },
+              {
+                title: "启用",
+                width: 70,
+                render: (_, row) => (
+                  <Switch size="small" checked={row.enabled} loading={upsert.isPending} onChange={() => void toggleEnabled(row)} />
+                ),
+              },
+              {
+                title: "版本/更新",
+                width: 150,
+                render: (_, row) => (
+                  <div>
+                    <span className="text-12">v{row.version} · {row.updatedBy || "—"}</span>
+                    <div className="text-12 muted">{fmtTime(row.updatedAt)}</div>
+                  </div>
+                ),
+              },
+              {
+                title: "操作",
+                width: 140,
+                render: (_, row) => (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Button size="small" onClick={() => openEdit(row)}>
+                      编辑
+                    </Button>
+                    {row.scope !== "PLATFORM" ? (
+                      <Button size="small" danger loading={remove.isPending} onClick={() => void onDelete(row)}>
+                        删除
+                      </Button>
+                    ) : null}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </div>
+      </Panel>
+
+      <Modal
+        title={`编辑计费规则${editing ? `：${billingSubjectLabel(editing.code)}` : ""}`}
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={() => form.submit()}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={upsert.isPending}
+        width={640}
+      >
+        <Notice variant="warn">
+          科目 / 作用域 / 计量三项定位规则行本身，编辑时不可改（改它们等于新建另一行覆盖）；金额单位是积分。
+        </Notice>
+        <Form form={form} layout="vertical" onFinish={onSubmit} style={{ marginTop: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+            <Form.Item name="code" label="科目编码">
+              <Input disabled />
+            </Form.Item>
+            <Form.Item name="scope" label="作用域">
+              <Select disabled options={Object.entries(BILLING_SCOPE_LABEL).map(([value, label]) => ({ value, label }))} />
+            </Form.Item>
+            <Form.Item name="orgUserId" label="企业用户 ID">
+              <Input disabled />
+            </Form.Item>
+            <Form.Item name="metric" label="计量指标">
+              <Select disabled options={Object.entries(BILLING_METRIC_LABEL).map(([value, label]) => ({ value, label }))} />
+            </Form.Item>
+            <Form.Item name="baseFeeAmount" label="基础费（积分/次）">
+              <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="unitPriceAmount" label="单价（积分/计量单位）">
+              <InputNumber min={0} step={0.001} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="multiplier" label="倍率">
+              <InputNumber min={0} max={1000} step={0.1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="minChargeAmount" label="最低起扣（积分）">
+              <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="maxChargeAmount" label="单笔上限（0 = 不限）">
+              <InputNumber min={0} step={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="budgetCapMonthly" label="月预算帽（0 = 不限）">
+              <InputNumber min={0} step={10} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="freeQuotaMonthly" label="月免费额（整额免）">
+              <InputNumber min={0} step={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="enabled" label="启用" valuePropName="checked">
+              <Switch checkedChildren="计费" unCheckedChildren="停用" />
+            </Form.Item>
+          </div>
+        </Form>
+      </Modal>
     </>
   );
 }

@@ -12,7 +12,7 @@ import {
   Tag,
   message,
 } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CrmContractRow,
   CrmMemberRow,
@@ -62,7 +62,7 @@ export function OpportunitiesTab({ customers }: { customers: { id: number; name:
   } | null>(null);
   const members = useMembers();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const data = await crmApi.opportunities({ query: { page, pageSize: 20, view: "all", ...(keyword ? { keyword } : {}) } });
       setRows((data?.list || []) as CrmOpportunityRow[]);
@@ -70,13 +70,12 @@ export function OpportunitiesTab({ customers }: { customers: { id: number; name:
     } catch (error) {
       message.error(errText(error));
     }
-  };
+  }, [page, keyword]);
 
   useEffect(() => {
     void load();
-    void crmApi.opportunityStages().then((data) => setStages((data || []) as never)).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, keyword]);
+    void crmApi.opportunityStages().then((data) => setStages(data || [])).catch(() => undefined);
+  }, [load]);
 
   const openDetail = async (row: CrmOpportunityRow) => {
     try {
@@ -156,7 +155,7 @@ export function OpportunitiesTab({ customers }: { customers: { id: number; name:
         onClose={() => setModal({ open: false })}
         onSubmit={async (values) => {
           if (modal.row) await crmApi.updateOpportunity({ params: { id: String(modal.row.id) }, body: values });
-          else await crmApi.createOpportunity({ body: values as never });
+          else await crmApi.createOpportunity({ body: { ...values, customerId: Number(values.customerId), name: String(values.name) } });
           message.success("已保存");
           void load();
         }}
@@ -337,7 +336,7 @@ export function ContractsTab({ customers }: { customers: { id: number; name: str
   const members = useMembers();
   const stages = useMemo(() => [] as Array<{ id: number; name: string }>, []);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const data = await crmApi.contracts({ query: { page, pageSize: 20, view: "all", ...(keyword ? { keyword } : {}) } });
       setRows((data?.list || []) as CrmContractRow[]);
@@ -345,12 +344,11 @@ export function ContractsTab({ customers }: { customers: { id: number; name: str
     } catch (error) {
       message.error(errText(error));
     }
-  };
+  }, [page, keyword]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, keyword]);
+  }, [load]);
 
   const openDetail = async (row: CrmContractRow) => {
     try {
@@ -411,7 +409,7 @@ export function ContractsTab({ customers }: { customers: { id: number; name: str
         onClose={() => setModal({ open: false })}
         onSubmit={async (values) => {
           if (modal.row) await crmApi.updateContract({ params: { id: String(modal.row.id) }, body: values });
-          else await crmApi.createContract({ body: values as never });
+          else await crmApi.createContract({ body: { ...values, customerId: Number(values.customerId), name: String(values.name) } });
           message.success("已保存");
           void load();
         }}
@@ -614,7 +612,7 @@ export function PaymentsTab() {
   const [records, setRecords] = useState<CrmPaymentRecordRow[]>([]);
   const [view, setView] = useState<"all" | "overdue">("all");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [planData, recordData] = await Promise.all([
         crmApi.paymentPlans({ query: { page: 1, pageSize: 100, view } }),
@@ -625,12 +623,11 @@ export function PaymentsTab() {
     } catch (error) {
       message.error(errText(error));
     }
-  };
+  }, [view]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [load]);
 
   return (
     <div className="crm-stack">
@@ -689,7 +686,7 @@ export function OrdersTab({ customers }: { customers: { id: number; name: string
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof crmApi.order>> | null>(null);
   const members = useMembers();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const data = await crmApi.orders({ query: { page, pageSize: 20, ...(keyword ? { keyword } : {}) } });
       setRows((data?.list || []) as CrmOrderRow[]);
@@ -697,12 +694,11 @@ export function OrdersTab({ customers }: { customers: { id: number; name: string
     } catch (error) {
       message.error(errText(error));
     }
-  };
+  }, [page, keyword]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, keyword]);
+  }, [load]);
 
   return (
     <Panel title="订单" extra={<Button onClick={() => setModal({ open: true })}>新建订单</Button>}>
@@ -749,7 +745,7 @@ export function OrdersTab({ customers }: { customers: { id: number; name: string
         onClose={() => setModal({ open: false })}
         onSubmit={async (values) => {
           if (modal.row) await crmApi.updateOrder({ params: { id: String(modal.row.id) }, body: values });
-          else await crmApi.createOrder({ body: values as never });
+          else await crmApi.createOrder({ body: { ...values, name: String(values.name) } });
           message.success("已保存");
           void load();
         }}
@@ -766,6 +762,13 @@ export function OrdersTab({ customers }: { customers: { id: number; name: string
                 { key: "2", label: "合同", children: detail.order.contractNumber || "—" },
                 { key: "3", label: "金额", children: moneyCny(detail.order.amount) },
                 { key: "4", label: "审批", children: <StatusTag value={detail.order.approvalStatus} label={detail.order.approvalStatusLabel} /> },
+                {
+                  key: "5",
+                  label: "交付项目",
+                  children: detail.order.projectId
+                    ? `已自动立项 #${detail.order.projectId}`
+                    : "审批通过后自动立项",
+                },
               ]}
             />
             <Panel title="产品明细">
@@ -853,7 +856,7 @@ export function ProductsTab() {
         initial={modal.row || {}}
         onClose={() => setModal({ open: false })}
         onSubmit={async (values) => {
-          await crmApi.saveProduct({ body: values as never });
+          await crmApi.saveProduct({ body: { ...values, name: String(values.name) } });
           message.success("已保存");
           void load();
         }}

@@ -1,7 +1,5 @@
 "use client";
 
-import { Badge, Button, Space } from "antd";
-import { ApiOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useState } from "react";
 import { PageHero } from "@/components/ui/panel";
 import { communityApi } from "@/api/community";
@@ -57,19 +55,6 @@ export default function CommunityPage() {
         tabs={tabs}
         activeTab={view}
         onTabChange={setView}
-        extra={
-          <Space>
-            <Badge dot={!credential?.connected} offset={[-4, 4]}>
-              <Button
-                icon={<ApiOutlined />}
-                type={credential?.connected ? "default" : "primary"}
-                onClick={() => setConnectOpen(true)}
-              >
-                {credential?.connected ? `已连接 ${credential.keyMask}` : "连接 Comfy Cloud"}
-              </Button>
-            </Badge>
-          </Space>
-        }
       />
       <CommunityBoard
         view={view}

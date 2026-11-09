@@ -3,6 +3,9 @@ import { Logger } from '../common/logger';
 import { PrismaClient, GeoProject, GeoQuestion } from '../../generated/prisma';
 import { GeoCollectionService, weekStartOf } from './geo-collection.service';
 import { geoChat, GeoChatResult } from './geo-llm.client';
+import { stub } from '../../test/doubles';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { GeoSettingsService } from './geo-settings.service';
 
 jest.mock('./geo-llm.client', () => ({ geoChat: jest.fn() }));
 
@@ -123,8 +126,11 @@ describeDatabase('GEO collection PostgreSQL recovery', () => {
     failDoneWrite = false;
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    collection = new GeoCollectionService(prisma as never, settings as never);
-    service = collection as unknown as CollectionInternals;
+    collection = new GeoCollectionService(
+      stub<PrismaService>(prisma),
+      stub<GeoSettingsService>(settings),
+    );
+    service = stub<CollectionInternals>(collection);
     project = await prisma.geoProject.create({
       data: {
         ownerUserId: 'isolated-geo-test',
@@ -322,11 +328,11 @@ describeDatabase('GEO collection PostgreSQL recovery', () => {
         data: { heartbeatAt: new Date(Date.now() - 11 * 60_000) },
       });
       const replacement = new GeoCollectionService(
-        prisma as never,
-        settings as never,
+        stub<PrismaService>(prisma),
+        stub<GeoSettingsService>(settings),
       );
-      const replacementExecution = (
-        replacement as unknown as CollectionInternals
+      const replacementExecution = stub<CollectionInternals>(
+        replacement,
       ).executeRun(run.id, window());
       await replacementParsing.promise;
       const ownedByReplacement = await prisma.geoCollectRun.findUniqueOrThrow({
@@ -387,10 +393,10 @@ describeDatabase('GEO collection PostgreSQL recovery', () => {
       data: { status: 'PENDING', claimedBy: '' },
     });
     const replacement = new GeoCollectionService(
-      prisma as never,
-      settings as never,
+      stub<PrismaService>(prisma),
+      stub<GeoSettingsService>(settings),
     );
-    const other = replacement as unknown as CollectionInternals;
+    const other = stub<CollectionInternals>(replacement);
     let newToken = '';
     chat.mockImplementation(async () => {
       newToken = (
@@ -411,10 +417,14 @@ describeDatabase('GEO collection PostgreSQL recovery', () => {
     ).toMatchObject({ status: 'DONE', done: 1, failed: 0 });
   });
   it('yields after five items and completes the remainder in a later round', async () => {
-    collection = new GeoCollectionService(prisma as never, settings as never, {
-      itemGapMs: 0,
-    });
-    service = collection as unknown as CollectionInternals;
+    collection = new GeoCollectionService(
+      stub<PrismaService>(prisma),
+      stub<GeoSettingsService>(settings),
+      {
+        itemGapMs: 0,
+      },
+    );
+    service = stub<CollectionInternals>(collection);
     for (let n = 0; n < 5; n++) {
       const extra = await prisma.geoQuestion.create({
         data: { projectId: project.id, text: `问题 ${n}` },
@@ -452,11 +462,15 @@ describeDatabase('GEO collection PostgreSQL recovery', () => {
     expect(chat).toHaveBeenCalledTimes(6);
   });
   it('renews the lease independently while waiting for a model and returns it on shutdown', async () => {
-    collection = new GeoCollectionService(prisma as never, settings as never, {
-      heartbeatMs: 10,
-      itemGapMs: 0,
-    });
-    service = collection as unknown as CollectionInternals;
+    collection = new GeoCollectionService(
+      stub<PrismaService>(prisma),
+      stub<GeoSettingsService>(settings),
+      {
+        heartbeatMs: 10,
+        itemGapMs: 0,
+      },
+    );
+    service = stub<CollectionInternals>(collection);
     await prisma.geoCollectRun.update({
       where: { id: run.id },
       data: { status: 'PENDING', claimedBy: '' },

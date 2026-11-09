@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import {
   FOLLOW_STATUS_LABELS,
@@ -29,7 +31,7 @@ export class CrmFollowService {
     const base = await this.scope.scopeWhereAsync(ctx);
     if (targetType === 'LEAD') {
       const row = await this.prisma.crmLead.findFirst({
-        where: { ...base, id: targetId, deletedAt: null } as never,
+        where: { ...base, id: targetId, deletedAt: null },
       });
       if (!row)
         throw new BusinessException(
@@ -40,7 +42,7 @@ export class CrmFollowService {
     }
     if (targetType === 'CUSTOMER') {
       const row = await this.prisma.crmCustomer.findFirst({
-        where: { ...base, id: targetId, deletedAt: null } as never,
+        where: { ...base, id: targetId, deletedAt: null },
       });
       if (!row)
         throw new BusinessException(
@@ -50,7 +52,7 @@ export class CrmFollowService {
       return row;
     }
     const row = await this.prisma.crmOpportunity.findFirst({
-      where: { ...base, id: targetId, deletedAt: null } as never,
+      where: { ...base, id: targetId, deletedAt: null },
     });
     if (!row)
       throw new BusinessException(ErrorCode.NOT_FOUND, '商机不存在或无权查看');
@@ -116,7 +118,7 @@ export class CrmFollowService {
         type: text(body.type).slice(0, 32),
         content,
         result: text(body.result).slice(0, 200),
-        attachments: jsonArray(body.attachments) as never,
+        attachments: toJsonInput(jsonArray(body.attachments)),
         nextAt: dateOrNull(body.nextAt),
         createdBy: ctx.actorId,
       },
@@ -147,12 +149,14 @@ export class CrmFollowService {
 
   async plans(user: CurrentUser, query: Record<string, unknown>) {
     const ctx = await this.scope.requireMember(user);
-    const where: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+    const where: Prisma.CrmFollowPlanWhereInput = {
+      ownerUserId: ctx.ownerUserId,
+    };
     if (query.targetType) where.targetType = text(query.targetType);
     if (query.targetId) where.targetId = Number(query.targetId);
     if (query.status) where.status = text(query.status);
     const rows = await this.prisma.crmFollowPlan.findMany({
-      where: where as never,
+      where,
       orderBy: [{ planAt: 'asc' }, { id: 'desc' }],
       take: 500,
     });
@@ -295,7 +299,7 @@ export class CrmFollowService {
         targetType,
         targetId,
         content,
-        mentions: asArray(body.mentions) as never,
+        mentions: toJsonInput(asArray(body.mentions)),
         createdBy: ctx.actorId,
       },
     });

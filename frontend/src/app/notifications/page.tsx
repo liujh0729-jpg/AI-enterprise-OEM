@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Select, Table, Tag, message } from "antd";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   NOTIFICATION_CATEGORIES,
@@ -25,7 +25,7 @@ export default function NotificationsPage() {
   const [category, setCategory] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const data = await notificationsApi.list({
@@ -38,12 +38,11 @@ export default function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, category]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, category]);
+  }, [load]);
 
   const open = async (row: NotificationRow) => {
     try {

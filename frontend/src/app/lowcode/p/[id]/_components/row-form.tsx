@@ -293,8 +293,7 @@ export function RowModal({
       })
       .catch((error: unknown) => message.error(errText(error)))
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, rowId]);
+  }, [open, rowId, readonlyFields, initial, entity, projectId, form]);
 
   const save = async () => {
     try {

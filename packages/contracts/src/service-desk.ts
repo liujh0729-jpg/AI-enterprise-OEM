@@ -403,6 +403,8 @@ export const serviceDeskConversationSchema = z.object({
   visitorContact: z.string(),
   status: z.string(),
   statusLabel: z.string(),
+  /** 转为 CRM 线索后的回写 id（0＝未转化） */
+  crmLeadId: z.number(),
   subject: z.string(),
   sourceUrl: z.string(),
   unread: z.number(),
@@ -737,6 +739,20 @@ export const serviceDeskEndpoints = {
     query: emptyQuery,
     body: z.object({ inviteRating: z.boolean().default(true) }),
     response: envelope(serviceDeskConversationSchema),
+  },
+  ServiceDesk_convertToCrm: {
+    method: "post" as const,
+    path: "/enterprise/service-desk/conversations/:id/convert-to-crm",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.object({
+      name: z.string().max(120).optional(),
+      phone: z.string().max(40).optional(),
+      email: z.string().max(120).optional(),
+    }),
+    response: envelope(
+      z.object({ conversationId: z.number(), crmLeadId: z.number() }),
+    ),
   },
   ServiceDesk_aiSuggest: {
     method: "post" as const,

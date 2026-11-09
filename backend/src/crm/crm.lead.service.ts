@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import {
   LEAD_STAGE_LABELS,
@@ -20,6 +22,7 @@ import {
   statusLabel,
 } from './crm.helpers';
 import { CrmSettingsService } from './crm.settings.service';
+import type { MechanismService } from '../mechanisms/mechanism.service';
 
 type LeadRow = {
   id: number;
@@ -50,12 +53,63 @@ type LeadRow = {
   updatedAt: Date;
 };
 
+type StageHook = (event: {
+  ownerUserId: string;
+  leadId: number;
+  stage: string;
+}) => void | Promise<void>;
+
 export class CrmLeadService {
+  private readonly stageHooks: StageHook[] = [];
+  private mechanisms?: MechanismService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: CrmScopeService,
     private readonly settings: CrmSettingsService,
   ) {}
+
+  attachMechanisms(mechanisms: MechanismService) {
+    this.mechanisms = mechanisms;
+  }
+
+  private emit(
+    ctx: CrmContext,
+    event: string,
+    payload: Record<string, unknown>,
+  ) {
+    if (!this.mechanisms) return;
+    void this.mechanisms
+      .dispatch(
+        {
+          orgType: ctx.orgType,
+          orgUserId: ctx.ownerUserId,
+          actorId: ctx.actorId,
+          isOwner: ctx.isOwner,
+          isAdmin: ctx.isAdmin,
+          department: ctx.department,
+        },
+        event,
+        payload,
+      )
+      .catch(() => undefined);
+  }
+
+  /** 阶段变化钩子：获客档案据此回写业务状态；钩子失败不影响 CRM 自身保存。 */
+  onStageChanged(hook: StageHook) {
+    this.stageHooks.push(hook);
+  }
+
+  private async notifyStage(
+    leadId: number,
+    ownerUserId: string,
+    stage: string,
+  ) {
+    if (!this.stageHooks.length) return;
+    await Promise.allSettled(
+      this.stageHooks.map(async (hook) => hook({ ownerUserId, leadId, stage })),
+    );
+  }
 
   private async viewRows(rows: LeadRow[], ctx: CrmContext) {
     const [names, pools] = await Promise.all([
@@ -121,7 +175,7 @@ export class CrmLeadService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx);
-    const where: Record<string, unknown> = { ...base, deletedAt: null };
+    const where: Prisma.CrmLeadWhereInput = { ...base, deletedAt: null };
     const view = text(query.view, 'all');
     if (view === 'mine') where.ownerId = ctx.actorId;
     if (view === 'pool') {
@@ -142,12 +196,12 @@ export class CrmLeadService {
     }
     const [rows, total] = await Promise.all([
       this.prisma.crmLead.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmLead.count({ where: where as never }),
+      this.prisma.crmLead.count({ where }),
     ]);
     return { list: await this.viewRows(rows, ctx), total, page, pageSize };
   }
@@ -162,7 +216,7 @@ export class CrmLeadService {
     const id = Number(rawId);
     const base = await this.scope.scopeWhereAsync(ctx);
     const row = await this.prisma.crmLead.findFirst({
-      where: { ...base, id, deletedAt: null } as never,
+      where: { ...base, id, deletedAt: null },
     });
     if (!row)
       throw new BusinessException(ErrorCode.NOT_FOUND, '线索不存在或无权查看');
@@ -190,6 +244,7 @@ export class CrmLeadService {
     const row = await this.prisma.crmLead.create({
       data: {
         ownerUserId: ctx.ownerUserId,
+        ...this.scope.orgKey(ctx),
         name,
         contactName: text(body.contactName).slice(0, 60),
         phone: text(body.phone).slice(0, 40),
@@ -201,9 +256,9 @@ export class CrmLeadService {
         ownerId: poolId ? '' : ownerId,
         poolId,
         inPool: Boolean(poolId),
-        products: asArray(body.products) as never,
+        products: asArray(body.products),
         remark: text(body.remark).slice(0, 2000),
-        custom: jsonObject(body.custom) as never,
+        custom: toJsonInput(jsonObject(body.custom)),
       },
     });
     if (poolId) await this.requirePool(ctx, poolId);
@@ -216,6 +271,14 @@ export class CrmLeadService {
       { name },
       ctx.actorId,
     );
+    this.emit(ctx, 'crm.lead.created', {
+      leadId: row.id,
+      name,
+      leadSource: row.source,
+      ownerId,
+      source: 'crm',
+      sourceId: String(row.id),
+    });
     return (await this.viewRows([row], ctx))[0];
   }
 
@@ -239,7 +302,7 @@ export class CrmLeadService {
     const ctx = await this.scope.requireMember(user);
     this.scope.assertCan(ctx, 'write');
     const row = await this.findOne(ctx, rawId);
-    const data: Record<string, unknown> = {};
+    const data: Prisma.CrmLeadUncheckedUpdateInput = {};
     for (const key of ['name', 'contactName', 'source', 'remark'] as const) {
       if (body[key] !== undefined)
         data[key] = text(body[key]).slice(0, key === 'remark' ? 2000 : 120);
@@ -269,10 +332,11 @@ export class CrmLeadService {
       data.ownerId = ownerId;
     }
     if (body.products !== undefined) data.products = asArray(body.products);
-    if (body.custom !== undefined) data.custom = jsonObject(body.custom);
+    if (body.custom !== undefined)
+      data.custom = toJsonInput(jsonObject(body.custom));
     const updated = await this.prisma.crmLead.update({
       where: { id: row.id },
-      data: data as never,
+      data,
     });
     await this.settings.log(
       ctx.ownerUserId,
@@ -283,6 +347,9 @@ export class CrmLeadService {
       data,
       ctx.actorId,
     );
+    if (data.stage && data.stage !== row.stage) {
+      await this.notifyStage(row.id, ctx.ownerUserId, text(data.stage));
+    }
     return (await this.viewRows([updated], ctx))[0];
   }
 
@@ -374,7 +441,7 @@ export class CrmLeadService {
     }
     const base = await this.scope.scopeWhereAsync(ctx);
     const rows = await this.prisma.crmLead.findMany({
-      where: { ...base, id: { in: ids }, deletedAt: null } as never,
+      where: { ...base, id: { in: ids }, deletedAt: null },
     });
     for (const row of rows) {
       await this.prisma.crmLead.update({
@@ -687,6 +754,7 @@ export class CrmLeadService {
       customer = await this.prisma.crmCustomer.create({
         data: {
           ownerUserId: ctx.ownerUserId,
+          ...this.scope.orgKey(ctx),
           name: lead.name,
           nameNorm: normName(lead.name),
           ownerId,
@@ -694,7 +762,7 @@ export class CrmLeadService {
           lastFollowerId: lead.lastFollowerId,
           lastFollowAt: lead.lastFollowAt,
           remark: lead.remark,
-          custom: lead.custom as never,
+          custom: toJsonInput(lead.custom),
         },
       });
       await this.prisma.crmContact.create({
@@ -742,6 +810,7 @@ export class CrmLeadService {
       opportunity = await this.prisma.crmOpportunity.create({
         data: {
           ownerUserId: ctx.ownerUserId,
+          ...this.scope.orgKey(ctx),
           customerId: customer.id,
           name: text(body.opportunityName) || `${lead.name}商机`,
           amount: money(body.amount),
@@ -750,7 +819,7 @@ export class CrmLeadService {
           ownerId,
           lastFollowerId: lead.lastFollowerId,
           lastFollowAt: lead.lastFollowAt,
-          custom: lead.custom as never,
+          custom: toJsonInput(lead.custom),
         },
       });
     }
@@ -770,7 +839,7 @@ export class CrmLeadService {
           type: record.type,
           content: record.content,
           result: record.result,
-          attachments: record.attachments as never,
+          attachments: toJsonInput(record.attachments),
           nextAt: record.nextAt,
           createdBy: record.createdBy,
         },
@@ -807,6 +876,20 @@ export class CrmLeadService {
         poolId: 0,
       },
     });
+    // SCRM 客户回写 CRM 客户 id，形成「企微好友 ↔ 线索 ↔ 客户」同一档案链。
+    const scrmContactId = Number(
+      (lead.custom as Record<string, unknown> | null)?.scrmContactId || 0,
+    );
+    if (scrmContactId) {
+      await this.prisma.scrmContact.updateMany({
+        where: {
+          id: scrmContactId,
+          orgType: ctx.orgType,
+          orgUserId: ctx.ownerUserId,
+        },
+        data: { crmCustomerId: customer.id },
+      });
+    }
     await this.settings.log(
       ctx.ownerUserId,
       'LEAD',
@@ -820,6 +903,16 @@ export class CrmLeadService {
       },
       ctx.actorId,
     );
+    await this.notifyStage(lead.id, ctx.ownerUserId, 'SUCCESS');
+    this.emit(ctx, 'crm.lead.converted', {
+      leadId: lead.id,
+      customerId: customer.id,
+      opportunityId: opportunity?.id || 0,
+      scrmContactId,
+      linkedExisting,
+      source: 'crm',
+      sourceId: String(lead.id),
+    });
     return {
       lead: (await this.viewRows([updated], ctx))[0],
       customer: await this.customerView(customer, ctx),
@@ -951,9 +1044,9 @@ export class CrmLeadService {
       adminId: text(body.adminId),
       auto: Boolean(body.auto),
       enabled: body.enabled === undefined ? true : Boolean(body.enabled),
-      scopeIds: asArray(body.scopeIds) as never,
-      pickRule: jsonObject(body.pickRule) as never,
-      recycleRule: jsonArray(body.recycleRule) as never,
+      scopeIds: asArray(body.scopeIds),
+      pickRule: toJsonInput(jsonObject(body.pickRule)),
+      recycleRule: toJsonInput(jsonArray(body.recycleRule)),
     };
     if (!data.name)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写线索池名称');

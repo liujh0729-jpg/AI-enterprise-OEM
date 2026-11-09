@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import {
   INVOICE_TYPE_LABELS,
@@ -17,13 +19,49 @@ import {
   statusLabel,
 } from './crm.helpers';
 import { CrmSettingsService } from './crm.settings.service';
+import type { MechanismService } from '../mechanisms/mechanism.service';
+
+/** 回款计划/回款记录/发票列表共用的合同维度过滤，字段与三张表一致。 */
+type ContractScopedWhere = {
+  ownerUserId: string;
+  contractId?: number | Prisma.IntFilter;
+  customerId?: number | Prisma.IntFilter;
+};
 
 export class CrmContractService {
+  private mechanisms?: MechanismService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: CrmScopeService,
     private readonly settings: CrmSettingsService,
   ) {}
+
+  attachMechanisms(mechanisms: MechanismService) {
+    this.mechanisms = mechanisms;
+  }
+
+  private emitEvent(
+    ctx: CrmContext,
+    event: string,
+    payload: Record<string, unknown>,
+  ) {
+    if (!this.mechanisms) return;
+    void this.mechanisms
+      .dispatch(
+        {
+          orgType: ctx.orgType,
+          orgUserId: ctx.ownerUserId,
+          actorId: ctx.actorId,
+          isOwner: ctx.isOwner,
+          isAdmin: ctx.isAdmin,
+          department: ctx.department,
+        },
+        event,
+        payload,
+      )
+      .catch(() => undefined);
+  }
 
   private async contractViews(
     rows: Array<Record<string, unknown>>,
@@ -81,7 +119,7 @@ export class CrmContractService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx, 'FINANCE');
-    const where: Record<string, unknown> = { ...base, deletedAt: null };
+    const where: Prisma.CrmContractWhereInput = { ...base, deletedAt: null };
     if (text(query.view) === 'mine') where.ownerId = ctx.actorId;
     if (query.stageId) where.stageId = Number(query.stageId);
     if (query.customerId) where.customerId = Number(query.customerId);
@@ -94,12 +132,12 @@ export class CrmContractService {
     }
     const [rows, total] = await Promise.all([
       this.prisma.crmContract.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmContract.count({ where: where as never }),
+      this.prisma.crmContract.count({ where }),
     ]);
     return {
       list: await this.contractViews(rows, ctx),
@@ -113,7 +151,7 @@ export class CrmContractService {
     const id = Number(rawId);
     const base = await this.scope.scopeWhereAsync(ctx, 'FINANCE');
     const row = await this.prisma.crmContract.findFirst({
-      where: { ...base, id, deletedAt: null } as never,
+      where: { ...base, id, deletedAt: null },
     });
     if (!row)
       throw new BusinessException(
@@ -332,6 +370,7 @@ export class CrmContractService {
     const row = await this.prisma.crmContract.create({
       data: {
         ownerUserId: ctx.ownerUserId,
+        ...this.scope.orgKey(ctx),
         customerId,
         opportunityId: int(body.opportunityId),
         quotationId: int(body.quotationId),
@@ -343,11 +382,11 @@ export class CrmContractService {
         startAt: dateOrNull(body.startAt),
         endAt: dateOrNull(body.endAt),
         remark: text(body.remark).slice(0, 2000),
-        snapshot: {
+        snapshot: toJsonInput({
           items,
           fields: body,
           savedAt: new Date().toISOString(),
-        } as never,
+        }),
       },
     });
     for (const item of items) {
@@ -391,7 +430,7 @@ export class CrmContractService {
       );
     }
     const paid = await this.paidOf(row.id);
-    const data: Record<string, unknown> = {};
+    const data: Prisma.CrmContractUncheckedUpdateInput = {};
     for (const key of ['name', 'remark', 'voidReason'] as const) {
       if (body[key] !== undefined)
         data[key] = text(body[key]).slice(0, key === 'remark' ? 2000 : 160);
@@ -411,7 +450,7 @@ export class CrmContractService {
     if (body.ownerId !== undefined) data.ownerId = text(body.ownerId);
     const updated = await this.prisma.crmContract.update({
       where: { id: row.id },
-      data: data as never,
+      data,
     });
     await this.settings.log(
       ctx.ownerUserId,
@@ -577,11 +616,11 @@ export class CrmContractService {
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx, 'FINANCE');
     const scopedContracts = await this.prisma.crmContract.findMany({
-      where: { ...base, deletedAt: null } as never,
+      where: { ...base, deletedAt: null },
       select: { id: true },
     });
     const scopedIds = scopedContracts.map((row) => row.id);
-    const where: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+    const where: ContractScopedWhere = { ownerUserId: ctx.ownerUserId };
     if (query.contractId) where.contractId = Number(query.contractId);
     else where.contractId = { in: scopedIds };
     if (query.customerId) {
@@ -600,12 +639,12 @@ export class CrmContractService {
     }
     const [rows, total] = await Promise.all([
       this.prisma.crmPaymentPlan.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmPaymentPlan.count({ where: where as never }),
+      this.prisma.crmPaymentPlan.count({ where }),
     ]);
     const contracts = await this.prisma.crmContract.findMany({
       where: { id: { in: [...new Set(rows.map((row) => row.contractId))] } },
@@ -737,11 +776,11 @@ export class CrmContractService {
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx, 'FINANCE');
     const scopedContracts = await this.prisma.crmContract.findMany({
-      where: { ...base, deletedAt: null } as never,
+      where: { ...base, deletedAt: null },
       select: { id: true },
     });
     const scopedIds = scopedContracts.map((row) => row.id);
-    const where: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+    const where: ContractScopedWhere = { ownerUserId: ctx.ownerUserId };
     if (query.contractId) where.contractId = Number(query.contractId);
     else where.contractId = { in: scopedIds };
     if (query.customerId) {
@@ -760,12 +799,12 @@ export class CrmContractService {
     }
     const [rows, total] = await Promise.all([
       this.prisma.crmPaymentRecord.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmPaymentRecord.count({ where: where as never }),
+      this.prisma.crmPaymentRecord.count({ where }),
     ]);
     const contracts = await this.prisma.crmContract.findMany({
       where: { id: { in: [...new Set(rows.map((row) => row.contractId))] } },
@@ -876,6 +915,19 @@ export class CrmContractService {
       { amount: Number(amount), contractId: contract.id },
       ctx.actorId,
     );
+    const totalPaid = await this.paidOf(contract.id);
+    this.emitEvent(ctx, 'crm.payment.received', {
+      paymentId: row.id,
+      contractId: contract.id,
+      contractNumber: contract.number,
+      customerId: contract.customerId,
+      paymentPlanId: planId,
+      amount: Number(amount),
+      totalPaid,
+      fullyPaid: totalPaid + 0.001 >= Number(contract.amount),
+      source: 'crm',
+      sourceId: String(row.id),
+    });
     return {
       id: row.id,
       contractId: row.contractId,
@@ -936,6 +988,13 @@ export class CrmContractService {
       {},
       ctx.actorId,
     );
+    this.emitEvent(ctx, 'crm.payment.removed', {
+      paymentId: id,
+      contractId: row.contractId,
+      amount: Number(row.recordAmount),
+      source: 'crm',
+      sourceId: String(id),
+    });
     return { removed: true, contractPaid: moneyStr(paid) };
   }
 
@@ -947,11 +1006,11 @@ export class CrmContractService {
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const base = await this.scope.scopeWhereAsync(ctx, 'FINANCE');
     const scopedContracts = await this.prisma.crmContract.findMany({
-      where: { ...base, deletedAt: null } as never,
+      where: { ...base, deletedAt: null },
       select: { id: true },
     });
     const scopedIds = scopedContracts.map((row) => row.id);
-    const where: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+    const where: ContractScopedWhere = { ownerUserId: ctx.ownerUserId };
     if (query.contractId) where.contractId = Number(query.contractId);
     else where.contractId = { in: scopedIds };
     if (query.customerId) {
@@ -970,12 +1029,12 @@ export class CrmContractService {
     }
     const [rows, total] = await Promise.all([
       this.prisma.crmInvoice.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmInvoice.count({ where: where as never }),
+      this.prisma.crmInvoice.count({ where }),
     ]);
     const contracts = await this.prisma.crmContract.findMany({
       where: { id: { in: [...new Set(rows.map((row) => row.contractId))] } },

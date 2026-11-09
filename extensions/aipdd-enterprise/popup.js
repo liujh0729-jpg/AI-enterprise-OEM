@@ -1,11 +1,11 @@
 // 弹窗脚本：显示版本，并提供「信任此站点」开关。
-// 分发是敏感操作（会在你已登录的平台代发内容），后台只接受白名单里的 origin 触发；
-// 这里把当前标签页的 origin 增删到 chrome.storage.local.trustedOrigins，与 background 共用同一份。
+// 分发与获客都是敏感操作（会在你已登录的平台代发内容、代采线索），后台只接受白名单里的 origin 触发；
+// 这里把当前标签页的 origin 增删到 chrome.storage.local.trustedOrigins，与 background / acquisition 共用同一份。
 (async () => {
   const manifest = chrome.runtime.getManifest();
   const ver = document.querySelector(".ver");
   if (ver && manifest) {
-    ver.textContent = `v${manifest.version} · 多平台内容分发`;
+    ver.textContent = `v${manifest.version} · 内容分发与 AI 获客`;
   }
 
   const originEl = document.getElementById("origin");
@@ -41,8 +41,8 @@
     btn.textContent = trusted ? "取消信任此站点" : "信任此站点";
     btn.classList.toggle("off", trusted);
     statusEl.textContent = trusted
-      ? "已信任：此站点可触发分发。"
-      : "未信任：此站点无法触发分发，需要时请点击上方按钮。";
+      ? "已信任：此站点可触发分发与获客。"
+      : "未信任：此站点无法触发分发与获客，需要时请点击上方按钮。";
   }
 
   btn.addEventListener("click", async () => {

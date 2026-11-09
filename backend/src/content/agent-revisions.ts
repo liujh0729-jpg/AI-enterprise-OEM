@@ -1,4 +1,5 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 
 /**
  * 技能 / 插件的历史版本快照：
@@ -58,7 +59,7 @@ export async function saveAgentRevision(
       name: input.name,
       description: input.snapshot.description.slice(0, 200),
       content: input.snapshot.content,
-      files: filesOf(input.snapshot.files) as never,
+      files: toJsonInput(filesOf(input.snapshot.files)),
       source: input.snapshot.source.slice(0, 16),
     },
   });

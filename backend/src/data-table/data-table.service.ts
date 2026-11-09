@@ -9,7 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { toJsonArray } from '../shared/json-value';
 
 /** 列类型（与参考实现 AIRecord 的 field_type 一致）。 */
-const FIELD_TYPES = [
+export const FIELD_TYPES = [
   'text',
   'number',
   'boolean',
@@ -28,7 +28,7 @@ const BATCH_ROW_LIMIT = 200;
 /** 导出 CSV 一次最多带出的行数：整表进内存会打满进程，超出部分在文件里明确标注。 */
 const EXPORT_ROW_LIMIT = 50000;
 
-type DataFieldRow = {
+export type DataFieldRow = {
   id: number;
   tableId: number;
   name: string;
@@ -43,9 +43,9 @@ type DataFieldRow = {
 type RowValue = Record<string, unknown>;
 
 /** 一种操作维度：访问 / 新增 / 修改 / 删除互相独立授权。 */
-type PermissionBit = 'read' | 'create' | 'update' | 'delete';
+export type PermissionBit = 'read' | 'create' | 'update' | 'delete';
 
-type TablePermissions = Record<PermissionBit, boolean>;
+export type TablePermissions = Record<PermissionBit, boolean>;
 
 const BIT_LABEL: Record<PermissionBit, string> = {
   read: '访问',
@@ -70,7 +70,7 @@ const READ_ONLY: TablePermissions = {
 };
 
 /** 一张表对当前账号的判定：是否归属本人 + 四种操作各一个权限位。 */
-type TableAccess = {
+export type TableAccess = {
   table: {
     id: number;
     createdBy: string;
@@ -271,6 +271,7 @@ export class DataTableService {
       this.prisma.dataTableFeishuSync.deleteMany({ where: { tableId: id } }),
       this.prisma.dataTableRow.deleteMany({ where: { tableId: id } }),
       this.prisma.dataTableField.deleteMany({ where: { tableId: id } }),
+      this.prisma.dataTableView.deleteMany({ where: { tableId: id } }),
       this.prisma.dataTableGrant.deleteMany({ where: { tableId: id } }),
       this.prisma.dataTable.delete({ where: { id } }),
     ]);
@@ -365,6 +366,31 @@ export class DataTableService {
       );
     }
     return access.table;
+  }
+
+  /**
+   * AI 子系统与视图复用的两把钥匙：同一套四权限位判定、同一份列读取口径。
+   * 单开 public 是为了不让 AI / 视图各写一套判定（那就会绕过四权限位）。
+   */
+  async authorize(
+    user: CurrentUser,
+    tableId: number,
+    bit: PermissionBit,
+  ): Promise<TableAccess> {
+    return this.requireBit(await this.access(user, tableId), bit);
+  }
+
+  /** 读列定义：AI 列 / 问数 / 视图都按列类型与 options 组装，顺序与界面一致。 */
+  async fieldsOf(tableId: number): Promise<DataFieldRow[]> {
+    return this.prisma.dataTableField.findMany({
+      where: { tableId },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  /** 复用行写入的列校验与归一：AI 生成的值要经同一份 coerce 才能落库。 */
+  normalizeRow(fields: DataFieldRow[], raw: unknown): Record<string, unknown> {
+    return this.normalizeData(fields, raw);
   }
 
   // ---------- 授权 ----------
@@ -504,6 +530,7 @@ export class DataTableService {
       fieldType,
       choices,
       required: truthy(body.required),
+      ai: aiOption(body.ai ?? asObject(body.options).ai),
     };
   }
 
@@ -564,7 +591,7 @@ export class DataTableService {
           fieldKey: item.fieldKey,
           fieldType: item.fieldType,
           sortOrder: base + index,
-          options: item.fieldType === 'select' ? { choices: item.choices } : {},
+          options: fieldOptions(item.choices, item.ai),
           required: item.required,
         })),
       });
@@ -645,6 +672,12 @@ export class DataTableService {
       data.sortOrder = sort;
     }
     if (body.required !== undefined) data.required = truthy(body.required);
+    // AI 列配置：没提交就沿用已存的，提交了就整份替换（清空提示词＝撤掉 AI 列）。
+    const aiTouched =
+      body.ai !== undefined || asObject(body.options).ai !== undefined;
+    const nextAi = aiTouched
+      ? aiOption(body.ai ?? asObject(body.options).ai)
+      : aiOption(asObject(field.options).ai);
     if (fieldType === 'select') {
       // 没给候选项时沿用已有候选项，两边都没有才拒绝
       const choices = choiceList(body);
@@ -657,9 +690,9 @@ export class DataTableService {
           '单选列请填写候选项（逗号分隔）',
         );
       }
-      data.options = { choices: kept };
-    } else if (typeInput !== undefined) {
-      data.options = {};
+      data.options = fieldOptions(kept, nextAi);
+    } else if (typeInput !== undefined || aiTouched) {
+      data.options = fieldOptions([], nextAi);
     }
     if (!Object.keys(data).length) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '没有需要保存的修改');
@@ -766,6 +799,31 @@ export class DataTableService {
       take: size,
     });
     return rows.map(decorateRow);
+  }
+
+  /**
+   * 系统通道写行：公开问卷回收这类没有登录账号的入口用。
+   * 不以某个用户身份放行权限，但仍走同一套列校验（未知列键、必填、类型都拦），
+   * 并在写成功后通知飞书同步监听，回收数据与界面录入保持同一口径。
+   */
+  async appendSystemRow(tableId: number, data: unknown, actor = 'system') {
+    const fields = await this.prisma.dataTableField.findMany({
+      where: { tableId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    if (!fields.length) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '回收表还没有列');
+    }
+    const values = this.normalizeData(fields, data);
+    const row = await this.prisma.dataTableRow.create({
+      data: {
+        tableId,
+        createdBy: actor.slice(0, 64),
+        data: values as Prisma.InputJsonObject,
+      },
+    });
+    this.notifyRow(tableId, 'create', row.id);
+    return decorateRow(row);
   }
 
   async createRow(user: CurrentUser, tableId: number, data: unknown) {
@@ -1153,6 +1211,41 @@ function choiceList(body: Record<string, unknown>): string[] {
     body.choices ??
       (body.options as Record<string, unknown> | undefined)?.choices,
   );
+}
+
+/** 纯对象收窄（请求体 / 已存 options 都是 unknown）。 */
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * 字段级 AI 列配置（options.ai）：提示词 + 取材列。
+ * 提示词为空视为「没配 AI 列」；这条配置只描述怎么生成值，真正的生成走 AI 服务。
+ */
+function aiOption(
+  value: unknown,
+): { prompt: string; source_keys: string[] } | null {
+  const raw = asObject(value);
+  const prompt = text(raw.prompt).trim().slice(0, 500);
+  if (!prompt) return null;
+  const keys = (toJsonArray(raw.source_keys ?? raw.sourceKeys) as unknown[])
+    .map((item) => text(item).trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  return { prompt, source_keys: keys };
+}
+
+/** 列的 options：候选项与 AI 列配置合并成一份（没有就留空对象，与旧数据同形）。 */
+function fieldOptions(
+  choices: string[],
+  ai: { prompt: string; source_keys: string[] } | null,
+): Prisma.InputJsonObject {
+  return {
+    ...(choices.length ? { choices } : {}),
+    ...(ai ? { ai } : {}),
+  };
 }
 
 function truthy(value: unknown): boolean {

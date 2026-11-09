@@ -30,12 +30,17 @@ import {
   Tag,
   Upload,
 } from "antd";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DistributionContent,
   DistributionDetail,
   DistributionLog,
   DistributionMeta,
+} from "@enterprise/contracts";
+import {
+  DISTRIBUTION_CONTENT_STATUSES,
+  DISTRIBUTION_LOG_STATUSES,
+  DISTRIBUTION_MEDIA_TYPES,
 } from "@enterprise/contracts";
 import {
   DISTRIBUTION_CONTENT_VISIBLE_MAX,
@@ -45,7 +50,10 @@ import {
   sanitizeRichTextHtml,
 } from "@enterprise/contracts";
 import { Notice, Panel } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import { uploadContentMedia } from "@/api/content";
+import { aiApi, type AiDistributionRewrite } from "@/api/ai";
+import { AiResultModal } from "@/components/ai-result";
 import { fmtTime } from "@/lib/datetime";
 import { RichTextEditor } from "./rich-text-editor";
 import {
@@ -54,6 +62,9 @@ import {
   onExtensionResult,
   pingExtension,
 } from "./distribution-common";
+import { useSeoActions, useSeoProjects } from "@/query/seo";
+import { presentMutationError } from "@/query/errors";
+import { domainOf } from "./seo-common";
 
 /**
  * 多平台内容分发（营销工具）：内容台账在本系统落库，点「分发」把内容推给
@@ -85,6 +96,13 @@ const EMPTY_CONTENT = {
   tags: "",
 };
 
+const htmlToText = (html: string) => {
+  if (typeof document === "undefined") return html.replace(/<[^>]+>/g, " ");
+  const box = document.createElement("div");
+  box.innerHTML = html || "";
+  return (box.textContent || "").trim();
+};
+
 export function DistributionTab() {
   const { message } = App.useApp();
   const [meta, setMeta] = useState<DistributionMeta | null>(null);
@@ -95,8 +113,10 @@ export function DistributionTab() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState<string>("");
-  const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterType, setFilterType] = useState<(typeof DISTRIBUTION_MEDIA_TYPES)[number] | "">("");
+  const [filterStatus, setFilterStatus] = useState<
+    (typeof DISTRIBUTION_CONTENT_STATUSES)[number] | ""
+  >("");
   const [keyword, setKeyword] = useState("");
 
   /** 编辑弹窗：null＝关闭，0＝新建，其他＝编辑中的台账 id。 */
@@ -106,12 +126,15 @@ export function DistributionTab() {
   const [images, setImages] = useState<{ name: string; url: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
+  const [rewrite, setRewrite] = useState<AiDistributionRewrite | null>(null);
+  const [rewriteOpen, setRewriteOpen] = useState(false);
+  const [rewriteLoading, setRewriteLoading] = useState(false);
 
   /** 详情抽屉与人工补记。 */
   const [detail, setDetail] = useState<DistributionDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [manualCode, setManualCode] = useState("");
-  const [manualStatus, setManualStatus] = useState("SUCCESS");
+  const [manualStatus, setManualStatus] = useState<(typeof DISTRIBUTION_LOG_STATUSES)[number]>("SUCCESS");
   const [manualSaving, setManualSaving] = useState(false);
 
   /** 分发进行中的台账 id：插件结果消息回来后据此写 reportLogs。 */
@@ -128,8 +151,8 @@ export function DistributionTab() {
         query: {
           page,
           pageSize,
-          ...(filterType ? { mediaType: filterType as never } : {}),
-          ...(filterStatus ? { status: filterStatus as never } : {}),
+          ...(filterType ? { mediaType: filterType } : {}),
+          ...(filterStatus ? { status: filterStatus } : {}),
           ...(keyword.trim() ? { keyword: keyword.trim() } : {}),
         },
       });
@@ -174,7 +197,7 @@ export function DistributionTab() {
             source: "EXTENSION",
             logs: logs.map((log) => ({
               platformCode: log.platformCode,
-              status: log.status as never,
+              status: DISTRIBUTION_LOG_STATUSES.find((item) => item === log.status) ?? "FILLED",
               publishedUrl: log.publishedUrl || "",
               errorMsg: log.errorMsg || "",
             })),
@@ -218,6 +241,50 @@ export function DistributionTab() {
       // 新建不灌值：Form 卸载重挂后由 initialValues 回到空态（与 geo-views 同写法）。
       form.resetFields();
     }
+  };
+
+  const runRewrite = async () => {
+    const values = form.getFieldsValue(["title", "content", "platformCodes"]);
+    const text = htmlToText(String(values.content || ""));
+    const platformCodes = (values.platformCodes || []) as string[];
+    if (!text) {
+      message.warning("请先填写正文");
+      return;
+    }
+    if (!platformCodes.length) {
+      message.warning("请先勾选要分发的平台，AI 会按平台分别改写");
+      return;
+    }
+    setRewriteOpen(true);
+    setRewriteLoading(true);
+    setRewrite(null);
+    try {
+      setRewrite(
+        await aiApi.distributionRewrite({
+          body: {
+            contentId: editingId || undefined,
+            title: String(values.title || "").trim() || undefined,
+            text,
+            platformCodes,
+          },
+        }),
+      );
+    } catch (error) {
+      presentMutationError(error, (text) => message.error(text));
+      setRewriteOpen(false);
+    } finally {
+      setRewriteLoading(false);
+    }
+  };
+
+  const applyVersion = (version: NonNullable<AiDistributionRewrite>["versions"][number]) => {
+    form.setFieldValue("title", version.title || form.getFieldValue("title"));
+    form.setFieldValue("content", version.content);
+    if (version.tags.length) {
+      form.setFieldValue("tags", version.tags.join("、"));
+    }
+    setRewriteOpen(false);
+    message.success("已应用到正文");
   };
 
   const saveContent = async () => {
@@ -358,7 +425,7 @@ export function DistributionTab() {
           logs: [
             {
               platformCode: manualCode,
-              status: manualStatus as never,
+              status: manualStatus,
               publishedUrl: "",
               errorMsg: "",
             },
@@ -533,37 +600,37 @@ export function DistributionTab() {
                   items={[
                     {
                       title: "下载并解压",
-                      description:
+                      content:
                         "点上方「下载」按钮获取 zip 安装包，解压到一个固定文件夹（不要删除解压结果）。",
                     },
                     {
                       title: "打开 Chrome 扩展管理",
-                      description:
+                      content:
                         "地址栏输入 chrome://extensions/ 回车，打开右上角的「开发者模式」开关。",
                     },
                     {
                       title: "加载已解压的扩展程序",
-                      description:
+                      content:
                         "点「加载已解压的扩展程序」，选择第 1 步解压出来的 aipdd-enterprise 文件夹。",
                     },
                     {
                       title: "登录各平台创作中心",
-                      description:
+                      content:
                         "在同一个浏览器里登录要发的平台创作中心（微博、小红书/抖音/快手创作者中心、视频号、知识星球、知乎、今日头条、百家号、B站创作中心、公众号、简书、豆瓣；插件用这些已登录会话完成发布）。",
                     },
                     {
                       title: "信任本系统站点",
-                      description:
+                      content:
                         "点浏览器工具栏的 AIPDD Enterprise 插件图标，在弹窗中点「信任此站点」——插件出于安全只接受你信任过的站点发来的分发指令。",
                     },
                     {
                       title: "回到本页分发",
-                      description:
+                      content:
                         "新建内容 → 勾选平台 → 点「分发」：插件会逐个打开平台创作页填充内容；开了「自动发布」就替你点发布，否则请人工确认后发布。",
                     },
                     {
                       title: "查看与补记结果",
-                      description:
+                      content:
                         "发布结果自动回写台账（本页开着才收得到）；填充失败会保留平台标签页供人工接手，可在「结果」里人工补记。",
                     },
                   ]}
@@ -602,7 +669,7 @@ export function DistributionTab() {
             ]}
             onChange={(value) => {
               setPage(1);
-              setFilterType(value ?? "");
+              setFilterType(DISTRIBUTION_MEDIA_TYPES.find((item) => item === value) ?? "");
             }}
           />
           <Select
@@ -616,7 +683,7 @@ export function DistributionTab() {
             ]}
             onChange={(value) => {
               setPage(1);
-              setFilterStatus(value ?? "");
+              setFilterStatus(DISTRIBUTION_CONTENT_STATUSES.find((item) => item === value) ?? "");
             }}
           />
           <Input.Search
@@ -684,7 +751,14 @@ export function DistributionTab() {
           </Form.Item>
           <Form.Item
             name="content"
-            label="正文"
+            label={
+              <Space>
+                正文
+                <Button size="small" onClick={() => void runRewrite()}>
+                  AI 多平台改写
+                </Button>
+              </Space>
+            }
             extra={
               <span className="text-12">
                 样式只带到支持富文本的渠道（文章类原样带、简书转 Markdown），动态/图文类不吃样式，投递时自动转纯文本；
@@ -721,7 +795,7 @@ export function DistributionTab() {
                         padding: 4,
                       }}
                     >
-                      <img
+                      <RawImg
                         src={image.url}
                         alt={image.name}
                         style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 4 }}
@@ -800,6 +874,48 @@ export function DistributionTab() {
           </div>
         </Form>
       </Modal>
+
+      <AiResultModal
+        open={rewriteOpen}
+        title="AI 多平台改写"
+        loading={rewriteLoading}
+        mode={rewrite?.mode}
+        model={rewrite?.model}
+        onClose={() => setRewriteOpen(false)}
+        width={760}
+      >
+        {rewrite ? (
+          <>
+            {rewrite.versions.map((version) => (
+              <div
+                key={version.platformCode}
+                style={{ borderTop: "1px dashed #eee", padding: "10px 0" }}
+              >
+                <Space wrap>
+                  <Tag>{version.platformCode}</Tag>
+                  <strong>{version.title}</strong>
+                  <Button size="small" onClick={() => applyVersion(version)}>
+                    应用到正文
+                  </Button>
+                </Space>
+                <div style={{ whiteSpace: "pre-wrap", marginTop: 6 }}>
+                  {version.content}
+                </div>
+                {version.tags.length ? (
+                  <div className="muted text-12">
+                    标签：{version.tags.join("、")}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {rewrite.titles.length ? (
+              <div className="muted text-12">
+                备选标题：{rewrite.titles.join("；")}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </AiResultModal>
 
       <Drawer
         title={detail ? `分发结果 · ${detail.content.title}` : "分发结果"}
@@ -908,7 +1024,9 @@ export function DistributionTab() {
                   style={{ width: 150 }}
                   value={manualStatus}
                   options={LOG_STATUS_OPTIONS}
-                  onChange={setManualStatus}
+                  onChange={(value) =>
+                    setManualStatus(DISTRIBUTION_LOG_STATUSES.find((item) => item === value) ?? "SUCCESS")
+                  }
                 />
                 <Button
                   type="primary"
@@ -919,9 +1037,168 @@ export function DistributionTab() {
                 </Button>
               </Space>
             </Panel>
+            <DistributionIndexingPanel logs={detail.logs} />
           </Space>
         ) : null}
       </Drawer>
     </Space>
+  );
+}
+
+/**
+ * 分发台账 → 收录提交联动（设计方案 §5.7 / §5.14）：把发布成功的链接勾选后
+ * 一键提交 IndexNow / 百度。收录协议只接受「已验证自有域名」的 URL，第三方平台
+ * 域名（微博/小红书等）无法经此通知收录，故按所选站点主机预筛，跨主机行禁选并明示原因。
+ */
+function DistributionIndexingPanel({ logs }: { logs: DistributionLog[] }) {
+  const { message } = App.useApp();
+  const projects = useSeoProjects();
+  const actions = useSeoActions();
+  const [projectId, setProjectId] = useState(0);
+  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+  const [busy, setBusy] = useState("");
+
+  const project = (projects.data ?? []).find((p) => p.id === projectId) ?? null;
+  const projectHost = project
+    ? domainOf(project.domain).replace(/^www\./, "").split(":")[0]
+    : "";
+
+  const rows = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { url: string; platformName: string; sameHost: boolean }[] = [];
+    for (const log of logs) {
+      if (log.status !== "SUCCESS") continue;
+      const url = log.publishedUrl?.trim();
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      let host = "";
+      try {
+        host = new URL(url).hostname.toLowerCase();
+      } catch {
+        host = "";
+      }
+      list.push({
+        url,
+        platformName: log.platformName,
+        sameHost: Boolean(projectHost) && host === projectHost,
+      });
+    }
+    return list;
+  }, [logs, projectHost]);
+
+  const submit = (target: "indexnow" | "baidu") => {
+    if (!project) {
+      message.warning("请先选择 SEO 站点");
+      return;
+    }
+    const urls = selectedUrls.filter((url) =>
+      rows.some((row) => row.url === url && row.sameHost),
+    );
+    if (!urls.length) {
+      message.warning("请勾选至少一个属于该站点域名的已发布链接");
+      return;
+    }
+    setBusy(target);
+    const run =
+      target === "indexnow"
+        ? actions.submitIndexnow.mutateAsync({ body: { projectId: project.id, urls } })
+        : actions.submitBaidu.mutateAsync({ body: { projectId: project.id, urls } });
+    void run
+      .then((result) => {
+        if (target === "indexnow") {
+          message.success("已提交 IndexNow（成功提交不等于已收录）");
+        } else {
+          const r = result as { success?: number; remain?: number | null } | null;
+          message.success(
+            `百度返回成功 ${r?.success ?? 0} 条${r?.remain != null ? `，剩余配额 ${r.remain}` : ""}（成功提交不等于已收录）`,
+          );
+        }
+        setSelectedUrls([]);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error) presentMutationError(error, (t) => message.error(t));
+      })
+      .finally(() => setBusy(""));
+  };
+
+  return (
+    <Panel title="收录提交（IndexNow / 百度）">
+      <Notice variant="info">
+        勾选发布成功的链接，一键提交收录。IndexNow 仅通知 Bing/Yandex 等参与方（Google、百度不参与）；
+        百度走站长平台主动推送。两者都只接受所选站点<strong>自有域名</strong>的 URL，第三方平台域名无法经此通知收录。
+        提交前请先在「SEO 优化 → 结构化数据与收录」完成 IndexNow key 验证 / 百度凭据配置；成功提交不等于已收录。
+      </Notice>
+      {rows.length === 0 ? (
+        <Notice variant="warn">这条内容还没有「已发布」且带回链接的平台结果，无法提交收录。</Notice>
+      ) : (
+        <Space orientation="vertical" size={12} style={{ width: "100%", marginTop: 12 }}>
+          <Select
+            placeholder="选择 SEO 站点（决定可提交的域名）"
+            style={{ width: 280 }}
+            value={projectId || undefined}
+            options={(projects.data ?? []).map((p) => ({
+              value: p.id,
+              label: `${p.brandName || p.domain}（${p.domain}）`,
+            }))}
+            onChange={(value) => {
+              setProjectId(value ?? 0);
+              setSelectedUrls([]);
+            }}
+          />
+          <Table<{ url: string; platformName: string; sameHost: boolean }>
+            rowKey="url"
+            size="small"
+            dataSource={rows}
+            pagination={false}
+            rowSelection={{
+              selectedRowKeys: selectedUrls,
+              onChange: (keys) => setSelectedUrls(keys as string[]),
+              getCheckboxProps: (row) => ({ disabled: !row.sameHost }),
+            }}
+            columns={[
+              { title: "平台", dataIndex: "platformName", width: 100 },
+              {
+                title: "已发布链接",
+                dataIndex: "url",
+                render: (url: string) => (
+                  <a href={url} target="_blank" rel="noreferrer" className="mono text-12">
+                    {url}
+                  </a>
+                ),
+              },
+              {
+                title: "可否提交",
+                dataIndex: "sameHost",
+                width: 130,
+                render: (sameHost: boolean) =>
+                  sameHost ? (
+                    <Tag color="green">自有域名</Tag>
+                  ) : (
+                    <Tag>第三方平台域名</Tag>
+                  ),
+              },
+            ]}
+          />
+          <Space wrap>
+            <Button
+              type="primary"
+              loading={busy === "indexnow"}
+              disabled={!project || selectedUrls.length === 0}
+              onClick={() => submit("indexnow")}
+            >
+              提交 IndexNow
+            </Button>
+            <Button
+              loading={busy === "baidu"}
+              disabled={!project || selectedUrls.length === 0}
+              onClick={() => submit("baidu")}
+            >
+              提交百度
+            </Button>
+            <span className="text-12 muted">已选 {selectedUrls.length} 条</span>
+          </Space>
+        </Space>
+      )}
+    </Panel>
   );
 }

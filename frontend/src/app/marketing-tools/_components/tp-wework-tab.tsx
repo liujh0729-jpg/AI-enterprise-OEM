@@ -152,7 +152,7 @@ function CodesPanel({
       okText: "确认删除",
       danger: true,
       onOk: async () => {
-        await tpApi.scrmDeleteCode({ body: { ...context, codeId } as never });
+        await tpApi.scrmDeleteCode({ body: { ...context, codeId } });
         setSaveTip(`活码 ${codeId} 已删除`);
       },
     });
@@ -213,7 +213,7 @@ function CodesPanel({
           submit={async (payload) => {
             setSaving(true);
             try {
-              await tpApi.scrmSaveCode({ body: { ...context, ...payload } as never });
+              await tpApi.scrmSaveCode({ body: { ...context, ...payload } });
               setSaveTip("活码已保存");
               return "活码已保存";
             } finally {
@@ -228,7 +228,7 @@ function CodesPanel({
           actionLabel="同步欢迎语"
           accountId={accountId}
           submit={async (payload) => {
-            await tpApi.scrmWelcome({ body: { ...context, ...payload } as never });
+            await tpApi.scrmWelcome({ body: { ...context, ...payload } });
             return "欢迎语已同步";
           }}
         />
@@ -268,7 +268,7 @@ function MassPanel({
       okText: actionName === "stop" ? "停止" : "催办",
       onOk: async () => {
         await tpApi.scrmControlMassTask({
-          body: { ...context, taskId, action: actionName } as never,
+          body: { ...context, taskId, action: actionName },
         });
         message.success(actionName === "stop" ? "已请求停止" : "已请求催办");
       },
@@ -368,7 +368,7 @@ function MassPanel({
           accountId={accountId}
           confirmLabel="我确认：会创建真实的企微群发任务并触达员工与客户"
           submit={async (payload) => {
-            await tpApi.scrmSaveMassTask({ body: { ...context, ...payload } as never });
+            await tpApi.scrmSaveMassTask({ body: { ...context, ...payload } });
             return "群发任务已创建";
           }}
           hint="字段名以企点「群发任务」接口为准（如任务名称、模板ID、员工范围等）。"
@@ -451,7 +451,7 @@ function FollowupsPanel({
                       onOk: async () => {
                         if (!followupId) return;
                         await tpApi.scrmFollowupDone({
-                          body: { ...context, followupId } as never,
+                          body: { ...context, followupId },
                         });
                         message.success("跟进任务已完成");
                       },

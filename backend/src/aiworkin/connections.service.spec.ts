@@ -3,24 +3,25 @@ import { ConnectionsService } from './connections.service';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { localRegionDictionary } from '../shared/region-dictionary';
+import { stub } from '../../test/doubles';
 
 /**
  * 省市字典的取数口径（基础数据通道）：
  * 无凭证或上游通道关闭时必须回落本地内置字典，而不是抛「请先绑定 AIPDD APIKey」，
  * 否则所有共用省市下拉的表单（身份认证、服务商备案、职员资料、三类资源库、物流/营销地域）都会卡住。
  */
-function stub(enabled: boolean, upstream?: unknown) {
+function buildService(enabled: boolean, upstream?: unknown) {
   const request = jest.fn().mockResolvedValue(upstream);
-  const client = {
+  const client = stub<AiworkinClient>({
     isEnabled: () => enabled,
     request,
-  } as unknown as AiworkinClient;
+  });
   return { service: new ConnectionsService(client), request };
 }
 
 describe('ConnectionsService.locations', () => {
   it('falls back to the bundled dictionary when no token is available', async () => {
-    const { service, request } = stub(true);
+    const { service, request } = buildService(true);
     const result = await service.locations('');
     expect(result.source).toBe('LOCAL');
     expect(result.list.length).toBeGreaterThan(0);
@@ -28,7 +29,7 @@ describe('ConnectionsService.locations', () => {
   });
 
   it('falls back to the bundled dictionary when the upstream channel is disabled', async () => {
-    const { service, request } = stub(false);
+    const { service, request } = buildService(false);
     const result = await service.locations('sk-local-dev-key');
     expect(result.source).toBe('LOCAL');
     expect(request).not.toHaveBeenCalled();
@@ -36,7 +37,7 @@ describe('ConnectionsService.locations', () => {
 
   it('proxies upstream when a token is present and the channel is enabled', async () => {
     const rows = [{ label: '北京市', value: '北京市', children: [] }];
-    const { service, request } = stub(true, rows);
+    const { service, request } = buildService(true, rows);
     const result = await service.locations('sk-upstream-key');
     expect(result).toEqual({ list: rows, source: 'AIWORKIN' });
     expect(request).toHaveBeenCalledWith(
@@ -46,7 +47,7 @@ describe('ConnectionsService.locations', () => {
   });
 
   it('rejects malformed upstream payloads', async () => {
-    const { service } = stub(true, { unexpected: true });
+    const { service } = buildService(true, { unexpected: true });
     await expect(service.locations('sk-upstream-key')).rejects.toThrow(
       /数据异常/,
     );
@@ -95,10 +96,10 @@ describe('localRegionDictionary', () => {
 describe('ConnectionsService upstream proxy', () => {
   const build = (upstream: unknown, enabled = true) => {
     const request = jest.fn().mockResolvedValue(upstream);
-    const client = {
+    const client = stub<AiworkinClient>({
       isEnabled: () => enabled,
       request,
-    } as unknown as AiworkinClient;
+    });
     return { service: new ConnectionsService(client), request };
   };
 

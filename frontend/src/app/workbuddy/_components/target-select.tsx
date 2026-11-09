@@ -340,7 +340,7 @@ export function MaterializeModal({
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message={`任务书共 ${stepCount} 步；选多个账号时，步骤按顺序轮流分给不同账号并行执行。`}
+        title={`任务书共 ${stepCount} 步；选多个账号时，步骤按顺序轮流分给不同账号并行执行。`}
       />
       <TargetPicker
         accounts={accounts}

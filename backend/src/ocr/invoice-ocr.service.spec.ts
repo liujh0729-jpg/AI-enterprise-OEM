@@ -1,9 +1,10 @@
 import { InvoiceOcrService } from './invoice-ocr.service';
 import { QxyOpenApiClient } from '../qixiangyun/qxy-openapi.client';
+import { stub } from '../../test/doubles';
 
 describe('Qixiangyun invoice OCR', () => {
   const client = { configured: jest.fn(), recognizeInvoice: jest.fn() };
-  const service = new InvoiceOcrService(client as unknown as QxyOpenApiClient);
+  const service = new InvoiceOcrService(stub<QxyOpenApiClient>(client));
   const image = Buffer.alloc(48).toString('base64');
   const invoice = {
     fphm: '00123456789012345678',

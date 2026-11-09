@@ -1,4 +1,6 @@
 import { QxyClient } from './qxy.client';
+import { stub } from '../../test/doubles';
+import type { QxySettingsService } from './qxy-settings.service';
 
 const credentials = { appkey: 'unit-key', secret: 'unit-secret' };
 const settings = { resolve: jest.fn().mockResolvedValue(credentials) };
@@ -37,7 +39,7 @@ describe('QxyClient tool outcome', () => {
       status: 200,
       text: async () => JSON.stringify({ jsonrpc: '2.0', id: 1, ...payload }),
     });
-    const result = await new QxyClient(settings as never).call(
+    const result = await new QxyClient(stub<QxySettingsService>(settings)).call(
       '/mcp/blue_invoice',
       'issue_blue_invoice_auto',
     );
@@ -74,7 +76,7 @@ describe('QxyClient tool outcome', () => {
         );
       });
     global.fetch = fetchMock;
-    const client = new QxyClient(settings as never);
+    const client = new QxyClient(stub<QxySettingsService>(settings));
     const first = await client.call('/mcp/blue_invoice', 'test');
     const second = await client.call('/mcp/blue_invoice', 'test');
     expect(
@@ -100,7 +102,7 @@ describe('QxyClient tool outcome', () => {
   it('blocks calls with incomplete credentials before fetching', async () => {
     settings.resolve.mockResolvedValueOnce({ appkey: 'unit-key', secret: '' });
     global.fetch = jest.fn();
-    const client = new QxyClient(settings as never);
+    const client = new QxyClient(stub<QxySettingsService>(settings));
     await expect(client.call('/mcp/blue_invoice', 'test')).rejects.toThrow(
       '财税管理',
     );
@@ -116,7 +118,10 @@ describe('QxyClient tool outcome', () => {
       ),
     );
     await expect(
-      new QxyClient(settings as never).call('/mcp/blue_invoice', 'test'),
+      new QxyClient(stub<QxySettingsService>(settings)).call(
+        '/mcp/blue_invoice',
+        'test',
+      ),
     ).rejects.toThrow('*** *** denied');
   });
 });

@@ -1,14 +1,18 @@
 "use client";
 
 import {
+  BulbOutlined,
   CloudUploadOutlined,
   CopyOutlined,
+  DeleteOutlined,
   FileOutlined,
   PictureOutlined,
+  RadarChartOutlined,
   ReloadOutlined,
   ShareAltOutlined,
   SoundOutlined,
   TagsOutlined,
+  ThunderboltOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
 import {
@@ -17,6 +21,7 @@ import {
   Empty,
   Input,
   Modal,
+  Popconfirm,
   Select,
   Skeleton,
   Tag,
@@ -26,8 +31,11 @@ import type { ContentDigitalAsset } from "@enterprise/contracts";
 import {
   contentApi,
   uploadDigitalAsset,
+  uploadDigitalAssetDirect,
 } from "@/api/content";
+import { AiCopilot } from "@/components/ai-copilot";
 import { Notice, PageHero, Panel, TabStrip, type HeroTab } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import {
   SharedAssetsPanel,
   ShareAssetModal,
@@ -69,6 +77,11 @@ const TYPES = [
   { value: "audio", label: "音频" },
   { value: "file", label: "文件" },
 ];
+const MODERATION_LABEL: Record<string, { text: string; color?: string }> = {
+  pass: { text: "审核通过", color: "green" },
+  block: { text: "审核拦截", color: "red" },
+  pending: { text: "审核中", color: "gold" },
+};
 
 function typeOf(fileName: string) {
   const ext = fileName.toLowerCase().split(".").pop() || "";
@@ -81,8 +94,8 @@ function formatSize(mb: number) {
 }
 
 /**
- * 数字资产管理：完全同步 AIPDD 平台的数字资产（列表/标签/上传都走平台），本系统不落副本。
- * 支持按文件 / 图片 / 视频 / 音频筛选、关键词与标签过滤、打标和直接上传。
+ * 数字资产管理：字节统一存本站 OSS，台账按账号圈定；支持筛选、打标、上传、共享与删除。
+ * 历史 AIPDD 托管资产仍可正常查看，后台迁移后自动切换为本站直链。
  */
 export default function DigitalAssetsPage() {
   const { message } = App.useApp();
@@ -104,6 +117,16 @@ export default function DigitalAssetsPage() {
   const [editing, setEditing] = useState<ContentDigitalAsset | null>(null);
   const [draftLabels, setDraftLabels] = useState<string[]>([]);
   const [savingTags, setSavingTags] = useState(false);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiCaption, setAiCaption] = useState("");
+  const [understandingId, setUnderstandingId] = useState<number | null>(null);
+  const [similar, setSimilar] = useState<{
+    asset: ContentDigitalAsset;
+    list: ContentDigitalAsset[];
+    scores: number[];
+  } | null>(null);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -158,7 +181,79 @@ export default function DigitalAssetsPage() {
   const openTags = (asset: ContentDigitalAsset) => {
     setEditing(asset);
     setDraftLabels(asset.labels);
+    setAiCaption(asset.caption || "");
     setTagsOpen(true);
+  };
+
+  /** AI 候选标签：只把建议并进当前草稿，用户确认后保存，不直接写台账。 */
+  const suggestTags = async () => {
+    if (!editing) return;
+    setAiSuggesting(true);
+    try {
+      const result = await contentApi.autoTagDigitalAsset({
+        params: { id: String(editing.id) },
+        body: { persist: false },
+      });
+      if (result) {
+        setDraftLabels((prev) =>
+          Array.from(new Set([...prev, ...result.labels])).slice(0, 20),
+        );
+        if (result.caption) setAiCaption(result.caption);
+        message.success(
+          result.mode === "llm"
+            ? "AI 已给出候选标签，确认后保存"
+            : "未取到可用模型，已按文件信息给出候选标签",
+        );
+      }
+    } catch (caught) {
+      message.error((caught as Error).message || "AI 打标失败");
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
+
+  /** AI 理解：图片出画面描述、文档出摘要；结果写回台账并刷新列表。 */
+  const understandAsset = async (asset: ContentDigitalAsset) => {
+    setUnderstandingId(asset.id);
+    try {
+      const result = await contentApi.extractDigitalAsset({
+        params: { id: String(asset.id) },
+        body: { persist: true },
+      });
+      if (result) {
+        message.success(
+          result.mode === "llm"
+            ? "AI 已理解并写回摘要与标签"
+            : "未取到可用模型，已按文件信息兜底理解",
+        );
+        await load();
+      }
+    } catch (caught) {
+      message.error((caught as Error).message || "AI 理解失败");
+    } finally {
+      setUnderstandingId(null);
+    }
+  };
+
+  const openSimilar = async (asset: ContentDigitalAsset) => {
+    setSimilar({ asset, list: [], scores: [] });
+    setSimilarLoading(true);
+    try {
+      const result = await contentApi.similarDigitalAssets({
+        params: { id: String(asset.id) },
+        query: { limit: 12 },
+      });
+      setSimilar({
+        asset,
+        list: result?.list || [],
+        scores: result?.scores || [],
+      });
+    } catch (caught) {
+      message.error((caught as Error).message || "找相似失败");
+      setSimilar(null);
+    } finally {
+      setSimilarLoading(false);
+    }
   };
 
   const saveTags = async () => {
@@ -178,6 +273,21 @@ export default function DigitalAssetsPage() {
       message.error((caught as Error).message || "标签保存失败");
     } finally {
       setSavingTags(false);
+    }
+  };
+
+  const removeAsset = async (asset: ContentDigitalAsset) => {
+    setDeletingId(asset.id);
+    try {
+      await contentApi.deleteDigitalAsset({ params: { id: String(asset.id) } });
+      setList((prev) => prev.filter((item) => item.id !== asset.id));
+      setTotal((prev) => Math.max(0, prev - 1));
+      message.success("资产已删除");
+      if (list.length === 1 && page > 1) setPage((prev) => prev - 1);
+    } catch (caught) {
+      message.error((caught as Error).message || "删除失败");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -201,10 +311,19 @@ export default function DigitalAssetsPage() {
     }
     setUploading(true);
     try {
-      await uploadDigitalAsset(uploadFile, uploadForm);
+      // 先走浏览器直传（不经服务器中转）；桶没配 CORS 等场景自动回落服务器上传。
+      let direct = true;
+      try {
+        await uploadDigitalAssetDirect(uploadFile, uploadForm);
+      } catch {
+        direct = false;
+        await uploadDigitalAsset(uploadFile, uploadForm);
+      }
       setUploadOpen(false);
       setUploadFile(null);
-      message.success("已上传并登记到数字资产");
+      message.success(
+        `${direct ? "已通过浏览器直传上传并登记" : "已上传并登记到数字资产"}；AI 理解与送审在后台补写，稍后刷新可见`,
+      );
       setPage(1);
       await load();
       contentApi
@@ -233,7 +352,7 @@ export default function DigitalAssetsPage() {
     <div>
       <PageHero
         title="数字资产管理"
-        desc="数字资产对应本账号的 AIPDD 账号：只看/管本账号上传或生成过的资产，可打标、上传与共享；「共享资料」把资产按账号共享给企业内用户，文件仍归上传者"
+        desc="数字资产对应本账号：只看/管本账号上传或生成过的资产，可打标、上传、共享与删除；字节统一存本站 OSS，「共享资料」把资产按账号共享给同组织内用户（已认证企业或服务商），文件仍归上传者"
         tabs={VIEW_TABS}
         activeTab={view}
         onTabChange={setView}
@@ -249,7 +368,7 @@ export default function DigitalAssetsPage() {
         title="资产列表"
         titleExtra={
           <span className="text-12 muted">
-            共 {total} 条 · 仅本账号资产；打标与上传会同步到 AIPDD
+            共 {total} 条 · 仅本账号资产；新上传直存本站 OSS
           </span>
         }
         extra={
@@ -319,7 +438,7 @@ export default function DigitalAssetsPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
             gap: 16,
           }}
         >
@@ -346,8 +465,7 @@ export default function DigitalAssetsPage() {
                 }}
               >
                 {asset.type === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- 平台直链，不走图片优化
-                  <img
+                  <RawImg
                     src={asset.previewUrl || asset.url}
                     alt={asset.name || "资产"}
                     style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
@@ -385,12 +503,31 @@ export default function DigitalAssetsPage() {
                 <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {asset.name || "未命名"}
                 </strong>
+                {MODERATION_LABEL[asset.moderation] ? (
+                  <Tag color={MODERATION_LABEL[asset.moderation].color}>
+                    {MODERATION_LABEL[asset.moderation].text}
+                  </Tag>
+                ) : null}
                 <Tag style={{ marginInlineStart: "auto" }}>
                   {TYPE_LABEL[asset.type] || asset.type}
                 </Tag>
               </div>
 
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {asset.caption ? (
+                <div
+                  className="text-12 muted"
+                  title={asset.caption}
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {asset.caption}
+                </div>
+              ) : null}
+
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                 {asset.labels.length ? (
                   asset.labels.map((item) => <Tag key={item}>{item}</Tag>)
                 ) : (
@@ -402,6 +539,21 @@ export default function DigitalAssetsPage() {
                   onClick={() => openTags(asset)}
                 >
                   打标
+                </Button>
+                <Button
+                  type="text"
+                  icon={<ThunderboltOutlined aria-hidden />}
+                  loading={understandingId === asset.id}
+                  onClick={() => void understandAsset(asset)}
+                >
+                  AI 理解
+                </Button>
+                <Button
+                  type="text"
+                  icon={<RadarChartOutlined aria-hidden />}
+                  onClick={() => void openSimilar(asset)}
+                >
+                  找相似
                 </Button>
               </div>
 
@@ -425,6 +577,22 @@ export default function DigitalAssetsPage() {
                 >
                   共享
                 </Button>
+                <Popconfirm
+                  title="删除这个资产？"
+                  description="删除后文件会从资产列表与共享中移除，无法恢复。"
+                  okText="删除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => void removeAsset(asset)}
+                >
+                  <Button
+                    danger
+                    icon={<DeleteOutlined aria-hidden />}
+                    loading={deletingId === asset.id}
+                  >
+                    删除
+                  </Button>
+                </Popconfirm>
               </div>
             </div>
           ))}
@@ -465,8 +633,31 @@ export default function DigitalAssetsPage() {
           onChange={(values: string[]) => setDraftLabels(values)}
           maxCount={20}
         />
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            marginTop: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <Button
+            icon={<BulbOutlined aria-hidden />}
+            loading={aiSuggesting}
+            onClick={() => void suggestTags()}
+          >
+            AI 建议标签
+          </Button>
+          <span className="text-12 muted">建议只并进草稿，确认保存后才写入</span>
+        </div>
+        {aiCaption ? (
+          <div className="text-12 muted" style={{ marginTop: 8 }}>
+            AI 理解：{aiCaption}
+          </div>
+        ) : null}
         <div className="text-12 muted" style={{ marginTop: 8 }}>
-          标签会直接写到 AIPDD 平台；清空后保存＝移除全部标签。
+          标签保存在本系统台账；清空后保存＝移除全部标签。
         </div>
       </Modal>
 
@@ -492,7 +683,7 @@ export default function DigitalAssetsPage() {
           <div className="text-12 muted">
             {uploadFile
               ? `${uploadFile.name}（${formatSize(uploadFile.size / 1024 / 1024)}）`
-              : "支持图片、视频、音频与 pdf/zip/office/txt 等文档，单件 ≤100MB"}
+              : "支持图片、视频、音频与 pdf/zip/office/txt 等文档，单件 ≤100MB；上传后自动理解打标（缺模型时按文件信息兜底）"}
           </div>
           <div>
             <div className="text-12 muted" style={{ marginBottom: 6 }}>
@@ -532,10 +723,96 @@ export default function DigitalAssetsPage() {
         </div>
       </Modal>
 
+      <Modal
+        open={Boolean(similar)}
+        title={`找相似：${similar?.asset.name || "资产"}`}
+        footer={null}
+        width={640}
+        onCancel={() => setSimilar(null)}
+      >
+        <div className="text-12 muted" style={{ marginBottom: 12 }}>
+          按理解摘要与标签的语义向量比较，只在本账号资产里找最相近的条目。
+        </div>
+        {similarLoading ? <Skeleton active paragraph={{ rows: 4 }} /> : null}
+        {!similarLoading && similar && !similar.list.length ? (
+          <Empty description="还没有足够相似的资产；先给资产做「AI 理解」可提升匹配效果" />
+        ) : null}
+        <div style={{ display: "grid", gap: 10 }}>
+          {similar?.list.map((item, index) => (
+            <div
+              key={item.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                border: "1px solid var(--line, #f0f0f0)",
+                borderRadius: 10,
+                padding: 8,
+              }}
+            >
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 8,
+                  background: "#fafafa",
+                  display: "grid",
+                  placeItems: "center",
+                  overflow: "hidden",
+                  flex: "none",
+                }}
+              >
+                {item.type === "image" ? (
+                  <RawImg
+                    src={item.previewUrl || item.url}
+                    alt={item.name || "资产"}
+                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "cover" }}
+                  />
+                ) : (
+                  <FileOutlined aria-hidden />
+                )}
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.name || "未命名"}
+                </div>
+                <div className="text-12 muted">
+                  {TYPE_LABEL[item.type] || item.type} ·{" "}
+                  {formatSize(item.fileSize)}
+                </div>
+              </div>
+              <Tag color="blue">
+                相似度 {Math.round((similar.scores[index] || 0) * 100)}%
+              </Tag>
+              <Button
+                onClick={() => window.open(item.url, "_blank", "noopener,noreferrer")}
+              >
+                打开
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Modal>
+
       <ShareAssetModal
         asset={sharing}
         onClose={() => setSharing(null)}
         onShared={() => void load()}
+      />
+
+      <AiCopilot
+        module="assets"
+        moduleLabel="数字资产"
+        context={`当前视图：${
+          VIEW_TABS.find((item) => item.key === view)?.label || view
+        }；本账号资产 ${total} 条`}
+        suggestions={["这批素材适合怎么用", "帮我挑几条做封面"]}
       />
     </div>
   );

@@ -3,6 +3,7 @@
 import {
   App,
   Button,
+  Drawer,
   Input,
   InputNumber,
   Modal,
@@ -29,7 +30,9 @@ import {
   type OkrCycleView,
 } from "@enterprise/contracts";
 import { okrApi } from "@/api/okr";
-import { Panel, StatCard, StatGrid } from "@/components/ui/panel";
+import { aiApi, type AiOkrCheckKr, type AiOkrProgressSummary } from "@/api/ai";
+import { AiLevelTag, AiList, AiResultModal } from "@/components/ai-result";
+import { EmptyState, Notice, Panel, PillTabs, StatCard, StatGrid } from "@/components/ui/panel";
 import { fmtDateTime } from "@/lib/datetime";
 import {
   KrLine,
@@ -48,6 +51,21 @@ import {
 
 type Objective = OkrContextData["objectives"][number];
 type Member = OkrContextData["members"][number];
+type ObjectiveView = NonNullable<Awaited<ReturnType<typeof okrApi.objective>>>;
+type TaskLinkView = NonNullable<Awaited<ReturnType<typeof okrApi.taskLinks>>>[number];
+type ProgressLogView = NonNullable<Awaited<ReturnType<typeof okrApi.progressLogs>>>[number];
+
+const PROGRESS_SOURCE_LABELS: Record<string, string> = {
+  MANUAL: "手工更新",
+  AUTO: "自动同步",
+  PLAN: "计划完成",
+  SYSTEM: "系统触发",
+};
+const PROGRESS_REF_LABELS: Record<string, string> = {
+  TASK: "任务",
+  PLAN: "计划",
+  METRIC: "指标",
+};
 
 const num = (value: number | string | null | undefined) => Number(value || 0);
 
@@ -136,6 +154,16 @@ export function OkrObjectivesTab({
   >([]);
   const [logsTitle, setLogsTitle] = useState("");
 
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState("overview");
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [detailView, setDetailView] = useState<{
+    objective: ObjectiveView;
+    links: TaskLinkView[];
+    logs: ProgressLogView[];
+  } | null>(null);
+
   const [assignOpen, setAssignOpen] = useState<Objective | null>(null);
   const [assignDraft, setAssignDraft] = useState({
     memberUserIds: [] as string[],
@@ -149,6 +177,15 @@ export function OkrObjectivesTab({
     NonNullable<Awaited<ReturnType<typeof okrApi.decomposeSuggest>>>["suggestions"]
   >([]);
   const [suggestNotes, setSuggestNotes] = useState<string[]>([]);
+
+  const [krCheck, setKrCheck] = useState<AiOkrCheckKr | null>(null);
+  const [krCheckOpen, setKrCheckOpen] = useState(false);
+  const [krCheckLoading, setKrCheckLoading] = useState(false);
+  const [krCheckName, setKrCheckName] = useState("");
+  const [progressSummary, setProgressSummary] =
+    useState<AiOkrProgressSummary | null>(null);
+  const [progressSummaryOpen, setProgressSummaryOpen] = useState(false);
+  const [progressSummaryLoading, setProgressSummaryLoading] = useState(false);
 
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftInput, setDraftInput] = useState({
@@ -509,6 +546,38 @@ export function OkrObjectivesTab({
     }
   };
 
+  const checkKr = async (kr: OkrKr) => {
+    setKrCheckName(kr.title);
+    setKrCheckOpen(true);
+    setKrCheckLoading(true);
+    setKrCheck(null);
+    try {
+      setKrCheck(await aiApi.okrCheckKr({ body: { krId: kr.id } }));
+    } catch (error) {
+      message.error(okrError(error));
+      setKrCheckOpen(false);
+    } finally {
+      setKrCheckLoading(false);
+    }
+  };
+
+  const summarizeProgress = async () => {
+    if (!cycle) return;
+    setProgressSummaryOpen(true);
+    setProgressSummaryLoading(true);
+    setProgressSummary(null);
+    try {
+      setProgressSummary(
+        await aiApi.okrProgressSummary({ body: { cycleId: cycle.id } }),
+      );
+    } catch (error) {
+      message.error(okrError(error));
+      setProgressSummaryOpen(false);
+    } finally {
+      setProgressSummaryLoading(false);
+    }
+  };
+
   const applySuggestion = async (
     memberUserId: string,
     krTitles: string[],
@@ -589,6 +658,27 @@ export function OkrObjectivesTab({
     return membersById.get(memberUserId)?.name || memberUserId;
   };
 
+  const openDetail = async (objective: Objective) => {
+    setDetailOpen(true);
+    setDetailTab("overview");
+    setDetailLoading(true);
+    setDetailError("");
+    setDetailView(null);
+    try {
+      const [detail, links, logs] = await Promise.all([
+        okrApi.objective({ params: { id: String(objective.id) } }),
+        okrApi.taskLinks({ query: { objectiveId: objective.id } }),
+        okrApi.progressLogs({ query: { objectiveId: objective.id } }),
+      ]);
+      if (!detail) throw new Error("目标详情暂不可用");
+      setDetailView({ objective: detail, links: links || [], logs: logs || [] });
+    } catch (err) {
+      setDetailError(okrError(err));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   const renderObjective = (objective: Objective, depth: number) => {
     const children = ctx.objectives.filter(
       (item) => item.parentId === objective.id,
@@ -618,6 +708,7 @@ export function OkrObjectivesTab({
                 {`承接人：${objective.ownerMemberUserId ? memberLabel(objective.ownerMemberUserId) : "账号所有者"}`}
               </span>
               <ProgressRing value={objective.progress} size={44} />
+              <Button onClick={() => void openDetail(objective)}>详情</Button>
               {editable ? (
                 <Button onClick={() => openObjective(objective)}>编辑</Button>
               ) : null}
@@ -664,6 +755,9 @@ export function OkrObjectivesTab({
                   kr={kr}
                   actions={
                     <>
+                      <Button size="small" onClick={() => void checkKr(kr)}>
+                        AI 体检
+                      </Button>
                       <Button size="small" onClick={() => openProgress(kr)}>
                         进度
                       </Button>
@@ -735,6 +829,9 @@ export function OkrObjectivesTab({
           >
             AI 起草目标
           </Button>
+        ) : null}
+        {cycle ? (
+          <Button onClick={() => void summarizeProgress()}>AI 进度总结</Button>
         ) : null}
         {ctx.isOwner && cycle && cycle.status !== "CLOSED" ? (
           <Button danger onClick={closeCycle}>
@@ -1415,6 +1512,52 @@ export function OkrObjectivesTab({
         </Space>
       </Modal>
 
+      <AiResultModal
+        open={krCheckOpen}
+        title={`AI 关键结果体检 · ${krCheckName}`}
+        loading={krCheckLoading}
+        mode={krCheck?.mode}
+        model={krCheck?.model}
+        onClose={() => setKrCheckOpen(false)}
+      >
+        {krCheck ? (
+          <>
+            <Space>
+              <span>
+                质量评分 <strong>{krCheck.score}</strong>
+              </span>
+              <AiLevelTag level={krCheck.level} />
+            </Space>
+            <AiList title="问题" items={krCheck.issues} />
+            <AiList title="改进建议" items={krCheck.suggestions} />
+            {krCheck.improvedTitle ? (
+              <div>
+                <strong>建议改写：</strong>
+                {krCheck.improvedTitle}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </AiResultModal>
+
+      <AiResultModal
+        open={progressSummaryOpen}
+        title="AI 周期进度总结"
+        loading={progressSummaryLoading}
+        mode={progressSummary?.mode}
+        model={progressSummary?.model}
+        onClose={() => setProgressSummaryOpen(false)}
+      >
+        {progressSummary ? (
+          <>
+            <div>{progressSummary.summary}</div>
+            <AiList title="亮点" items={progressSummary.highlights} />
+            <AiList title="风险" items={progressSummary.risks} />
+            <AiList title="下一步" items={progressSummary.nextSteps} />
+          </>
+        ) : null}
+      </AiResultModal>
+
       <Modal
         open={Boolean(suggestOpen)}
         title={`AI 拆解建议 · ${suggestOpen?.title || ""}`}
@@ -1555,6 +1698,166 @@ export function OkrObjectivesTab({
           ))}
         </Space>
       </Modal>
+
+      <Drawer
+        open={detailOpen}
+        size={760}
+        title={detailView?.objective.title || "目标详情"}
+        onClose={() => setDetailOpen(false)}
+        destroyOnHidden
+      >
+        {detailError ? (
+          <Notice variant="error">{detailError}</Notice>
+        ) : !detailView ? (
+          <EmptyState text={detailLoading ? "正在加载目标 360…" : "暂无目标详情"} />
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <Tag>{detailView.objective.levelLabel || levelLabel(detailView.objective.level)}</Tag>
+              <Tag>{detailView.objective.statusLabel}</Tag>
+              <Tag>{detailView.objective.visibilityLabel}</Tag>
+              <Tag>{`权重 ${detailView.objective.weight}`}</Tag>
+              <Tag>{`承接人：${detailView.objective.ownerName || "账号所有者"}`}</Tag>
+            </div>
+            <StatGrid>
+              <StatCard label="目标进度" value={`${num(detailView.objective.progress)}%`} />
+              <StatCard label="关键结果" value={String(detailView.objective.krs.length)} />
+              <StatCard label="关联任务" value={String(detailView.links.length)} />
+              <StatCard label="进度记录" value={String(detailView.logs.length)} />
+            </StatGrid>
+
+            <PillTabs
+              items={[
+                { key: "overview", label: "概览" },
+                {
+                  key: "krs",
+                  label: "关键结果",
+                  count: detailView.objective.krs.length,
+                },
+                { key: "tasks", label: "关联任务", count: detailView.links.length },
+                { key: "logs", label: "进度记录", count: detailView.logs.length },
+              ]}
+              value={detailTab}
+              onChange={setDetailTab}
+              style={{ margin: "14px 0 12px" }}
+            />
+
+            {detailTab === "overview" ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                <div className="text-12 muted">
+                  {detailView.objective.description || "暂无目标说明。"}
+                </div>
+                <div className="text-12 muted">
+                  {`创建：${fmtDateTime(detailView.objective.createdAt)} · 更新：${fmtDateTime(detailView.objective.updatedAt)}`}
+                </div>
+              </div>
+            ) : null}
+
+            {detailTab === "krs" ? (
+              detailView.objective.krs.length ? (
+                <Table
+                  rowKey="id"
+                  size="small"
+                  pagination={false}
+                  dataSource={detailView.objective.krs}
+                  columns={[
+                    { title: "关键结果", dataIndex: "title" },
+                    { title: "口径", dataIndex: "metricTypeLabel", render: (v: string) => v || "—" },
+                    {
+                      title: "当前 / 目标",
+                      dataIndex: "currentValue",
+                      render: (_: number, row) =>
+                        `${row.currentValue}${row.unit} / ${row.targetValue}${row.unit}`,
+                    },
+                    {
+                      title: "负责人",
+                      dataIndex: "ownerMemberUserId",
+                      render: (v: string, row) => row.ownerName || (v ? memberLabel(v) : "—"),
+                    },
+                    {
+                      title: "进度",
+                      dataIndex: "progress",
+                      render: (v: number) => `${num(v)}%`,
+                    },
+                  ]}
+                />
+              ) : (
+                <EmptyState text="还没有关键结果，点「添加关键结果」补齐衡量口径。" />
+              )
+            ) : null}
+
+            {detailTab === "tasks" ? (
+              detailView.links.length ? (
+                <Table
+                  rowKey="id"
+                  size="small"
+                  pagination={false}
+                  dataSource={detailView.links}
+                  columns={[
+                    {
+                      title: "任务",
+                      dataIndex: "taskTitle",
+                      render: (v: string, row) => v || `任务 #${row.taskId}`,
+                    },
+                    { title: "权重", dataIndex: "weight", render: (v: number) => String(v) },
+                    {
+                      title: "回填目标值",
+                      dataIndex: "targetValue",
+                      render: (v: number) => String(v),
+                    },
+                    {
+                      title: "验收项",
+                      dataIndex: "acceptance",
+                      render: (rows: TaskLinkView["acceptance"]) =>
+                        rows.length ? `${rows.length} 项` : "—",
+                    },
+                    {
+                      title: "更新时间",
+                      dataIndex: "updatedAt",
+                      render: (v: string) => fmtDateTime(v),
+                    },
+                  ]}
+                />
+              ) : (
+                <EmptyState text="还没有关联任务：在任务页把任务挂到该目标或关键结果后，完成情况会自动回填。" />
+              )
+            ) : null}
+
+            {detailTab === "logs" ? (
+              detailView.logs.length ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {detailView.logs.map((log) => (
+                    <div
+                      key={log.id}
+                      style={{
+                        border: "1px solid var(--line, #eee)",
+                        borderRadius: 10,
+                        padding: "10px 12px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                        <span className="text-12">
+                          {PROGRESS_SOURCE_LABELS[log.source] || log.source}
+                          {log.refType
+                            ? ` · ${PROGRESS_REF_LABELS[log.refType] || log.refType}`
+                            : ""}
+                        </span>
+                        <span className="muted text-12">{fmtDateTime(log.createdAt)}</span>
+                      </div>
+                      <div className="text-12" style={{ marginTop: 4 }}>
+                        {`${log.before} → ${log.after}（${num(log.progress)}%）`}
+                        {log.note ? ` · ${log.note}` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text="还没有进度记录：更新 KR 进度或任务完成后，这里会留痕。" />
+              )
+            ) : null}
+          </>
+        )}
+      </Drawer>
     </>
   );
 }

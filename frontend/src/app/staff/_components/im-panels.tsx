@@ -20,6 +20,9 @@ import {
   IM_MODULES,
   IM_NOTIFY_EVENTS,
   IM_NOTIFY_EVENT_LABELS,
+  IM_NOTIFY_TARGETS,
+  IM_PROVIDERS,
+  type EndpointInput,
   type ImBinding,
   type ImConnector,
   type ImDeptLink,
@@ -38,6 +41,14 @@ const PROVIDER_OPTIONS = [
   { value: "FEISHU", label: "飞书" },
   { value: "WECOM", label: "企业微信" },
 ];
+
+type NotifyTarget = (typeof IM_NOTIFY_TARGETS)[number];
+
+const NOTIFY_TARGET_LABELS: Record<NotifyTarget, string> = {
+  OFF: "不推送",
+  USER: "推给负责人",
+  CHAT: "推给群",
+};
 
 const NO_CONNECTOR = "先在「连接设置」建一个连接器。";
 
@@ -134,7 +145,7 @@ export function ConnectorPanel({
     await imApi.saveConnector({
       body: {
         ...(editing ? { id: editing.id } : {}),
-        provider: draft.provider,
+        provider: IM_PROVIDERS.find((value) => value === draft.provider) ?? "FEISHU",
         name: draft.name.trim(),
         corpId: draft.corpId.trim(),
         appId: draft.appId.trim(),
@@ -143,7 +154,7 @@ export function ConnectorPanel({
         contactSecret: draft.contactSecret.trim(),
         verificationToken: draft.verificationToken.trim(),
         encryptKey: draft.encryptKey.trim(),
-      } as never,
+      },
     });
     message.success(editing ? "连接器已保存" : "连接器已创建");
     setOpen(false);
@@ -418,7 +429,7 @@ export function MemberPanel({
         body: {
           memberUserId: memberUserId.trim(),
           externalUserId: binding.externalUserId,
-        } as never,
+        },
       });
       message.success("已绑定");
       setBinding(null);
@@ -438,7 +449,7 @@ export function MemberPanel({
       onOk: async () => {
         await imApi.unlinkMember({
           params: { id: String(connectorId) },
-          body: { linkId: row.id } as never,
+          body: { linkId: row.id },
         });
         await load();
         await reloadOverview();
@@ -459,7 +470,7 @@ export function MemberPanel({
       onOk: async () => {
         await imApi.inviteUnlinked({
           params: { id: String(connectorId) },
-          body: { externalUserId: row.externalUserId, memberUserId: memberUserId.trim() } as never,
+          body: { externalUserId: row.externalUserId, memberUserId: memberUserId.trim() },
         });
         message.success("已发出邀请");
         setBinding(null);
@@ -596,7 +607,7 @@ export function DeptPanel({ connectors }: { connectors: ImConnector[] }) {
     try {
       await imApi.saveDeptLink({
         params: { id: String(connectorId) },
-        body: { ...draft } as never,
+        body: { ...draft },
       });
       message.success("部门映射已保存");
       setOpen(false);
@@ -657,7 +668,13 @@ export function ObjectPanel({ connectors }: { connectors: ImConnector[] }) {
   const { connectorId, picker } = useConnectorPicker(connectors);
   const { rows, reload } = useConnectorList(connectorId, fetchBindings);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<{
+    module: EndpointInput<"Im_saveBinding">["body"]["module"];
+    objectKey: string;
+    direction: NonNullable<EndpointInput<"Im_saveBinding">["body"]["direction"]>;
+    config: string;
+    fieldMap: string;
+  }>({
     module: "APPROVAL",
     objectKey: "",
     direction: "PUSH",
@@ -688,7 +705,7 @@ export function ObjectPanel({ connectors }: { connectors: ImConnector[] }) {
           direction: draft.direction,
           config,
           fieldMap,
-        } as never,
+        },
       });
       message.success("同步对象已保存");
       setOpen(false);
@@ -721,7 +738,7 @@ export function ObjectPanel({ connectors }: { connectors: ImConnector[] }) {
     try {
       await imApi.publishApproval({
         params: { id: String(connectorId) },
-        body: { templateKey, externalTemplateId: externalTemplateId.trim() } as never,
+        body: { templateKey, externalTemplateId: externalTemplateId.trim() },
       });
       message.success("审批模板已绑定");
       await reload();
@@ -775,7 +792,7 @@ export function ObjectPanel({ connectors }: { connectors: ImConnector[] }) {
                           onClick={async () => {
                             const result = await imApi.bindingTest({
                               params: { id: String(connectorId) },
-                              body: { module: row.module, config: row.config } as never,
+                              body: { module: IM_MODULES.find((value) => value === row.module) ?? "APPROVAL", config: row.config },
                             });
                             message.info(result?.message || "已测试");
                           }}
@@ -825,13 +842,13 @@ export function ObjectPanel({ connectors }: { connectors: ImConnector[] }) {
           <Select
             value={draft.module}
             options={IM_MODULES.map((value) => ({ value, label: IM_MODULE_LABELS[value] }))}
-            onChange={(value: string) => setDraft((prev) => ({ ...prev, module: value }))}
+            onChange={(value) => setDraft((prev) => ({ ...prev, module: value }))}
           />
           <Input placeholder="对象键：OA 模板 key / 任务清单 / app_token+table_id" value={draft.objectKey} onChange={(event) => setDraft((prev) => ({ ...prev, objectKey: event.target.value }))} />
           <Select
             value={draft.direction}
             options={IM_DIRECTIONS.map((value) => ({ value, label: IM_DIRECTION_LABELS[value] }))}
-            onChange={(value: string) => setDraft((prev) => ({ ...prev, direction: value }))}
+            onChange={(value) => setDraft((prev) => ({ ...prev, direction: value }))}
           />
           <Input.TextArea rows={4} placeholder='外部配置 JSON，例如 {"externalTemplateId":"xxx"}' value={draft.config} onChange={(event) => setDraft((prev) => ({ ...prev, config: event.target.value }))} />
           <Input.TextArea rows={3} placeholder='字段映射 JSON，例如 {"name":"名称"}' value={draft.fieldMap} onChange={(event) => setDraft((prev) => ({ ...prev, fieldMap: event.target.value }))} />
@@ -845,7 +862,7 @@ export function ObjectPanel({ connectors }: { connectors: ImConnector[] }) {
 export function NotifyPanel({ connectors }: { connectors: ImConnector[] }) {
   const { message } = App.useApp();
   const { connectorId, picker } = useConnectorPicker(connectors);
-  const [rules, setRules] = useState<Record<string, { target: string; chatId: string }>>({});
+  const [rules, setRules] = useState<Record<string, { target: NotifyTarget; chatId: string }>>({});
   const [saving, setSaving] = useState(false);
   const [testChat, setTestChat] = useState("");
   const [testMember, setTestMember] = useState("");
@@ -853,10 +870,14 @@ export function NotifyPanel({ connectors }: { connectors: ImConnector[] }) {
   const load = useCallback(async () => {
     if (!connectorId) return;
     const data = await imApi.notifyRules({ params: { id: String(connectorId) } });
-    const map: Record<string, { target: string; chatId: string }> = {};
+    const map: Record<string, { target: NotifyTarget; chatId: string }> = {};
     for (const item of data?.rules || []) {
-      const row = item as unknown as { event?: string; target?: string; chatId?: string };
-      if (row.event) map[row.event] = { target: row.target || "OFF", chatId: row.chatId || "" };
+      if (item.event) {
+        map[item.event] = {
+          target: IM_NOTIFY_TARGETS.find((value) => value === item.target) ?? "OFF",
+          chatId: item.chatId,
+        };
+      }
     }
     setRules(map);
   }, [connectorId]);
@@ -876,7 +897,7 @@ export function NotifyPanel({ connectors }: { connectors: ImConnector[] }) {
             target: rules[event]?.target || "OFF",
             chatId: rules[event]?.chatId || "",
           })),
-        } as never,
+        },
       });
       message.success("通知规则已保存");
     } catch (caught) {
@@ -894,7 +915,7 @@ export function NotifyPanel({ connectors }: { connectors: ImConnector[] }) {
           target: testChat.trim() ? "CHAT" : "USER",
           chatId: testChat.trim(),
           memberUserId: testMember.trim(),
-        } as never,
+        },
       });
       message.success(result?.message || "测试消息已发送");
     } catch (caught) {
@@ -928,12 +949,8 @@ export function NotifyPanel({ connectors }: { connectors: ImConnector[] }) {
                   <Select
                     style={{ width: 160 }}
                     value={rule.target}
-                    options={[
-                      { value: "OFF", label: "不推送" },
-                      { value: "USER", label: "推给负责人" },
-                      { value: "CHAT", label: "推给群" },
-                    ]}
-                    onChange={(value: string) =>
+                    options={IM_NOTIFY_TARGETS.map((value) => ({ value, label: NOTIFY_TARGET_LABELS[value] }))}
+                    onChange={(value) =>
                       setRules((prev) => ({ ...prev, [event]: { ...rule, target: value } }))
                     }
                   />
@@ -999,8 +1016,7 @@ export function LogPanel({ connectors }: { connectors: ImConnector[] }) {
   useEffect(() => {
     void load(1);
     setPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectorId]);
+  }, [connectorId, load]);
 
   return (
     <Panel

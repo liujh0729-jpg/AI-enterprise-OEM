@@ -31,16 +31,25 @@ export class RechargeService {
   /** 用户下单：amountCents 或按档位 recharge_tier_index 二选一。 */
   async createOrder(
     userId: string,
-    input: { amountCents?: number; tierIndex?: number; channel: 'NATIVE' | 'H5'; clientIp?: string },
+    input: {
+      amountCents?: number;
+      tierIndex?: number;
+      channel: 'NATIVE' | 'H5';
+      clientIp?: string;
+    },
   ) {
     const cfg = await this.settings.view();
     if (!cfg.wechatConfigured) {
-      throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, '微信支付尚未配置，请联系管理员');
+      throw new BusinessException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        '微信支付尚未配置，请联系管理员',
+      );
     }
     let cents = input.amountCents;
     if (input.tierIndex !== undefined) {
       const tier = cfg.rechargeTiers[input.tierIndex];
-      if (!tier) throw new BusinessException(ErrorCode.BAD_REQUEST, '充值档位不存在');
+      if (!tier)
+        throw new BusinessException(ErrorCode.BAD_REQUEST, '充值档位不存在');
       cents = tier.cents;
     }
     if (!cents || !Number.isInteger(cents) || cents < cfg.rechargeMinCents) {
@@ -53,7 +62,9 @@ export class RechargeService {
     const tier = cfg.rechargeTiers.find((t) => t.cents === cents);
     const bonusPercent = tier ? tier.bonusPercent : 0;
     const pointsAmount = centsToPoints(cents, cfg.rate);
-    const bonusPointsAmount = Number(((pointsAmount * bonusPercent) / 100).toFixed(4));
+    const bonusPointsAmount = Number(
+      ((pointsAmount * bonusPercent) / 100).toFixed(4),
+    );
 
     const orderNo = await allocateNo(this.prisma, 'RP');
     const order = await this.prisma.rechargeOrder.create({
@@ -72,8 +83,14 @@ export class RechargeService {
     const credentials = await this.settings.wechatCredentials();
     const notifyUrl = credentials.notifyUrl || cfg.wechatNotifyUrl;
     if (!notifyUrl) {
-      await this.prisma.rechargeOrder.update({ where: { id: order.id }, data: { status: 'FAILED' } });
-      throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, '微信支付回调地址未配置');
+      await this.prisma.rechargeOrder.update({
+        where: { id: order.id },
+        data: { status: 'FAILED' },
+      });
+      throw new BusinessException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        '微信支付回调地址未配置',
+      );
     }
     const description = `积分充值 ${pointsAmount}分`;
     let codeUrl = '';
@@ -96,7 +113,10 @@ export class RechargeService {
         });
       }
     } catch (error) {
-      await this.prisma.rechargeOrder.update({ where: { id: order.id }, data: { status: 'FAILED' } });
+      await this.prisma.rechargeOrder.update({
+        where: { id: order.id },
+        data: { status: 'FAILED' },
+      });
       throw error;
     }
     await this.prisma.rechargeOrder.update({
@@ -122,7 +142,10 @@ export class RechargeService {
   async handleNotify(rawBody: string, headers: Record<string, string>) {
     const credentials = await this.settings.wechatCredentials();
     if (!credentials.configured) {
-      throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, '微信支付未配置');
+      throw new BusinessException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        '微信支付未配置',
+      );
     }
     const txn = await this.pay.parseNotify(credentials, headers, rawBody);
     return this.settle(txn, rawBody);
@@ -131,9 +154,13 @@ export class RechargeService {
   /** 结算：把微信成功交易落到本地单并入账。可被回调与主动查单复用。 */
   async settle(txn: WechatTransaction, rawPayload: string) {
     const outTradeNo = String(txn.out_trade_no || '');
-    if (!outTradeNo) throw new BusinessException(ErrorCode.BAD_REQUEST, '回调缺少商户订单号');
-    const order = await this.prisma.rechargeOrder.findUnique({ where: { orderNo: outTradeNo } });
-    if (!order) throw new BusinessException(ErrorCode.NOT_FOUND, '充值订单不存在');
+    if (!outTradeNo)
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '回调缺少商户订单号');
+    const order = await this.prisma.rechargeOrder.findUnique({
+      where: { orderNo: outTradeNo },
+    });
+    if (!order)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '充值订单不存在');
     if (order.status === 'PAID') {
       return { orderNo: outTradeNo, status: 'PAID', duplicated: true };
     }
@@ -142,7 +169,11 @@ export class RechargeService {
         where: { id: order.id },
         data: { status: txn.trade_state === 'CLOSED' ? 'CLOSED' : 'FAILED' },
       });
-      return { orderNo: outTradeNo, status: 'NOT_SUCCESS', tradeState: txn.trade_state };
+      return {
+        orderNo: outTradeNo,
+        status: 'NOT_SUCCESS',
+        tradeState: txn.trade_state,
+      };
     }
     const transactionId = String(txn.transaction_id || '');
     if (!transactionId) {
@@ -155,7 +186,9 @@ export class RechargeService {
           status: 'PAID',
           transactionId,
           paidAt: new Date(),
-          notifyPayload: (rawPayload ? JSON.parse(rawPayload) : {}) as Prisma.InputJsonValue,
+          notifyPayload: (rawPayload
+            ? JSON.parse(rawPayload)
+            : {}) as Prisma.InputJsonValue,
         },
       });
       if (paid.count === 0) {
@@ -196,7 +229,11 @@ export class RechargeService {
   }
 
   /** 首充判定：该用户此前无 PAID 单，则给其邀请人返奖。 */
-  private async grantInviterFirstRecharge(order: { id: number; userId: string; pointsAmount: Prisma.Decimal }) {
+  private async grantInviterFirstRecharge(order: {
+    id: number;
+    userId: string;
+    pointsAmount: Prisma.Decimal;
+  }) {
     const prior = await this.prisma.rechargeOrder.count({
       where: { userId: order.userId, status: 'PAID', id: { not: order.id } },
     });
@@ -207,7 +244,12 @@ export class RechargeService {
     });
     if (!account?.invitedBy) return;
     await this.points
-      .grantOnFirstRecharge(account.invitedBy, order.userId, toNum(order.pointsAmount), String(order.id))
+      .grantOnFirstRecharge(
+        account.invitedBy,
+        order.userId,
+        toNum(order.pointsAmount),
+        String(order.id),
+      )
       .catch(() => undefined);
   }
 
@@ -216,7 +258,8 @@ export class RechargeService {
     const order = await this.prisma.rechargeOrder.findFirst({
       where: { orderNo, userId },
     });
-    if (!order) throw new BusinessException(ErrorCode.NOT_FOUND, '充值订单不存在');
+    if (!order)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '充值订单不存在');
     if (order.status === 'CREATED') {
       const credentials = await this.settings.wechatCredentials();
       if (credentials.configured) {
@@ -224,7 +267,9 @@ export class RechargeService {
           const txn = await this.pay.query(credentials, orderNo);
           if (txn.trade_state === 'SUCCESS') {
             await this.settle(txn, JSON.stringify(txn));
-          } else if (['CLOSED', 'REVOKED', 'PAYERROR'].includes(String(txn.trade_state))) {
+          } else if (
+            ['CLOSED', 'REVOKED', 'PAYERROR'].includes(String(txn.trade_state))
+          ) {
             await this.prisma.rechargeOrder.update({
               where: { id: order.id },
               data: { status: 'CLOSED' },
@@ -235,7 +280,9 @@ export class RechargeService {
         }
       }
     }
-    const fresh = await this.prisma.rechargeOrder.findUnique({ where: { id: order.id } });
+    const fresh = await this.prisma.rechargeOrder.findUnique({
+      where: { id: order.id },
+    });
     return {
       orderNo,
       status: fresh?.status || order.status,
@@ -275,7 +322,12 @@ export class RechargeService {
   }
 
   /** 管理端订单列表（可按状态/用户过滤）。 */
-  async adminListOrders(opts: { status?: string; keyword?: string; page: number; size: number }) {
+  async adminListOrders(opts: {
+    status?: string;
+    keyword?: string;
+    page: number;
+    size: number;
+  }) {
     const where: Prisma.RechargeOrderWhereInput = {};
     if (opts.status) where.status = opts.status;
     if (opts.keyword) {
@@ -288,7 +340,9 @@ export class RechargeService {
         },
         select: { id: true },
       });
-      where.userId = { in: users.length ? users.map((u) => String(u.id)) : ['-1'] };
+      where.userId = {
+        in: users.length ? users.map((u) => String(u.id)) : ['-1'],
+      };
     }
     const [list, total] = await this.prisma.$transaction([
       this.prisma.rechargeOrder.findMany({
@@ -358,7 +412,10 @@ export class RechargeService {
   async testConnection() {
     const credentials = await this.settings.wechatCredentials();
     if (!credentials.configured) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '请先完整填写微信支付五项配置');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '请先完整填写微信支付五项配置',
+      );
     }
     return this.pay.testConnection(credentials);
   }

@@ -9,6 +9,8 @@ import {
 import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { loadChannelCredentials } from '../ai/ai-channels';
+import { assertAiAllowed } from '../ai/ai-guard.service';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { ModelKeyService } from '../aiworkin/model-key.service';
@@ -16,12 +18,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ContentCrypto, maskSecret } from './content-crypto';
 import { DOUBAO_ASR_VARIANTS } from './openspeech.client';
 import { ContentModelCatalogService } from './model-catalog.service';
+import { LOCALAPI_CHANNEL_ID, localApiBaseUrl } from '../model-plaza/localapi';
 import {
   aipddBaseUrl,
   assertBaseUrl,
   assertMediaType,
   assertPreset,
   assertProvider,
+  isPreset,
   mediakitDefaultBaseUrl,
   presetBaseUrl,
   presetProtocol,
@@ -33,7 +37,7 @@ const CHANNEL_NAME_MAX = 64;
 type ResolvedTarget = {
   baseUrl: string;
   apiKey: string;
-  provider: 'aipdd' | 'custom' | 'volcengine' | 'mediakit';
+  provider: 'aipdd' | 'localapi' | 'custom' | 'volcengine' | 'mediakit';
   protocol: 'openai' | 'anthropic';
   asrProtocol?: 'openspeech' | 'openai';
   model: string;
@@ -51,6 +55,46 @@ type ChannelRow = {
   enabled: boolean;
 };
 
+/** 模型广场目录行 → 内容创作槽位口径（LocalAPI 渠道的候选模型）。 */
+function plazaModelSlot(row: {
+  modelKey: string;
+  displayName: string;
+  endpoints: unknown;
+  modalities: unknown;
+}) {
+  const endpoints = Array.isArray(row.endpoints)
+    ? row.endpoints.map((item) => text(item)).filter(Boolean)
+    : [];
+  const modalities = (row.modalities || {}) as {
+    input?: unknown;
+    output?: unknown;
+  };
+  const inputs = Array.isArray(modalities.input)
+    ? modalities.input.map((item) => text(item))
+    : [];
+  const has = (endpoint: string) => endpoints.includes(endpoint);
+  const kind =
+    has('/images/generations') || has('/images/edits')
+      ? 'image'
+      : has('/videos')
+        ? 'video'
+        : has('/audio/speech')
+          ? 'audio'
+          : has('/audio/transcriptions')
+            ? 'asr'
+            : has('/embeddings')
+              ? 'embedding'
+              : has('/chat/completions')
+                ? 'text'
+                : 'other';
+  return {
+    id: row.modelKey,
+    kind,
+    vision: kind === 'text' && inputs.includes('image'),
+    endpoints,
+  };
+}
+
 /**
  * 内容创作的模型设置：渠道（AIPDD 内置 / 自定义 OpenAI 兼容 / 火山 MediaKit）+
  * 每种类型的默认模型。
@@ -67,11 +111,16 @@ export class ContentModelSettingService {
   ) {}
 
   /** AIPDD 内置渠道：不单独配 Key，直接用当前用户绑定的 AIPDD APIKey（设计 3.4）。 */
-  async aipddKey(user: CurrentUser, token?: string) {
+  aipddKey(user: CurrentUser, token?: string) {
     return this.modelKeys.requireKey(token);
   }
 
-  private view(row: ChannelRow): ContentModelChannel {
+  private view(
+    row: ChannelRow & { verifiedAt?: Date | null },
+  ): ContentModelChannel {
+    const keyReady = Boolean(row.keyCipher);
+    const verified = Boolean(row.verifiedAt);
+    const available = row.enabled && keyReady && verified;
     return {
       id: row.id,
       provider:
@@ -90,6 +139,15 @@ export class ContentModelSettingService {
         : '',
       preset: row.preset || '',
       enabled: row.enabled,
+      verified,
+      available,
+      unavailableReason: available
+        ? ''
+        : !row.enabled
+          ? '渠道已停用'
+          : !keyReady
+            ? '未配置 API Key'
+            : '尚未通过连通校验，请在渠道里点「测试连通」',
     };
   }
 
@@ -105,7 +163,7 @@ export class ContentModelSettingService {
     ]);
     const localAipdd = rows.find((row) => row.provider === 'aipdd');
     // AIPDD 不读渠道本地 Key，只看当前用户绑定的 AIPDD APIKey（未绑定即未配置）
-    const key = await this.modelKeys.status(token);
+    const key = this.modelKeys.status(token);
     const slots: ContentModelSlot[] = CONTENT_MEDIA_TYPES.map((mediaType) => {
       const row = slotRows.find((item) => item.mediaType === mediaType);
       return {
@@ -125,10 +183,30 @@ export class ContentModelSettingService {
           asrKeyMasked: '',
           preset: 'aipdd',
           enabled: true,
+          verified: key.configured,
+          available: key.configured,
+          unavailableReason: key.configured
+            ? ''
+            : '当前账号还没有绑定 AIPDD API Key',
+        },
+        {
+          id: LOCALAPI_CHANNEL_ID,
+          provider: 'localapi' as const,
+          name: 'LocalAPI',
+          baseUrl: localApiBaseUrl(),
+          keyMasked: '',
+          asrKeyMasked: '',
+          preset: 'localapi',
+          enabled: true,
+          verified: true,
+          available: true,
+          unavailableReason: '',
         },
         ...rows
           .filter((row) => row.provider !== 'aipdd')
-          .map((row) => this.view(row as ChannelRow)),
+          .map((row) =>
+            this.view(row as ChannelRow & { verifiedAt?: Date | null }),
+          ),
       ],
       slots,
       aipdd: {
@@ -145,28 +223,47 @@ export class ContentModelSettingService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const channelIds = new Set(
-      (
-        await this.prisma.contentModelChannel.findMany({
-          where: { userId: user.userId },
-          select: { id: true },
-        })
-      ).map((row) => row.id),
-    );
+    const rows = await this.prisma.contentModelChannel.findMany({
+      where: { userId: user.userId },
+      select: { id: true, enabled: true, keyCipher: true, verifiedAt: true },
+    });
+    const aipddKey = this.modelKeys.status(token);
+    const byId = new Map(rows.map((row) => [row.id, row]));
     const rawSlots = Array.isArray(body.slots) ? body.slots : [];
     for (const item of rawSlots) {
       if (!item || typeof item !== 'object') continue;
       const slot = item as Record<string, unknown>;
       const mediaType = assertMediaType(slot.mediaType);
       const channelId = Number(slot.channelId || 0);
-      if (!Number.isInteger(channelId) || channelId < 0) {
+      if (!Number.isInteger(channelId) || channelId < LOCALAPI_CHANNEL_ID) {
         throw new BusinessException(ErrorCode.BAD_REQUEST, '渠道编号无效');
       }
-      if (channelId !== 0 && !channelIds.has(channelId)) {
+      if (channelId === 0 && !aipddKey.configured) {
         throw new BusinessException(
           ErrorCode.BAD_REQUEST,
-          '所选渠道已不存在，请刷新后重选',
+          'AIPDD 渠道还没有可用的 API Key，请先在「API Key 管理」生成一把，或改用 LocalAPI',
         );
+      }
+      if (channelId > 0) {
+        const channel = byId.get(channelId);
+        if (!channel) {
+          throw new BusinessException(
+            ErrorCode.BAD_REQUEST,
+            '所选渠道已不存在，请刷新后重选',
+          );
+        }
+        if (!channel.enabled || !channel.keyCipher) {
+          throw new BusinessException(
+            ErrorCode.BAD_REQUEST,
+            '所选渠道还没有配置好 API Key，不能作为默认模型',
+          );
+        }
+        if (!channel.verifiedAt) {
+          throw new BusinessException(
+            ErrorCode.BAD_REQUEST,
+            '所选渠道尚未通过连通校验，请先在「模型设置 → 渠道」里点「测试连通」',
+          );
+        }
       }
       const model = text(slot.model).trim().slice(0, 128);
       await this.prisma.contentModelSlot.upsert({
@@ -183,6 +280,12 @@ export class ContentModelSettingService {
 
   async saveChannel(user: CurrentUser, body: Record<string, unknown>) {
     const provider = assertProvider(body.provider);
+    if (provider === 'localapi') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        'LocalAPI 是内置渠道，无需新增；直接在默认模型里选择即可',
+      );
+    }
     // 预设只对「自定义 OpenAI 兼容」渠道有意义：OpenAI / Claude / DeepSeek …
     // 决定默认地址和协议（Claude 走 Anthropic 原生 /messages）
     const preset = provider === 'custom' ? assertPreset(body.preset) : '';
@@ -196,8 +299,9 @@ export class ContentModelSettingService {
             : provider === 'volcengine'
               ? '火山引擎'
               : preset && preset !== 'custom'
-                ? CONTENT_CHANNEL_PRESET_LABELS[preset as never] ||
-                  'OpenAI 兼容渠道'
+                ? (isPreset(preset)
+                    ? CONTENT_CHANNEL_PRESET_LABELS[preset]
+                    : '') || 'OpenAI 兼容渠道'
                 : 'OpenAI 兼容渠道');
     const baseUrl =
       provider === 'aipdd'
@@ -240,10 +344,30 @@ export class ContentModelSettingService {
     const asrKeyCipher = asrApiKey
       ? this.crypto.encrypt(asrApiKey)
       : (existing?.asrKeyCipher ?? '');
+    // 换 Key / 换地址 / 换协议都要重新校验，旧渠道的「已验证」不能沿用
+    const credentialsChanged = Boolean(
+      apiKey ||
+      (existing &&
+        (existing.baseUrl !== baseUrl ||
+          existing.preset !== (preset || '') ||
+          existing.provider !== provider ||
+          Boolean(asrApiKey))),
+    );
+    const verifiedAt = credentialsChanged
+      ? null
+      : (existing?.verifiedAt ?? null);
     const row = existing
       ? await this.prisma.contentModelChannel.update({
           where: { id: existing.id },
-          data: { name, baseUrl, keyCipher, asrKeyCipher, provider, preset },
+          data: {
+            name,
+            baseUrl,
+            keyCipher,
+            asrKeyCipher,
+            provider,
+            preset,
+            verifiedAt,
+          },
         })
       : await this.prisma.contentModelChannel.create({
           data: {
@@ -254,6 +378,7 @@ export class ContentModelSettingService {
             keyCipher,
             asrKeyCipher,
             preset,
+            verifiedAt,
           },
         });
     await this.identity.audit(
@@ -290,63 +415,36 @@ export class ContentModelSettingService {
     return { removed: true };
   }
 
-  /** 取某个渠道的凭据；Agent 按「先选渠道再选模型」传 channelId 时也走这里。 */
+  /** 取某个渠道的凭据；Agent 按「先选渠道再选模型」传 channelId 时也走这里。实现收口在 ai/ai-channels。 */
   async channelCredentials(
     user: CurrentUser,
     channelId: number,
     token?: string,
     mediaType?: string,
   ) {
-    if (channelId === 0) {
-      const apiKey = await this.modelKeys.requireKey(token);
-      return {
-        baseUrl: aipddBaseUrl(),
-        apiKey,
-        provider: 'aipdd' as const,
-        protocol: 'openai' as const,
-      };
-    }
-    const row = await this.prisma.contentModelChannel.findFirst({
-      where: { id: channelId, userId: user.userId },
+    return loadChannelCredentials({
+      prisma: this.prisma,
+      userId: user.userId,
+      channelId,
+      token,
+      mediaType,
     });
-    if (!row) {
-      throw new BusinessException(ErrorCode.NOT_FOUND, '渠道不存在');
-    }
-    if (!row.enabled) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '该渠道已停用');
-    }
-    const isVolcengine = row.provider === 'volcengine';
-    // 火山引擎：语音识别走豆包语音（openspeech）的独立 Key，其余走方舟 Key
-    const useAsrKey = isVolcengine && mediaType === 'asr';
-    const apiKey = this.crypto.decrypt(
-      useAsrKey ? row.asrKeyCipher || '' : row.keyCipher,
-    );
-    if (useAsrKey && !apiKey) {
-      throw new BusinessException(
-        ErrorCode.BAD_REQUEST,
-        '这个火山引擎渠道还没有保存豆包语音识别的 Key（它和方舟 Key 不是同一个，请到「模型设置」补齐）',
-      );
-    }
-    const protocol =
-      row.provider === 'volcengine'
-        ? ('openai' as const)
-        : presetProtocol(String(row.preset || ''));
-    return {
-      baseUrl: row.baseUrl,
-      apiKey,
-      provider:
-        row.provider === 'mediakit'
-          ? ('mediakit' as const)
-          : isVolcengine
-            ? ('volcengine' as const)
-            : ('custom' as const),
-      asrProtocol: useAsrKey ? ('openspeech' as const) : ('openai' as const),
-      protocol,
-    };
   }
 
   async models(user: CurrentUser, channelId: number, token?: string) {
     const target = await this.channelCredentials(user, channelId, token);
+    if (channelId === LOCALAPI_CHANNEL_ID) {
+      // LocalAPI 直接读本站模型广场目录：按端点/模态归一到槽位口径，避免再走一次 HTTP 猜 kind
+      const rows = await this.prisma.modelCatalog.findMany({
+        where: { enabled: true },
+        orderBy: [{ sort: 'desc' }, { id: 'asc' }],
+      });
+      return {
+        channelId,
+        baseUrl: target.baseUrl,
+        models: rows.map((row) => plazaModelSlot(row)),
+      };
+    }
     if (target.provider === 'mediakit') {
       // MediaKit 不是 OpenAI 兼容网关，没有 /models；能力固定两项，由增强档位驱动
       return {
@@ -395,18 +493,43 @@ export class ContentModelSettingService {
     token?: string,
   ) {
     const provider = assertProvider(body.provider || 'custom');
+    const saved = Number(body.id || 0);
+    if (saved === LOCALAPI_CHANNEL_ID || provider === 'localapi') {
+      const target = await this.channelCredentials(
+        user,
+        LOCALAPI_CHANNEL_ID,
+        token,
+      );
+      const result = await this.catalog.list(
+        target.baseUrl,
+        target.apiKey,
+        target.protocol,
+      );
+      return {
+        ok: true,
+        baseUrl: result.baseUrl,
+        modelCount: result.models.length,
+        message: `LocalAPI 连通正常，共 ${result.models.length} 个模型`,
+      };
+    }
     if (provider === 'mediakit') {
       const baseUrl = assertBaseUrl(
         text(body.baseUrl) || mediakitDefaultBaseUrl(),
         provider,
       );
-      const saved = Number(body.id || 0);
       let apiKey = text(body.apiKey).trim();
       if (!apiKey && saved > 0) {
         apiKey = (await this.channelCredentials(user, saved, token)).apiKey;
       }
+      const ok = Boolean(apiKey);
+      if (ok && saved > 0 && !text(body.apiKey).trim()) {
+        await this.prisma.contentModelChannel.updateMany({
+          where: { id: saved, userId: user.userId },
+          data: { verifiedAt: new Date() },
+        });
+      }
       return {
-        ok: Boolean(apiKey),
+        ok,
         baseUrl,
         modelCount: 0,
         message: apiKey
@@ -414,7 +537,6 @@ export class ContentModelSettingService {
           : '还没有填写 MediaKit API Key',
       };
     }
-    const saved = Number(body.id || 0);
     let baseUrl = text(body.baseUrl).trim();
     let apiKey = text(body.apiKey).trim();
     let protocol: 'openai' | 'anthropic' = presetProtocol(
@@ -434,6 +556,13 @@ export class ContentModelSettingService {
       apiKey,
       protocol,
     );
+    // 只测「已保存的渠道本身」才落校验标记；带新 Key / 新地址的临时测试不写库
+    if (saved > 0 && !text(body.apiKey).trim() && !text(body.baseUrl).trim()) {
+      await this.prisma.contentModelChannel.updateMany({
+        where: { id: saved, userId: user.userId },
+        data: { verifiedAt: new Date() },
+      });
+    }
     return {
       ok: true,
       baseUrl: result.baseUrl,
@@ -459,7 +588,10 @@ export class ContentModelSettingService {
     mediaType: ContentMediaType,
     token?: string,
     override?: { channelId: number; model: string },
+    guard = true,
   ): Promise<ResolvedTarget> {
+    // §5.7 安全三件套：主开关/限流先于取模型收口；递归取默认槽位时不重复占名额。
+    if (guard) await assertAiAllowed(user.userId);
     const label = CONTENT_MEDIA_TYPE_LABELS[mediaType] || mediaType;
     if (override && !override.model.trim()) {
       throw new BusinessException(
@@ -480,10 +612,13 @@ export class ContentModelSettingService {
           `请先在「模型设置」里为「${label}」选择默认模型`,
         );
       }
-      return this.resolveTarget(user, mediaType, token, {
-        channelId: slot.channelId,
-        model: slot.model,
-      });
+      return this.resolveTarget(
+        user,
+        mediaType,
+        token,
+        { channelId: slot.channelId, model: slot.model },
+        false,
+      );
     }
     const target = await this.channelCredentials(
       user,

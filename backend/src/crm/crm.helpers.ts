@@ -14,10 +14,11 @@ export const num = (value: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export const moneyStr = (value: unknown) =>
-  value === null || value === undefined
-    ? '0.00'
-    : new Prisma.Decimal(value as never).toFixed(2);
+export const moneyStr = (value: unknown) => {
+  if (value === null || value === undefined) return '0.00';
+  if (value instanceof Prisma.Decimal) return value.toFixed(2);
+  return new Prisma.Decimal(text(value)).toFixed(2);
+};
 
 export const iso = (value: Date | null | undefined) =>
   value ? value.toISOString() : '';

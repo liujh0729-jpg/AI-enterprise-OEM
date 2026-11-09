@@ -137,8 +137,7 @@ export function SyncPanel({
     setList(result.data || []);
     setLoading(false);
     if (result.message) message.error(result.message);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [table.id]);
+  }, [table.id, message]);
 
   useEffect(() => {
     void load();

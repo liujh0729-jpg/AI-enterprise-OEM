@@ -1,4 +1,4 @@
-import { endpoints } from "@enterprise/contracts";
+import { endpoints, z } from "@enterprise/contracts";
 import { endpoint } from "@/api/endpoint";
 
 /**
@@ -39,7 +39,7 @@ function randomJobId() {
  * 与扩展 bridge.js 的入站护栏对齐（event.source === window && event.origin === location.origin），
  * 挡掉跨源 iframe / 其他窗口伪造 pong·accepted·result（单看 data.source 任何脚本都能贴）。
  */
-function isTrustedExtensionMessage(event: MessageEvent): boolean {
+export function isTrustedExtensionMessage(event: MessageEvent): boolean {
   if (event.source !== window) return false;
   if (event.origin !== window.location.origin) return false;
   const data = event.data;
@@ -104,6 +104,22 @@ export function distributeViaExtension(
   });
 }
 
+/** 插件回传的逐平台结果：入站 postMessage 不可信，按协议校验后再交给调用方。 */
+const extensionResultSchema = z.object({
+  type: z.literal("result"),
+  jobId: z.string().default(""),
+  logs: z
+    .array(
+      z.object({
+        platformCode: z.string(),
+        status: z.string(),
+        publishedUrl: z.string().default(""),
+        errorMsg: z.string().default(""),
+      }),
+    )
+    .default([]),
+});
+
 /** 监听插件回送的逐平台结果（同 jobId 关联到具体一次分发）；返回取消订阅函数。 */
 export function onExtensionResult(
   handler: (
@@ -118,12 +134,9 @@ export function onExtensionResult(
 ): () => void {
   const onMessage = (event: MessageEvent) => {
     if (!isTrustedExtensionMessage(event)) return;
-    const data = event.data as Record<string, unknown>;
-    if (data.type !== "result") return;
-    handler(
-      Array.isArray(data.logs) ? (data.logs as never) : [],
-      String(data.jobId || ""),
-    );
+    const parsed = extensionResultSchema.safeParse(event.data);
+    if (!parsed.success) return;
+    handler(parsed.data.logs, parsed.data.jobId);
   };
   window.addEventListener("message", onMessage);
   return () => window.removeEventListener("message", onMessage);

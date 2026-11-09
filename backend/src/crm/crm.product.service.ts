@@ -3,6 +3,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService } from './crm.scope';
 import { int, iso, jsonArray, money, moneyStr } from './crm.helpers';
 
@@ -19,9 +20,7 @@ export class CrmProductService {
     const keyword = text(query.keyword).trim();
     const where = {
       ownerUserId: ctx.ownerUserId,
-      ...(keyword
-        ? { name: { contains: keyword } }
-        : {}),
+      ...(keyword ? { name: { contains: keyword } } : {}),
     };
     const [rows, total] = await Promise.all([
       this.prisma.crmProduct.findMany({
@@ -129,7 +128,7 @@ export class CrmProductService {
       name,
       status: body.status === undefined ? true : Boolean(body.status),
       sort: int(body.sort),
-      items: jsonArray(body.items) as never,
+      items: toJsonInput(jsonArray(body.items)),
     };
     const id = int(body.id);
     if (id) {

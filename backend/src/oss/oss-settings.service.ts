@@ -59,8 +59,7 @@ export class OssSettingsService {
 
   constructor(private readonly prisma: PrismaService) {
     const source = String(process.env.EXTERNAL_CRED_KEY || '').trim();
-    if (!source)
-      throw new Error('EXTERNAL_CRED_KEY 未配置，无法加密 OSS 凭据');
+    if (!source) throw new Error('EXTERNAL_CRED_KEY 未配置，无法加密 OSS 凭据');
     this.key = createHash('sha256')
       .update(`aiworkin-oss-credentials|${source}`)
       .digest();
@@ -126,7 +125,8 @@ export class OssSettingsService {
       );
     }
     this.cache = {
-      bucket: this.text(data.bucket, 'Bucket', LIMITS.bucket) || OSS_CONFIG.bucket,
+      bucket:
+        this.text(data.bucket, 'Bucket', LIMITS.bucket) || OSS_CONFIG.bucket,
       endpoint:
         this.text(data.endpoint, 'Endpoint', LIMITS.endpoint) ||
         OSS_CONFIG.endpoint,
@@ -187,7 +187,8 @@ export class OssSettingsService {
     const bucket =
       this.text(body.bucket, 'Bucket', LIMITS.bucket) || existing.bucket;
     const endpoint =
-      this.text(body.endpoint, 'Endpoint', LIMITS.endpoint) || existing.endpoint;
+      this.text(body.endpoint, 'Endpoint', LIMITS.endpoint) ||
+      existing.endpoint;
     const region =
       this.text(body.region, 'Region', LIMITS.region) || existing.region;
     const dir =
@@ -201,8 +202,11 @@ export class OssSettingsService {
       this.text(body.accessKeyId, 'AccessKey ID', LIMITS.accessKeyId) ||
       existing.accessKeyId;
     const accessKeySecret =
-      this.text(body.accessKeySecret, 'AccessKey Secret', LIMITS.accessKeySecret) ||
-      existing.accessKeySecret;
+      this.text(
+        body.accessKeySecret,
+        'AccessKey Secret',
+        LIMITS.accessKeySecret,
+      ) || existing.accessKeySecret;
     const securityToken =
       this.text(body.securityToken, 'STS Token', LIMITS.securityToken) ||
       existing.securityToken;

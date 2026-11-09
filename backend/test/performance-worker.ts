@@ -1,6 +1,7 @@
 import { PrismaService } from '../src/prisma/prisma.service';
 import { GeoSettingsService } from '../src/geo/geo-settings.service';
 import { GeoCollectionService } from '../src/geo/geo-collection.service';
+import { stub } from './doubles';
 const database = new URL(process.env.DATABASE_URL || '');
 if (
   database.hostname !== '127.0.0.1' ||
@@ -15,9 +16,9 @@ const collection = new GeoCollectionService(
   new GeoSettingsService(prisma),
 );
 // 测试入口只扩展采集窗口；执行、租约、模型协议和事务全部使用正式实现。
-const internals = collection as unknown as {
+const internals = stub<{
   executeRun(id: number, window: { start: Date; end: Date }): Promise<void>;
-};
+}>(collection);
 let stopping = false;
 async function run() {
   const runs = await prisma.geoCollectRun.findMany({

@@ -18,12 +18,24 @@ import {
   Space,
   Table,
 } from "antd";
-import { useState } from "react";
-import { CategoryField } from "@/components/category-field";
+import { useState, type ReactNode } from "react";
+import { CategoryField, HubCategoryFilter } from "@/components/category-field";
+import { ChannelDetails } from "@/components/channel-messages-modal";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { StatusBadge } from "@/components/status-badge";
-import { EmptyState, Notice, Panel, type HeroTab } from "@/components/ui/panel";
-import { RegionScopeFields } from "@/components/location-fields";
+import {
+  EmptyState,
+  Notice,
+  Panel,
+  PillTabs,
+  type HeroTab,
+} from "@/components/ui/panel";
+import { TablePager, useCursorPages } from "@/components/ui/pager";
+import {
+  RegionScopeFields,
+  RegionScopeFilter,
+  type LocationValue,
+} from "@/components/location-fields";
 
 import {
   useBusinessInfiniteQuery,
@@ -39,22 +51,10 @@ import { canPublishService } from "@/lib/provider-categories";
 import { useSession } from "@/lib/session";
 
 /**
- * 「🛠️ 服务发布」顶栏页签（六个板块同一条目；与名录分栏，见需求文档 §6.10 第 7 条）。
- * 是否出现由 `canPublishService` 决定（资产交易除外）。
- */
-export const SERVICE_PUBLISH_TAB: HeroTab = {
-  key: "services",
-  label: (
-    <>
-      <ToolOutlined aria-hidden /> 服务发布
-    </>
-  ),
-};
-
-/**
  * 「🛍️ ××服务市集」顶栏页签（2026-10-28 用户裁定：市集就是服务发布，服务发布就是市集，
- * 一个板块只出一个栏目）。页签键仍是 `services`，正文由 `ServicePublishTab pool` 渲染
- * AIworkin 公开池；七个板块把原「服务发布」改名后排到名录页签之后。
+ * 一个板块只出一个栏目）。页签键是 `services`（供销网络页被经营性栏目占用时改为 `publish`），
+ * 正文由 `ServicePublishTab pool` 渲染：全部服务读 AIworkin 公开池 + 我发布的服务读本地台账；
+ * 各板块把原「服务发布」改名后排到名录页签之后。
  */
 export function serviceMarketTab(label: string): HeroTab {
   return {
@@ -149,17 +149,19 @@ function splitList(value: unknown): string[] {
 }
 
 /**
- * 服务发布页签（物流/知产/法律/灵工/营销/资产走本地台账 + 通道同步；
- * 财税 / 供销 / 出海用 `platform` 直连 AIworkin 挂单接口，出海的界面未开）。
+ * 服务市集页签（全站口径：市集＝服务发布，一个板块只出一个栏目；物流 / 营销 / 出海 / 灵工 /
+ * IT / 知产 / 法律 / 智库 / 资产 / 供销 / 财税均走本地台账 + 通道同步）。
  * 发布走 AIworkin direction=SUPPLY：必填二级类目、服务说明；
  * 服务发布不设价格字段（2026-11-03 用户指令）：统一按平台「面议」口径落库，金额恒为 0。
  * 发布前先校验 AIPDD API Key 绑定（写上游必须用本人 Key），未绑定直接给绑定入口。
  * 可见性：除资产交易外，只有「服务商身份 + 该板块类目备案通过」渲染本栏目（见 `canPublishService`）；
  * 「发布服务」按钮除资产交易市集（§6.9 双身份，企业与服务商均可发布）外，只对服务商账号本人渲染。
  *
- * `pool`＝七板块的「××服务市集」：列表读 AIworkin SUPPLY 公开池（全平台服务商已发布的服务），
- * 本人的服务（本地台账，含未发布草稿）排在最前并可编辑/发布/删除；增删改仍写本地台账，
- * 因为后端 `moduleOf` 只放行财税 / 供销 / 出海三板块的平台直连写操作。
+ * `pool`＝各板块的「××服务市集」：切换「全部服务 / 我发布的服务」两个筛选——「全部服务」读
+ * AIworkin SUPPLY 公开池（全平台服务商已发布的服务），「我发布的服务」读本系统台账
+ * （发布后落库并记平台内容 ID）。「我发布的服务」只对服务商身份渲染（企业身份只有「全部服务」）。
+ * 增删改写本地台账（发布动作把挂单推给 AIworkin）。
+ * `platform`＝平台直连看板（仅供需市场在用），出海的界面未开。
  */
 export function ServicePublishTab({
   domain,
@@ -172,7 +174,7 @@ export function ServicePublishTab({
    * （本系统零落库，行里没有本地单号与「发布 AIworkin」留痕）。
    */
   platform?: boolean;
-  /** 服务市集：列表读公开池，写仍走本地台账（与 `platform` 互斥）。 */
+  /** 服务市集：切换「全部服务（公开池）/ 我发布的服务（本地台账）」，写仍走本地台账（与 `platform` 互斥）。 */
   pool?: boolean;
 }) {
   const { message, modal } = App.useApp();
@@ -182,13 +184,16 @@ export function ServicePublishTab({
     usePasswordConfirm();
 
   const isAdmin = (me?.roles || []).includes("PLATFORM_ADMIN");
+  /** 供需市场（跨板块公开市集）：读写都走平台挂单，不做单一板块的备案门控。 */
+  const hub = domain.toUpperCase() === "HUB";
   /**
    * 「发布服务」入口口径（2026-10-28 用户裁定：按钮仅服务商可以看到）：
    * 市集栏目全站可逛，但按钮只对「服务商身份 + 该板块类目备案通过」的账号渲染，
-   * 与后端 `services.create()` 同口径；资产交易市集按 §6.9 双身份保留企业与服务商的发布入口。
+   * 与后端 `services.create()` 同口径；资产交易市集按 §6.9 双身份保留企业与服务商的发布入口；
+   * 供需市场是跨板块公开市集，全部登录账号都可发布。
    */
   const canPublishEntry =
-    domain === "ASSET" || canPublishService(me, domain);
+    hub || domain === "ASSET" || canPublishService(me, domain);
   /**
    * 发布服务是上游写动作（创建 / 保存 / 发布都要用本人绑定的 AIPDD APIKey）：
    * 点按钮先校验绑定，绝不等到填完表单才被 403 打回；未绑定时给可点击的绑定入口。
@@ -223,13 +228,32 @@ export function ServicePublishTab({
     return false;
   };
 
-  const endpoint = pool
-    ? `/enterprise/market/${domain}/marketplace`
-    : platform
-      ? `/enterprise/market/${domain}/services`
-      : "/enterprise/services";
+  /**
+   * 服务市场（市集 / 供需市场的服务栏目）＝有「全部服务 / 我发布的服务」两个筛选的栏目。
+   * 2026-11-09 用户口径：「我发布的服务」只对服务商身份渲染，企业身份一律不渲染
+   * （单选不出控件 → 企业身份连筛选控件都不渲染，只看到「全部服务」＝平台公开池）。
+   */
+  const isMarket = pool || hub;
+  const showScope = isMarket && me?.currentIdentity === "SERVICE_PROVIDER";
+  const [scope, setScope] = useState<"all" | "mine">("all");
+  /** 实际取数范围：非市场栏目（财税 / 供销的服务发布）恒读本地台账。 */
+  const activeScope: "all" | "mine" = showScope
+    ? scope
+    : isMarket
+      ? "all"
+      : "mine";
+  /** 地域 / 类目筛选只对平台通道（平台直连看板 / 市集公开池）生效，本地台账页不展示。 */
+  const filtersApply = platform || (pool && activeScope === "all");
+  const endpoint =
+    activeScope === "mine" && !platform
+      ? "/enterprise/services"
+      : pool
+        ? `/enterprise/market/${domain}/marketplace`
+        : `/enterprise/market/${domain}/services`;
   /** 市集的写操作落在本地台账，因此台账与市集两个读取模块都要刷新。 */
-  const invalidate = pool ? [endpoint, "/enterprise/services"] : [endpoint];
+  const invalidate = Array.from(
+    new Set(pool ? [endpoint, "/enterprise/services"] : [endpoint]),
+  );
   const fetchQuery = useBusinessFetchQuery(endpoint);
 
   const createMutation = useOperationMutation(serviceBoardApi.create, invalidate);
@@ -237,6 +261,14 @@ export function ServicePublishTab({
   const removeMutation = useOperationMutation(serviceBoardApi.remove, invalidate);
   const publishMutation = useOperationMutation(serviceBoardApi.publish, invalidate);
   const [editing, setEditing] = useState<ServiceRow | null>(null);
+  const [viewing, setViewing] = useState<ServiceRow | null>(null);
+  /** 类目筛选（二级类目 id）：只有供需市场渲染该控件，其余场景恒为空串。 */
+  const [categoryId, setCategoryId] = useState("");
+  /** 地域筛选（省 / 市）：与需求列表同口径，只对读公开池的两个分支（平台直连 / 服务市集）生效。 */
+  const [region, setRegion] = useState<LocationValue>({
+    province: "",
+    city: "",
+  });
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
@@ -244,45 +276,43 @@ export function ServicePublishTab({
   const query = useBusinessInfiniteQuery<ServiceRow>(
     endpoint,
     "list",
-    { domain, platform, pool },
+    { domain, platform, pool, categoryId, region, scope: activeScope },
     async (signal, cursor) => {
-      return serviceBoardApi.page({ domain, platform, pool }, cursor, signal);
+      return serviceBoardApi.page(
+        { domain, platform, pool, categoryId, region, scope: activeScope },
+        cursor,
+        signal,
+      );
     },
   );
-  /** 市集要把本人已发布（含草稿）的台账行并进公开池前面：读 `/enterprise/services` 一次。 */
-  const ownQuery = useBusinessQuery<ServiceRow[]>(
-    "/enterprise/services",
-    "marketplace-own",
-    { domain },
-    (signal) => serviceBoardApi.ownList(domain, signal),
-    "all",
-    pool,
-  );
-  const ownRows = pool ? ownQuery.data || [] : [];
-  /** 本地台账行的主键集合：市集里只有这些行可编辑/发布/删除。 */
-  const ownIds = new Set(ownRows.map((row) => String(row.id)));
-  /** 本人的服务已同步到平台的，公开池里那条挂单与台账行是同一单，不重复列出。 */
-  const poolRows = (query.data?.pages.flatMap((page) => page.list) || []).filter(
-    (row) =>
-      !pool ||
-      !ownRows.some(
-        (item) => String(item.platformListingId || "") === String(row.id),
-      ),
-  );
-  const rows = pool ? [...ownRows, ...poolRows] : poolRows;
-  const loading = query.isPending || (pool && ownQuery.isPending);
-  const listError = query.error || ownQuery.error;
+  const rows = query.data?.pages.flatMap((page) => page.list) || [];
+  const loading = query.isPending;
+  const listError = query.error;
+  /** 列表分页：过滤器变化回第一页，翻到未加载页时自动取下一段游标页。 */
+  const pager = useCursorPages<ServiceRow>({
+    rows,
+    hasMore: !!query.hasNextPage,
+    fetchNext: query.fetchNextPage,
+    isFetchingNext: query.isFetchingNextPage,
+    resetKey: `${domain}|${activeScope}|${categoryId}|${region.province}|${region.city}`,
+  });
 
   /**
-   * 本地台账与后端 requireOwner 同口径（发布人或平台管理员）；平台直连行只可能是本人发的；
-   * 市集里别人发的服务只是公开浏览，没有本地台账行可改，因此不开放操作。
+   * 行归属与后端 requireOwner 同口径（发布人或平台管理员）：「我发布的服务」整页都是本人的行；
+   * 供需市场（HUB）的「全部服务」读的是平台公开池，行一律非本账号；市集里别人发的服务只是
+   * 公开浏览，没有本地台账行可改。
    */
-  const canOwn = (row: ServiceRow) =>
-    pool
-      ? ownIds.has(String(row.id))
-      : platform
-        ? row.mine !== false
-        : isAdmin || row.providerUserId === (me?.userId || "");
+  const canOwn = (row: ServiceRow) => {
+    if (activeScope === "mine") return row.mine !== false;
+    if (hub) return false;
+    return isAdmin || row.providerUserId === (me?.userId || "");
+  };
+  /**
+   * 行是否已正式同步到 AIworkin：平台 REST 写（PATCH / DELETE）对 API Key 一律 401、
+   * MCP 也没有改删工具，因此这类行在本系统只留「查看」（2026-11-09 用户裁定）；
+   * 本地台账里尚未发布的草稿（status 非 ONLINE）仍可编辑 / 发布 / 删除。
+   */
+  const synced = (row: ServiceRow) => platform || row.status === "ONLINE";
 
   /** 列表「服务编号」列与弹窗标题用的单号：平台行没有本地单号，显示挂单 id。 */
   const noOf = (row: ServiceRow) => row.serviceNo || String(row.id);
@@ -335,6 +365,24 @@ export function ServicePublishTab({
       }
     };
     void apply();
+  };
+
+  /** 查看详情：公开池与自有行都读平台明细（AIworkin 服务详情接口）。 */
+  const openView = (row: ServiceRow) => {
+    void (async () => {
+      try {
+        setViewing(
+          await fetchQuery(
+            "detail",
+            { domain, platform, id: row.id },
+            (signal) =>
+              serviceBoardApi.detail({ domain, platform }, row.id, signal),
+          ),
+        );
+      } catch (error) {
+        presentMutationError(error, (text) => message.error(text));
+      }
+    })();
   };
 
   const bodyOf = (values: Record<string, unknown>) => ({
@@ -444,31 +492,26 @@ export function ServicePublishTab({
         发布服务即向 AIworkin
         平台登记服务能力（供需双向自动匹配）：需先选择二级类目、填好服务说明；
         需资质的类目在平台侧核验通过后才会参与匹配展示（发布内容的资质由平台核验，本系统不审核）。
-        {pool
-          ? "本栏目列出 AIworkin 平台本板块全平台服务商已发布的服务，你自己的服务排在最前；"
-          : platform
-            ? "本栏目直接读写平台挂单，本系统不另存台账；"
-            : domain === "ASSET"
-              ? "资产交易市集对企业与服务商身份均可发布（§6.9 双身份）；"
-              : "本栏目只对已备案通过该板块类目的服务商账号开放；"}
+        {hub
+          ? "本栏目两个筛选：「全部服务」读 AIworkin 平台公开池（全平台服务商已发布的服务，读取走平台通道，未绑定 Key 也能浏览）；「我发布的服务」读本系统台账（发布后落库并记平台内容 ID），仅服务商身份可见。已正式发布到平台的挂单不可在本系统改删，只留「查看」；"
+          : pool
+            ? "本栏目两个筛选：「全部服务」读 AIworkin 平台本板块全平台服务商已发布的服务；「我发布的服务」读本系统台账（发布后落库并记平台内容 ID），仅服务商身份可见。已正式发布到平台的挂单不可在本系统改删，只留「查看」；"
+            : platform
+              ? "本栏目读本系统台账（我发布的服务）；发布时同步到 AIworkin 平台挂单，并把平台内容 ID 记回本地台账。已发布的挂单不可在本系统改删，只留「查看」；"
+              : domain === "ASSET"
+                ? "资产交易市集对企业与服务商身份均可发布（§6.9 双身份）；"
+                : "本栏目只对已备案通过该板块类目的服务商账号开放；"}
         发布人即该服务的承办人，联系方式按本人档案自动带出（临时换人可改）。
       </Notice>
 
       {listError && (
         <Notice variant="error">
           {listError.message}{" "}
-          <Button
-            onClick={() => {
-              void query.refetch();
-              void ownQuery.refetch();
-            }}
-          >
-            重试
-          </Button>
+          <Button onClick={() => void query.refetch()}>重试</Button>
         </Notice>
       )}
       <Panel
-        title={pool ? "全平台已发布的服务" : "我已发布的服务"}
+        title={activeScope === "all" ? "全平台已发布的服务" : "我已发布的服务"}
         titleBadge={`${rows.length} 条`}
         extra={
           canPublishEntry ? (
@@ -478,11 +521,41 @@ export function ServicePublishTab({
           ) : undefined
         }
       >
+        {showScope || filtersApply ? (
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "center",
+              marginBottom: 12,
+            }}
+          >
+            {showScope ? (
+              <PillTabs
+                size="small"
+                variant="soft"
+                items={[
+                  { key: "all", label: "全部服务" },
+                  { key: "mine", label: "我发布的服务" },
+                ]}
+                value={scope}
+                onChange={(key) => setScope(key === "mine" ? "mine" : "all")}
+              />
+            ) : null}
+            {filtersApply ? (
+              <RegionScopeFilter value={region} onChange={setRegion} />
+            ) : null}
+            {filtersApply && hub ? (
+              <HubCategoryFilter value={categoryId} onChange={setCategoryId} />
+            ) : null}
+          </div>
+        ) : null}
         <div className="table-wrap">
           <Table<ServiceRow>
             rowKey="id"
-            loading={loading}
-            dataSource={rows}
+            loading={loading || query.isFetchingNextPage}
+            dataSource={pager.rows}
             pagination={false}
             size="middle"
             scroll={{ x: "max-content" }}
@@ -490,7 +563,7 @@ export function ServicePublishTab({
               emptyText: (
                 <EmptyState
                   icon={
-                    pool ? (
+                    pool || hub ? (
                       <ShopOutlined aria-hidden />
                     ) : (
                       <ToolOutlined aria-hidden />
@@ -560,12 +633,10 @@ export function ServicePublishTab({
                       title: "发布 AIworkin",
                       width: 160,
                       render: (_: unknown, row: ServiceRow) => {
-                        // 市集里的他人挂单没有本地台账行，其平台单号就是行 id
+                        // 市集 / 供需市场的挂单本身就是平台挂单，其平台单号就是行 id
                         const listing =
                           row.platformListingId ||
-                          (pool && !ownIds.has(String(row.id))
-                            ? String(row.id)
-                            : "");
+                          (pool || hub ? String(row.id) : "");
                         return (
                           <span className="text-12">
                             {listing ? (
@@ -588,39 +659,64 @@ export function ServicePublishTab({
               },
               {
                 title: "操作",
-                width: 200,
-                render: (_, row) =>
-                  canOwn(row) ? (
-                    <Space size={6}>
-                      <Button onClick={() => openEdit(row)}>编辑</Button>
-                      {/* 平台直连：保存修改即写入平台挂单，不需要单独的发布动作 */}
-                      {platform ? null : (
+                width: hub ? 240 : 200,
+                render: (_, row) => {
+                  const ops: ReactNode[] = [];
+                  const own = canOwn(row);
+                  // 供需市场「全部服务」是他人的平台挂单：只给「查看」（读平台明细）。
+                  if (hub && !own)
+                    ops.push(
+                      <Button key="view" onClick={() => openView(row)}>
+                        查看
+                      </Button>,
+                    );
+                  if (own) {
+                    if (synced(row)) {
+                      // 已同步 AIworkin 的行不可在本系统改删，只留「查看」。
+                      ops.push(
+                        <Button key="view" onClick={() => openView(row)}>
+                          查看
+                        </Button>,
+                      );
+                    } else {
+                      // 尚未发布的本地草稿：可编辑、发布、删除。
+                      ops.push(
+                        <Button key="edit" onClick={() => openEdit(row)}>
+                          编辑
+                        </Button>,
                         <Button
+                          key="publish"
                           type="primary"
                           onClick={() => void publish(row)}
                         >
                           {row.status === "ONLINE" ? "重新发布" : "发布"}
-                        </Button>
-                      )}
-                      <Button danger onClick={() => remove(row)}>
-                        删除
-                      </Button>
+                        </Button>,
+                        <Button key="remove" danger onClick={() => remove(row)}>
+                          删除
+                        </Button>,
+                      );
+                    }
+                  }
+                  return ops.length ? (
+                    <Space size={6} wrap>
+                      {ops}
                     </Space>
                   ) : (
-                    "—"
-                  ),
+                    <span className="text-12 muted">—</span>
+                  );
+                },
               },
             ]}
           />
         </div>
-        {query.hasNextPage && (
-          <Button
-            loading={query.isFetchingNextPage}
-            onClick={() => void query.fetchNextPage()}
-          >
-            继续加载
-          </Button>
-        )}
+        <TablePager
+          page={pager.page}
+          pageSize={pager.pageSize}
+          total={pager.total}
+          loaded={pager.loaded}
+          hasMore={!!query.hasNextPage}
+          onChange={pager.setPage}
+        />
       </Panel>
 
       <Modal
@@ -748,6 +844,47 @@ export function ServicePublishTab({
           <BulbOutlined aria-hidden /> 服务不设价格字段，具体报价由双方沟通确定；
           服务归属由平台按本人企业档案自动绑定。
         </p>
+      </Modal>
+
+      <Modal
+        open={viewing !== null}
+        title={`服务详情 · ${viewing ? noOf(viewing) : ""}`}
+        width={720}
+        footer={null}
+        onCancel={() => setViewing(null)}
+      >
+        {viewing ? (
+          <ChannelDetails
+            items={[
+              { label: "服务编号", value: noOf(viewing) },
+              { label: "一级类目", value: viewing.category1 },
+              { label: "二级类目", value: viewing.category2 },
+              { label: "服务标题", value: viewing.title },
+              { label: "服务说明", value: viewing.description },
+              { label: "标签", value: viewing.tags },
+              { label: "服务范围", value: serviceAreaText(viewing) },
+              {
+                label: "交付方式",
+                value: viewing.deliveryMode
+                  ? deliveryModeLabel(viewing.deliveryMode)
+                  : "",
+              },
+              { label: "响应时效", value: viewing.responseTime },
+              { label: "服务资质", value: viewing.qualifications },
+              { label: "服务亮点", value: joinList(viewing.highlights) },
+              { label: "服务案例", value: viewing.cases },
+              {
+                label: "参考链接",
+                value: joinList(viewing.reference_links ?? viewing.referenceLinks),
+              },
+              { label: "联系人", value: viewing.contactName },
+              { label: "手机", value: viewing.contactPhone },
+              { label: "微信", value: viewing.contactWechat },
+              { label: "邮箱", value: viewing.contactEmail },
+              { label: "创建时间", value: fmtDateTime(viewing.createdAt) },
+            ]}
+          />
+        ) : null}
       </Modal>
 
       {passwordModal}

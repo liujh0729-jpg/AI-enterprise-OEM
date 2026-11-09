@@ -49,6 +49,8 @@ export const handleError: ErrorHandler<ApiEnv> = (error, c) => {
       event: 'request_error',
       requestId: c.get('requestId'),
       type: error.name,
+      message: error.message,
+      stack: error.stack?.split('\n').slice(0, 4).join(' | '),
     }),
   );
   return c.json(

@@ -1,12 +1,13 @@
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
-import { CurrentUser } from '../auth/current-user';
+import { fieldScore } from '../ai/retrieval-kernel';
 import { HELP_CHAPTERS } from './help-knowledge';
 import type { HelpChapterContent, HelpTopicContent } from './types';
 
 /**
  * 帮助中心（章节知识库）：内容内置随代码版本化，不落库——
  * 前端 /help 页与 MCP（Help_* 三个只读动作）读同一份，保证「人看的页面」与「Agent 的答案」口径一致。
+ * 检索评分走统一检索内核（AI 底座 §4.2）：字段加权 + 归一分，与知识库/资料库同一口径。
  * 只读服务无外部依赖，构造不需要 Prisma。
  */
 
@@ -37,30 +38,15 @@ function excerptOf(topic: HelpTopicContent, token: string): string {
   const lines = topic.content.split(/\r?\n/);
   const hit = lines.find((line) => line.toLowerCase().includes(token));
   const raw = hit ?? topic.summary;
-  return raw.replace(/[*_`#>-]/g, '').trim().slice(0, 160);
-}
-
-/** 分词打分：标题 8 / 关键词 6 / 摘要 4 / 正文每处 1（封顶 3），多词查询取和。 */
-function scoreTopic(topic: HelpTopicContent, tokens: string[]): number {
-  let score = 0;
-  for (const token of tokens) {
-    if (topic.title.toLowerCase().includes(token)) score += 8;
-    if (topic.keywords.some((word) => word.toLowerCase().includes(token))) score += 6;
-    if (topic.summary.toLowerCase().includes(token)) score += 4;
-    let index = topic.content.toLowerCase().indexOf(token);
-    let occurrences = 0;
-    while (index >= 0 && occurrences < 3) {
-      occurrences += 1;
-      index = topic.content.toLowerCase().indexOf(token, index + token.length);
-    }
-    score += occurrences;
-  }
-  return score;
+  return raw
+    .replace(/[*_`#>-]/g, '')
+    .trim()
+    .slice(0, 160);
 }
 
 export class HelpService {
   /** 章节目录：全部章节 + 每章主题清单（不含正文）。 */
-  chapters(_user: CurrentUser) {
+  chapters() {
     return HELP_CHAPTERS.map((chapter) => ({
       code: chapter.code,
       title: chapter.title,
@@ -70,10 +56,13 @@ export class HelpService {
   }
 
   /** 主题详情：按 code 取整篇正文，附所属章节便于面包屑。 */
-  topic(_user: CurrentUser, code: string) {
+  topic(code: string) {
     const entry = topicByCode.get(code);
     if (!entry) {
-      throw new BusinessException(ErrorCode.NOT_FOUND, '帮助主题不存在或已调整');
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        '帮助主题不存在或已调整',
+      );
     }
     return {
       ...entry.topic,
@@ -82,33 +71,35 @@ export class HelpService {
     };
   }
 
-  /** 全文搜索：空格分词逐主题打分排序，最多回 30 条（与契约 max(30) 对齐）。 */
-  search(_user: CurrentUser, query: { keyword?: string }) {
+  /** 全文搜索：统一内核字段加权打分（归一 0~1），最多回 30 条（与契约 max(30) 对齐）。 */
+  search(query: { keyword?: string }) {
     const keyword = String(query?.keyword || '').trim();
     if (!keyword) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请输入搜索关键词');
     }
-    const tokens = keyword
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((token) => token.length > 0)
-      .slice(0, 8);
-    const hits: Array<ReturnType<typeof briefOf> & {
-      chapterTitle: string;
-      excerpt: string;
-      score: number;
-    }> = [];
+    const hits: Array<
+      ReturnType<typeof briefOf> & {
+        chapterTitle: string;
+        excerpt: string;
+        score: number;
+      }
+    > = [];
     for (const { chapter, topic } of topicByCode.values()) {
-      const score = scoreTopic(topic, tokens);
+      const score = fieldScore(keyword, {
+        title: topic.title,
+        keywords: topic.keywords,
+        summary: topic.summary,
+        body: topic.content,
+      });
       if (score <= 0) continue;
       hits.push({
         ...briefOf(topic),
         chapterTitle: chapter.title,
-        excerpt: excerptOf(topic, tokens[0]),
+        excerpt: excerptOf(topic, keyword.toLowerCase().slice(0, 20)),
         score,
       });
     }
     hits.sort((a, b) => b.score - a.score || a.code.localeCompare(b.code));
-    return hits.slice(0, 30).map(({ score: _score, ...hit }) => hit);
+    return hits.slice(0, 30);
   }
 }

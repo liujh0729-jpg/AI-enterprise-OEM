@@ -15,14 +15,14 @@ export function maskPlatformKey(plain: string) {
  * （原「测试兜底 Key CONTENT_TEST_AIPDD_KEY」与 Java `api_key/list` 内省逻辑随 M3 删除。）
  */
 export class ModelKeyService {
-  async status(token?: string) {
+  status(token?: string) {
     return {
       configured: Boolean(token),
       keyMasked: token ? maskPlatformKey(token) : '',
     };
   }
 
-  async requireKey(token?: string) {
+  requireKey(token?: string) {
     if (!token) {
       throw new BusinessException(
         ErrorCode.FORBIDDEN,

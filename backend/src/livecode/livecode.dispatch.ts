@@ -1,4 +1,8 @@
-import type { MarketingQrChild, MarketingQrCode } from '../../generated/prisma';
+import type {
+  MarketingQrChild,
+  MarketingQrCode,
+  Prisma,
+} from '../../generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 import { visitorHash } from './livecode-cookie';
 
@@ -40,31 +44,38 @@ const weightedPick = <T extends { weight: number }>(rows: T[]): T =>
     })()
   ];
 
+/**
+ * 两张扫码计数表（父码/子码）字段结构一致：where、data 取二者的交叉类型即可在
+ * 同一处构造，再按表名分派到对应 Prisma 委托，避免动态取模带来的类型逃逸。
+ */
+type QrWhere = Prisma.MarketingQrChildWhereInput &
+  Prisma.MarketingQrCodeWhereInput;
+type QrIncrement = Prisma.MarketingQrChildUpdateManyMutationInput &
+  Prisma.MarketingQrCodeUpdateManyMutationInput;
+
 /** 条件自增：先按天归零，再在限额内自增；返回 false 表示已用尽。 */
 async function bump(
-  tx: PrismaService,
+  tx: Prisma.TransactionClient,
   table: 'marketingQrChild' | 'marketingQrCode',
   id: number,
   dailyLimit: number,
   totalLimit: number,
 ) {
   const today = shanghaiDate();
-  const model = tx[table] as unknown as {
-    updateMany: (args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }) => Promise<{ count: number }>;
-  };
-  await model.updateMany({
-    where: { id, todayDate: { not: today } },
-    data: { todayDate: today, todayCount: 0 },
-  });
-  const where: Record<string, unknown> = { id };
+  const updateMany = (where: QrWhere, data: QrIncrement) =>
+    table === 'marketingQrChild'
+      ? tx.marketingQrChild.updateMany({ where, data })
+      : tx.marketingQrCode.updateMany({ where, data });
+  await updateMany(
+    { id, todayDate: { not: today } },
+    { todayDate: today, todayCount: 0 },
+  );
+  const where: QrWhere = { id };
   if (dailyLimit > 0) where.todayCount = { lt: dailyLimit };
   if (totalLimit > 0) where.totalCount = { lt: totalLimit };
-  const updated = await model.updateMany({
-    where,
-    data: { todayCount: { increment: 1 }, totalCount: { increment: 1 } },
+  const updated = await updateMany(where, {
+    todayCount: { increment: 1 },
+    totalCount: { increment: 1 },
   });
   return updated.count === 1;
 }
@@ -153,7 +164,7 @@ export async function dispatch(
     const child = candidates[attempt];
     const done = await prisma.$transaction(async (tx) => {
       const parentOk = await bump(
-        tx as unknown as PrismaService,
+        tx,
         'marketingQrCode',
         code.id,
         code.limitScope === 'DAILY' ? code.dailyLimit : 0,
@@ -162,7 +173,7 @@ export async function dispatch(
       if (!parentOk) return false;
       const limits = childLimits(child);
       const childOk = await bump(
-        tx as unknown as PrismaService,
+        tx,
         'marketingQrChild',
         child.id,
         limits.daily,

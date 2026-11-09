@@ -46,6 +46,7 @@ export const BI_CHART_TYPE_LABELS: Record<string, string> = {
   SCATTER: "散点图",
   FUNNEL: "漏斗图",
 };
+export const BI_COMPONENT_TYPES = ["CHART", "TEXT", "FILTER", "DIVIDER"] as const;
 export const BI_INTERNAL_DATASETS = [
   {
     key: "LEADS",
@@ -813,9 +814,7 @@ export const biEndpoints = {
           z.object({
             id: z.number().int().optional(),
             chartId: z.number().int().default(0),
-            type: z
-              .enum(["CHART", "TEXT", "FILTER", "DIVIDER"])
-              .default("CHART"),
+            type: z.enum(BI_COMPONENT_TYPES).default("CHART"),
             title: z.string().max(80).default(""),
             position: z.record(z.string(), z.unknown()).default({}),
             config: z.record(z.string(), z.unknown()).default({}),

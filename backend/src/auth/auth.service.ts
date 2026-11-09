@@ -4,23 +4,34 @@ import type { UserLookupService } from '../directory/user-lookup.service';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from './current-user';
-import { isSsoSession, parseAccessToken, ssoSessionTokenVersion } from './token';
+import {
+  isSsoSession,
+  parseAccessToken,
+  ssoSessionTokenVersion,
+} from './token';
 import type { AccountService } from '../account/account.service';
 
 /**
- * 免登录的公开请求：健康检查、类目字典，以及飞书事件订阅 / Agent 助理回填。
- * 回调路径里带每条绑定独有的随机 token，校验在各业务服务内做。
+ * 免登录的公开请求：健康检查、类目字典，以及飞书事件订阅 / Agent 助理回填 / 获客插件拉取回报。
+ * 回调路径里带每条绑定独有的随机 token，校验在各业务服务内做；
+ * 获客插件用的是页面签发的 5 分钟令牌，只够 pull/report，校验在插件桥内做。
  */
 export const isPublicRequest = (method: string, path: string) =>
   (method === 'GET' &&
     (/^\/health(?:\/(ready|version))?\/?$/.test(path) ||
       path === '/enterprise/aiworkin/categories' ||
       // 企业微信 / 公众号 / 微信客服接入时要先 GET 校验签名
-      /^\/enterprise\/agent\/assistant\/[a-f0-9]{32}$/.test(path))) ||
+      /^\/enterprise\/agent\/assistant\/[a-f0-9]{32}$/.test(path) ||
+      // 企微 SCRM 回调 URL 校验：路径里是每条企业接入独有的随机 callbackKey
+      /^\/enterprise\/wecom-scrm\/callback\/[a-f0-9]{32}$/i.test(path))) ||
   (method === 'POST' &&
     (/^\/enterprise\/feishu\/events\/[a-f0-9]{32}$/.test(path) ||
+      // 企微 SCRM 事件回调（安全模式验签在回调服务内做）
+      /^\/enterprise\/wecom-scrm\/callback\/[a-f0-9]{32}$/i.test(path) ||
       // IM 连接（飞书 / 企微）回调：路径里是每条连接器独有的随机 token
       /^\/enterprise\/im\/events\/[a-z]+\/[a-z0-9]{8,64}$/i.test(path) ||
+      // 获客浏览器插件：页面签发 5 分钟一次性令牌，插件只拿令牌拉任务/回报，不带会话
+      /^\/enterprise\/acquisition\/plugin\/(pull|report)$/.test(path) ||
       /^\/enterprise\/agent\/assistant\/[a-f0-9]{32}$/.test(path)));
 
 export class AuthService {

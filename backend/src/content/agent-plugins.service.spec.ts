@@ -4,6 +4,9 @@ import {
   matchPluginCommand,
   parsePluginCommands,
 } from './agent-plugins.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { IdentityService } from '../identity/identity.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 插件命令的解析与展开：Agent 用 run_plugin_command 跑业务时走的就是这几个纯函数，
@@ -111,8 +114,8 @@ describe('ContentAgentPluginService.promptSummaries', () => {
   ];
   const findMany = jest.fn().mockResolvedValue(rows);
   const service = new ContentAgentPluginService(
-    { contentAgentPlugin: { findMany } } as never,
-    {} as never,
+    stub<PrismaService>({ contentAgentPlugin: { findMany } }),
+    stub<IdentityService>(),
   );
 
   it('只拼名字、一句说明与命令名，并把条数收在查询上', async () => {

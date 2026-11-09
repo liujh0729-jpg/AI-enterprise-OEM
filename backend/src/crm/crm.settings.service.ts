@@ -3,6 +3,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService } from './crm.scope';
 import {
   ROLE_LABELS,
@@ -74,7 +75,7 @@ export class CrmSettingsService {
       titleFields:
         body.titleFields === undefined
           ? undefined
-          : jsonObject(body.titleFields),
+          : toJsonInput(jsonObject(body.titleFields)),
       aiAnalysisGuide:
         body.aiAnalysisGuide === undefined
           ? undefined
@@ -87,10 +88,10 @@ export class CrmSettingsService {
         currency: data.currency,
         maskPhone: data.maskPhone ?? true,
         maskEmail: data.maskEmail ?? true,
-        titleFields: (data.titleFields || {}) as never,
+        titleFields: data.titleFields ?? {},
         aiAnalysisGuide: data.aiAnalysisGuide ?? '',
       },
-      update: data as never,
+      update: data,
     });
     return this.settings(user).then((view) => ({
       ...view,
@@ -301,7 +302,7 @@ export class CrmSettingsService {
       name: text(body.name).trim().slice(0, 60),
       type,
       required: Boolean(body.required),
-      options: asArray(body.options) as never,
+      options: asArray(body.options),
       visible: body.visible === undefined ? true : Boolean(body.visible),
       editable: body.editable === undefined ? true : Boolean(body.editable),
       sort: Number(body.sort) || 0,
@@ -383,7 +384,7 @@ export class CrmSettingsService {
     const data = {
       name: text(body.name).trim().slice(0, 60),
       dataTableId,
-      roleIds: asArray(body.roleIds) as never,
+      roleIds: asArray(body.roleIds),
       enabled: body.enabled === undefined ? true : Boolean(body.enabled),
     };
     if (!data.name) {
@@ -442,8 +443,8 @@ export class CrmSettingsService {
         targetType,
         targetId,
         action,
-        before: (before || {}) as never,
-        after: (after || {}) as never,
+        before: toJsonInput(before ?? {}),
+        after: toJsonInput(after ?? {}),
         operator,
         channel,
       },

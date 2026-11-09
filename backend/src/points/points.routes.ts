@@ -36,8 +36,22 @@ export function createPointsModule(services: Services): PointsModule {
 
 function pageOf(c: Context<ApiEnv>, sizeDefault = 20) {
   const page = Math.max(1, Number(c.req.query('page') || 1) || 1);
-  const size = Math.min(100, Math.max(1, Number(c.req.query('size') || sizeDefault) || sizeDefault));
+  const size = Math.min(
+    100,
+    Math.max(1, Number(c.req.query('size') || sizeDefault) || sizeDefault),
+  );
   return { page, size };
+}
+
+/** 统计窗口参数：ISO 日期字符串，解析失败即视为未传（用量页不因脏参数报错）。 */
+function rangeOf(c: Context<ApiEnv>): { from?: Date; to?: Date } {
+  const parse = (raw: string | undefined) => {
+    const value = String(raw || '').trim();
+    if (!value) return undefined;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  };
+  return { from: parse(c.req.query('from')), to: parse(c.req.query('to')) };
 }
 
 /**
@@ -95,8 +109,18 @@ export function registerPointsRoutes(
       transferFeePercent: cfg.transferFeePercent,
     });
   });
+  /** AI 用量（§4.4）：本人各板块花了多少 token / 积分，与后台同一张用量事实。 */
+  app.get('/enterprise/points/ai-usage', async (c) => {
+    const userId = userOf(c).userId;
+    return json(
+      c,
+      await module.pricing.usageSummary({ userId, ...rangeOf(c) }),
+    );
+  });
   app.post('/enterprise/points/transfer/preview', async (c) => {
-    const body = z.object({ to: z.string().min(1).max(64) }).parse(await c.req.json());
+    const body = z
+      .object({ to: z.string().min(1).max(64) })
+      .parse(await c.req.json());
     return json(c, await module.ledger.previewTransfer(body.to));
   });
   app.post('/enterprise/points/transfer', async (c) => {
@@ -104,7 +128,11 @@ export function registerPointsRoutes(
     const body = z
       .object({ to: z.string().min(1).max(64), amount: z.number().gt(0) })
       .parse(await c.req.json());
-    return json(c, await module.ledger.transfer(userId, body.to, body.amount), '赠送成功');
+    return json(
+      c,
+      await module.ledger.transfer(userId, body.to, body.amount),
+      '赠送成功',
+    );
   });
 
   // ---------- 充值下单与查询 ----------
@@ -121,7 +149,11 @@ export function registerPointsRoutes(
       c.req.header('x-forwarded-for')?.split(',')[0].trim() ||
       c.req.header('x-real-ip') ||
       '127.0.0.1';
-    return json(c, await module.recharge.createOrder(userId, { ...body, clientIp }), '下单成功');
+    return json(
+      c,
+      await module.recharge.createOrder(userId, { ...body, clientIp }),
+      '下单成功',
+    );
   });
   app.get('/enterprise/points/recharge/query/:orderNo', async (c) => {
     const userId = userOf(c).userId;
@@ -156,7 +188,11 @@ export function registerPointsRoutes(
       })
       .parse(await c.req.json());
     await module.settings.saveWechatConfig(body);
-    return json(c, { wechatConfigured: (await module.settings.view()).wechatConfigured }, '微信支付配置已保存');
+    return json(
+      c,
+      { wechatConfigured: (await module.settings.view()).wechatConfigured },
+      '微信支付配置已保存',
+    );
   });
   app.post('/enterprise/admin/points/wechat/test', async (c) => {
     requireAdmin(userOf(c));
@@ -178,7 +214,11 @@ export function registerPointsRoutes(
         enabled: z.boolean().optional(),
       })
       .parse(await c.req.json());
-    return json(c, await module.pricing.update(c.req.param('code'), body), '价目已更新');
+    return json(
+      c,
+      await module.pricing.update(c.req.param('code'), body),
+      '价目已更新',
+    );
   });
   app.get('/enterprise/admin/points/usage', async (c) => {
     requireAdmin(userOf(c));
@@ -187,9 +227,22 @@ export function registerPointsRoutes(
       c,
       await module.pricing.usage({
         code: c.req.query('code') || undefined,
+        module: c.req.query('module') || undefined,
         userId: c.req.query('userId') || undefined,
+        ...rangeOf(c),
         page,
         size,
+      }),
+    );
+  });
+  /** 统一 AI 用量汇总（§4.4）：按板块 + 科目聚合，含 AI 洞察产出条数。 */
+  app.get('/enterprise/admin/points/usage/summary', async (c) => {
+    requireAdmin(userOf(c));
+    return json(
+      c,
+      await module.pricing.usageSummary({
+        userId: c.req.query('userId') || undefined,
+        ...rangeOf(c),
       }),
     );
   });
@@ -198,7 +251,11 @@ export function registerPointsRoutes(
     const { page, size } = pageOf(c);
     return json(
       c,
-      await module.ledger.adminFindAccounts(c.req.query('keyword') || '', page, size),
+      await module.ledger.adminFindAccounts(
+        c.req.query('keyword') || '',
+        page,
+        size,
+      ),
     );
   });
   app.get('/enterprise/admin/points/transactions/:userId', async (c) => {
@@ -221,7 +278,12 @@ export function registerPointsRoutes(
       .parse(await c.req.json());
     return json(
       c,
-      await module.ledger.adminAdjust(admin.userId, body.userId, body.delta, body.remark || ''),
+      await module.ledger.adminAdjust(
+        admin.userId,
+        body.userId,
+        body.delta,
+        body.remark || '',
+      ),
       '已调整积分',
     );
   });
@@ -244,7 +306,10 @@ export function registerPointsRoutes(
  * 微信支付回调（公开路由，挂根 app，不经业务鉴权与统一信封）：
  * 原样按微信规范应答——验签/结算成功回 200 {code:SUCCESS}，失败回 5xx 让微信重试。
  */
-export function registerPointsPublicRoutes(app: OpenAPIHono<ApiEnv>, module: PointsModule) {
+export function registerPointsPublicRoutes(
+  app: OpenAPIHono<ApiEnv>,
+  module: PointsModule,
+) {
   // 充值页 SSR/首屏可见参数：只出不入，不含任何商户敏感项。
   app.get('/api/points-config', async (c) => {
     const cfg = await module.settings.view();

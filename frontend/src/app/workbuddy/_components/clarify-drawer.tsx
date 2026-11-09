@@ -55,7 +55,6 @@ export function ClarifyDrawer({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const planId = plan?.id;
 
   useEffect(() => {
     if (!open || !plan) return;
@@ -67,8 +66,7 @@ export function ClarifyDrawer({
     setSpecError("");
     setLoading(false);
     // 每次打开都以计划当前的任务书为起点，不沿用上次未保存的草稿
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, planId]);
+  }, [open, plan, initialInput]);
 
   useEffect(() => {
     if (scrollRef.current) {

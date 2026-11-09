@@ -91,7 +91,7 @@ export default function StaffPage() {
   useEffect(() => {
     if (isJoinIdentity || isProviderIdentity || isEnterpriseIdentity || !me) return;
     // 企业/个体工商户身份没有本视角，也不该看到服务商的管理功能（不发起请求、直接回高管驾驶舱）
-    router.replace("/");
+    router.replace("/dashboard");
   }, [me, isJoinIdentity, isProviderIdentity, isEnterpriseIdentity, router]);
 
   // 职员/代理人与个人用户：找服务商申请加入 + 我的加入申请

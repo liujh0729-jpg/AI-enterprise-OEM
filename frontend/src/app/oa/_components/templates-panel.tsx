@@ -2,7 +2,7 @@
 
 import { App, Alert, Button, Checkbox, Drawer, Input, InputNumber, Modal, Select, Space, Switch, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   OA_CONDITION_OPS,
   OA_CONDITION_OP_LABELS,
@@ -797,16 +797,14 @@ export function TemplatesPanel({
   const [copyName, setCopyName] = useState("");
   const [copyBusy, setCopyBusy] = useState(false);
 
-  const orgQuery = orgQueryOf(org);
-  const { orgType, orgUserId } = orgQuery;
+  const orgQuery = useMemo(() => orgQueryOf(org), [org]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await oaApi.templates({
         query: {
-          orgType,
-          orgUserId,
+          ...orgQuery,
           ...(category ? { category } : {}),
           ...(enabledOnly ? { enabledOnly: true } : {}),
         },
@@ -819,12 +817,11 @@ export function TemplatesPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [orgQuery, category, enabledOnly]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- org 参数按值变化触发
-  }, [orgType, orgUserId, category, enabledOnly]);
+  }, [load]);
 
   const openNew = () => {
     setDraft(emptyDraft());
@@ -1104,7 +1101,7 @@ export function TemplatesPanel({
           />
         </Toolbar>
         {error ? (
-          <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />
+          <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />
         ) : null}
         <OaTable<OaTemplateSummary>
           columns={columns}
@@ -1130,7 +1127,7 @@ export function TemplatesPanel({
           </Space>
         }
       >
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={12} style={{ width: "100%" }}>
           <Panel title="基本信息">
             <div className="form-2col">
               <Labeled label="模板名称">

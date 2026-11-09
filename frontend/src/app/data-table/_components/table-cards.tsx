@@ -1,12 +1,18 @@
 "use client";
 
-import { CopyOutlined, TableOutlined } from "@ant-design/icons";
+import { CopyOutlined, TableOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { App, Button, Card, Checkbox, Col, Form, Input, Modal, Row, Select, Space, Table, Tag } from "antd";
 import { useState } from "react";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { EmptyState, Panel } from "@/components/ui/panel";
 import { fmtTime } from "@/lib/datetime";
-import { FIELD_TYPE_OPTIONS, permissionSummary, tableApi, type DataTableTable } from "./common";
+import {
+  FIELD_TYPE_OPTIONS,
+  permissionSummary,
+  tableApi,
+  type DataTableTable,
+  type PlanField,
+} from "./common";
 
 type TableForm = { name: string; description: string };
 
@@ -308,6 +314,13 @@ export function TableCards({
   const [templateFields, setTemplateFields] = useState<TemplateField[]>([]);
   /** 模版建表时的表名：进模版页先按模版名预填，用户可以改成自己想要的名字。 */
   const [templateName, setTemplateName] = useState("");
+  /** 一句话建表：模型先给草稿（不落库），用户改完再确认建表。 */
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planText, setPlanText] = useState("");
+  const [planName, setPlanName] = useState("");
+  const [planFields, setPlanFields] = useState<PlanField[]>([]);
+  const [planGenerated, setPlanGenerated] = useState(false);
+  const [planBusy, setPlanBusy] = useState(false);
 
   const openCreate = () => {
     setEditing(null);
@@ -431,6 +444,82 @@ export function TableCards({
     setTemplateFields((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const openPlan = () => {
+    setPlanText("");
+    setPlanName("");
+    setPlanFields([]);
+    setPlanGenerated(false);
+    setPlanOpen(true);
+  };
+
+  const runPlan = async () => {
+    const text = planText.trim();
+    if (!text) {
+      message.warning("请用一句话描述这张表要存什么");
+      return;
+    }
+    setPlanBusy(true);
+    try {
+      const plan = await tableApi.aiPlanTable(text);
+      setPlanName(plan.name);
+      setPlanFields(plan.fields);
+      setPlanGenerated(true);
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const submitPlan = async () => {
+    const name = planName.trim();
+    if (!name) {
+      message.warning("请填写表格名称");
+      return;
+    }
+    if (!planFields.length) {
+      message.warning("至少保留一列");
+      return;
+    }
+    setPlanBusy(true);
+    let createdId: number | null = null;
+    try {
+      const created = await tableApi.create({ name, description: planText.trim() });
+      createdId = created.id;
+      await tableApi.addFields(
+        created.id,
+        planFields.map((field) => ({
+          name: field.name,
+          fieldKey: field.field_key,
+          fieldType: field.field_type,
+          required: field.required,
+          choices: field.choices,
+          ai: field.ai,
+        })),
+      );
+      setPlanOpen(false);
+      await onChanged();
+      onOpen(created.id);
+      message.success(`已创建表格并添加 ${planFields.length} 个列`);
+    } catch (error) {
+      if (createdId !== null) {
+        await onChanged();
+        message.warning(`表格「${name}」已创建，但列没建全：${(error as Error).message}`);
+        onOpen(createdId);
+      } else {
+        message.error((error as Error).message);
+      }
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const updatePlanField = (index: number, updates: Partial<PlanField>) => {
+    setPlanFields((prev) =>
+      prev.map((field, i) => (i === index ? { ...field, ...updates } : field)),
+    );
+  };
+
   const updateTemplateField = (index: number, updates: Partial<TemplateField>) => {
     setTemplateFields((prev) =>
       prev.map((field, i) => {
@@ -469,6 +558,9 @@ export function TableCards({
       titleBadge={`${tables.length} 张`}
       extra={
         <Space>
+          <Button icon={<ThunderboltOutlined />} onClick={openPlan}>
+            一句话建表
+          </Button>
           <Button onClick={() => setTemplateOpen(true)}>使用模版创建多维表格</Button>
           <Button type="primary" onClick={openCreate}>
             新建空白表格
@@ -749,6 +841,142 @@ export function TableCards({
             />
           </>
         )}
+      </Modal>
+      <Modal
+        open={planOpen}
+        title="一句话建表"
+        onCancel={() => setPlanOpen(false)}
+        footer={
+          planGenerated ? (
+            <Space>
+              <Button onClick={() => setPlanGenerated(false)}>重新描述</Button>
+              <Button type="primary" loading={planBusy} onClick={() => void submitPlan()}>
+                创建表格并添加 {planFields.length} 个列
+              </Button>
+            </Space>
+          ) : (
+            <Space>
+              <Button onClick={() => setPlanOpen(false)}>取消</Button>
+              <Button type="primary" loading={planBusy} onClick={() => void runPlan()}>
+                生成草稿
+              </Button>
+            </Space>
+          )
+        }
+        width={800}
+        destroyOnHidden
+      >
+        <div className="text-12 muted" style={{ marginBottom: 8 }}>
+          用一句话说明这张表要存什么、怎么用，模型会给出表结构与列（含可选的 AI 列），确认后再建。
+        </div>
+        <Input.TextArea
+          rows={2}
+          maxLength={500}
+          value={planText}
+          onChange={(event) => setPlanText(event.target.value)}
+          placeholder="如：记录客户跟进，含客户名称、行业、联系人、跟进状态、下次跟进日期，并给一句客户画像"
+        />
+        {planGenerated ? (
+          <>
+            <div style={{ margin: "12px 0", maxWidth: 420 }}>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                表格名称
+              </div>
+              <Input
+                value={planName}
+                maxLength={200}
+                onChange={(event) => setPlanName(event.target.value)}
+              />
+            </div>
+            <Table
+              rowKey="field_key"
+              size="small"
+              pagination={false}
+              dataSource={planFields}
+              columns={[
+                {
+                  title: "列名称",
+                  dataIndex: "name",
+                  key: "name",
+                  width: 150,
+                  render: (value: string, _, index) => (
+                    <Input
+                      value={value}
+                      onChange={(event) =>
+                        updatePlanField(index, { name: event.target.value })
+                      }
+                    />
+                  ),
+                },
+                {
+                  title: "列键",
+                  dataIndex: "field_key",
+                  key: "field_key",
+                  width: 150,
+                  render: (value: string, _, index) => (
+                    <Input
+                      value={value}
+                      onChange={(event) =>
+                        updatePlanField(index, { field_key: event.target.value })
+                      }
+                    />
+                  ),
+                },
+                {
+                  title: "类型",
+                  dataIndex: "field_type",
+                  key: "field_type",
+                  width: 110,
+                  render: (value: string, _, index) => (
+                    <Select
+                      value={value}
+                      options={FIELD_TYPE_OPTIONS}
+                      style={{ width: "100%" }}
+                      onChange={(next) => updatePlanField(index, { field_type: next })}
+                    />
+                  ),
+                },
+                {
+                  title: "必填",
+                  dataIndex: "required",
+                  key: "required",
+                  width: 70,
+                  render: (value: boolean, _, index) => (
+                    <Checkbox
+                      checked={value}
+                      onChange={(event) =>
+                        updatePlanField(index, { required: event.target.checked })
+                      }
+                    />
+                  ),
+                },
+                {
+                  title: "AI 列",
+                  key: "ai",
+                  width: 90,
+                  render: (_, field: PlanField) =>
+                    field.ai ? <Tag color="purple">AI</Tag> : <span className="muted">—</span>,
+                },
+                {
+                  title: "操作",
+                  key: "actions",
+                  width: 70,
+                  render: (_, __, index) => (
+                    <Button
+                      type="link"
+                      danger
+                      onClick={() =>
+                        setPlanFields((prev) => prev.filter((_, i) => i !== index))
+                      }
+                    >
+                      删除
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+          </>
+        ) : null}
       </Modal>
       {modal}
     </Panel>

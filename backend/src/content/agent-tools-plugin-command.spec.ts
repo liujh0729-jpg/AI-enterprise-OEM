@@ -1,6 +1,7 @@
 import { CurrentUser } from '../auth/current-user';
 import { runWithAgentScope } from './agent-scope';
 import { runAgentTool, type AgentToolContext } from './agent-tools';
+import { stub } from '../../test/doubles';
 
 /**
  * run_plugin_command 的工具接线：模型展开插件命令时，读的是哪几个插件、
@@ -15,11 +16,11 @@ type RunInput = {
 };
 
 function buildContext(runCommand: jest.Mock) {
-  const plugins = {
+  const plugins = stub<AgentToolContext['plugins']>({
     runCommand,
     read: jest.fn(),
-  } as unknown as AgentToolContext['plugins'];
-  return { plugins } as unknown as AgentToolContext;
+  });
+  return stub<AgentToolContext>({ plugins });
 }
 
 const actor = {
@@ -125,9 +126,9 @@ describe('runAgentTool run_plugin_command', () => {
       content: '正文',
       file: '',
     });
-    const context = {
+    const context = stub<AgentToolContext>({
       plugins: { read, runCommand: jest.fn() },
-    } as unknown as AgentToolContext;
+    });
     await runWithAgentScope(
       { connectorIds: [], mailboxIds: [], pluginIds: [3, 4], trigger: 'chat' },
       () => runAgentTool('load_plugin', { name: '测试插件' }, context, actor),

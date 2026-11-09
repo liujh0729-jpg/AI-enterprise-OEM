@@ -107,7 +107,7 @@ export function FlowEditor({
   const conditionOptions = conditionFieldsOf(fields);
 
   return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={12} style={{ width: "100%" }}>
       {!nodes.length ? (
         <EmptyState text="还没有审批节点，提交后单据直接结束" />
       ) : null}

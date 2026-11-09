@@ -5,6 +5,7 @@ import {
   type ContentTool,
 } from '@enterprise/contracts';
 import { text } from '../common/api';
+import { toJsonInput } from '../common/json-input';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { Logger } from '../common/logger';
@@ -205,8 +206,8 @@ export class ContentJobService {
         userId: user.userId,
         tool: tool.key,
         status: 'PENDING',
-        input: input as never,
-        models: models as never,
+        input: toJsonInput(input),
+        models: toJsonInput(models),
       },
     });
     void this.run(row.id, user, token, tool, input, models).catch(
@@ -237,7 +238,7 @@ export class ContentJobService {
         where: { id },
         data: {
           status: 'SUCCESS',
-          output: output as never,
+          output: toJsonInput(output),
           assetUrl: url,
           aipddAssetId: assetId,
           finishedAt: new Date(),
@@ -314,6 +315,21 @@ export class ContentJobService {
           models,
         );
       }
+      case 'video-ref':
+        return this.media.generateVideoWithReferences(
+          user,
+          token,
+          {
+            prompt: str('prompt'),
+            duration: Number(input.duration) || undefined,
+            resolution: str('resolution') || undefined,
+            ratio: str('ratio') || undefined,
+            references: urls('references')
+              .slice(0, 6)
+              .map((url) => ({ type: 'image' as const, url })),
+          },
+          models,
+        );
       case 'video-clone':
         return this.media.generateVideoWithReferences(
           user,

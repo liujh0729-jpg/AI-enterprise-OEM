@@ -343,6 +343,273 @@ const draftPlan = z.object({
   objectiveId: z.number().default(0),
 });
 
+// ---------------------------------------------------------------------------
+// OKR 2.0（2026-11-08）：目标书 → 对话澄清 → 多方案拆解 → 模拟 → 确认落库
+// ---------------------------------------------------------------------------
+
+export const OKR_BRIEF_STATUSES = [
+  "DRAFT",
+  "CLARIFYING",
+  "READY",
+  "COMMITTED",
+  "CLOSED",
+] as const;
+export const OKR_BRIEF_STATUS_LABELS: Record<string, string> = {
+  DRAFT: "草稿",
+  CLARIFYING: "澄清中",
+  READY: "待拆解",
+  COMMITTED: "已落库",
+  CLOSED: "已关闭",
+};
+
+export const OKR_OPTION_LABELS: Record<string, string> = {
+  CONSERVATIVE: "稳健",
+  BALANCED: "平衡",
+  AGGRESSIVE: "进取",
+};
+
+export const OKR_DECOMPOSITION_STATUS_LABELS: Record<string, string> = {
+  DRAFT: "候选",
+  CONFIRMED: "已确认",
+  REJECTED: "已放弃",
+};
+
+const briefDeliverable = z.object({
+  name: z.string().max(120),
+  description: z.string().max(500).default(""),
+  acceptance: z.string().max(500).default(""),
+});
+
+const briefLabor = z.object({
+  role: z.string().max(64),
+  headcount: z.number().min(0).default(1),
+  hours: z.number().min(0).default(0),
+  memberUserId: z.string().max(64).default(""),
+});
+
+const briefMaterial = z.object({
+  name: z.string().max(120),
+  qty: z.number().min(0).default(1),
+  unitCost: z.number().min(0).default(0),
+});
+
+const briefEquipment = z.object({
+  name: z.string().max(120),
+  qty: z.number().min(0).default(1),
+  unitCost: z.number().min(0).default(0),
+  days: z.number().min(0).default(0),
+});
+
+const briefExternal = z.object({
+  kind: z.string().max(16).default("VENDOR"),
+  scope: z.string().max(300).default(""),
+  budget: z.number().min(0).default(0),
+  partyId: z.number().int().min(0).default(0),
+});
+
+export const okrBriefView = z.object({
+  id: z.number(),
+  cycleId: z.number(),
+  title: z.string(),
+  businessGoal: z.string(),
+  scopeWhat: z.string(),
+  scopeTarget: z.string(),
+  deliverables: z.array(briefDeliverable),
+  startDate: z.string(),
+  endDate: z.string(),
+  budgetAmount: z.number(),
+  budgetHours: z.number(),
+  currency: z.string(),
+  labor: z.array(briefLabor),
+  materials: z.array(briefMaterial),
+  equipment: z.array(briefEquipment),
+  externalServices: z.array(briefExternal),
+  constraints: z.string(),
+  status: z.string(),
+  statusLabel: z.string(),
+  createdBy: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  readiness: z.object({
+    blockers: z.array(z.string()),
+    warnings: z.array(z.string()),
+  }),
+});
+export type OkrBriefView = z.infer<typeof okrBriefView>;
+
+const dialogTurnView = z.object({
+  id: z.number(),
+  role: z.string(),
+  content: z.string(),
+  structured: z.record(z.string(), z.unknown()),
+  createdAt: z.string(),
+});
+
+const clarifyQuestion = z.object({
+  key: z.string(),
+  question: z.string(),
+  why: z.string().default(""),
+  options: z.array(z.string()).default([]),
+  defaultValue: z.string().default(""),
+  required: z.boolean().default(false),
+});
+
+const riskItem = z.object({
+  risk: z.string(),
+  impact: z.string().default(""),
+  mitigation: z.string().default(""),
+});
+
+const acceptanceItem = z.object({
+  key: z.string().default(""),
+  label: z.string(),
+  required: z.boolean().default(true),
+  evidence: z.string().default(""),
+});
+
+const rubricLevel = z.object({
+  level: z.string(),
+  label: z.string(),
+  description: z.string().default(""),
+});
+
+const krNode = z.object({
+  key: z.string(),
+  title: z.string(),
+  metricType: z.string().default("MANUAL"),
+  baseline: z.number().default(0),
+  target: z.number().default(100),
+  unit: z.string().default(""),
+  direction: z.enum(["UP", "DOWN"]).default("UP"),
+  weight: z.number().default(1),
+  ownerMemberUserId: z.string().default(""),
+  ownerName: z.string().default(""),
+  metricSource: z.record(z.string(), z.unknown()).default({}),
+  quality: z
+    .object({
+      ok: z.boolean().default(true),
+      issues: z.array(z.string()).default([]),
+    })
+    .default({ ok: true, issues: [] }),
+});
+
+const objectiveNode = z.object({
+  key: z.string(),
+  level: z.enum(OKR_LEVELS).default("COMPANY"),
+  title: z.string(),
+  description: z.string().default(""),
+  ownerMemberUserId: z.string().default(""),
+  ownerName: z.string().default(""),
+  weight: z.number().default(1),
+  krs: z.array(krNode).default([]),
+});
+
+const taskNode = z.object({
+  key: z.string(),
+  objectiveKey: z.string().default(""),
+  krKey: z.string().default(""),
+  title: z.string(),
+  detail: z.string().default(""),
+  deliverable: z.string().default(""),
+  acceptance: z.array(acceptanceItem).default([]),
+  rubric: z.array(rubricLevel).default([]),
+  weight: z.number().default(1),
+  estimateHours: z.number().default(0),
+  dueDate: z.string().default(""),
+  priority: z.string().default("MEDIUM"),
+  ownerMemberUserId: z.string().default(""),
+  ownerName: z.string().default(""),
+  dependencies: z.array(z.string()).default([]),
+  externalPartyIds: z.array(z.number()).default([]),
+});
+
+const decompositionPayload = z.object({
+  summary: z.string().default(""),
+  mode: z.enum(["LLM", "RULE"]).default("RULE"),
+  optionKey: z.enum(["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]).default("BALANCED"),
+  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+  assumptions: z.array(z.string()).default([]),
+  risks: z.array(riskItem).default([]),
+  objectives: z.array(objectiveNode).default([]),
+  tasks: z.array(taskNode).default([]),
+  cost: z
+    .object({
+      budgetAmount: z.number().default(0),
+      internalCost: z.number().default(0),
+      externalCost: z.number().default(0),
+      laborHours: z.number().default(0),
+    })
+    .default({ budgetAmount: 0, internalCost: 0, externalCost: 0, laborHours: 0 }),
+});
+export type OkrDecompositionPayload = z.infer<typeof decompositionPayload>;
+
+const simulationCheck = z.object({
+  key: z.string(),
+  label: z.string(),
+  status: z.enum(["PASS", "WARN", "FAIL"]),
+  detail: z.string().default(""),
+});
+
+export const okrSimulationView = z.object({
+  feasible: z.boolean(),
+  checks: z.array(simulationCheck),
+  capacity: z.array(
+    z.object({
+      memberUserId: z.string(),
+      name: z.string(),
+      hours: z.number(),
+      load: z.number(),
+      ok: z.boolean(),
+    }),
+  ),
+  budget: z.object({
+    planned: z.number(),
+    internal: z.number(),
+    external: z.number(),
+    remaining: z.number(),
+  }),
+  timeline: z.object({
+    startDate: z.string(),
+    endDate: z.string(),
+    criticalDays: z.number(),
+    deadlineDays: z.number(),
+  }),
+  notes: z.array(z.string()).default([]),
+});
+export type OkrSimulationView = z.infer<typeof okrSimulationView>;
+
+export const okrDecompositionView = z.object({
+  id: z.number(),
+  briefId: z.number(),
+  version: z.number(),
+  mode: z.string(),
+  optionKey: z.string(),
+  optionLabel: z.string(),
+  status: z.string(),
+  statusLabel: z.string(),
+  payload: decompositionPayload,
+  simulation: okrSimulationView.nullable(),
+  committedAt: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type OkrDecompositionView = z.infer<typeof okrDecompositionView>;
+
+const taskLinkView = z.object({
+  id: z.number(),
+  objectiveId: z.number(),
+  krId: z.number(),
+  taskId: z.number(),
+  taskTitle: z.string().default(""),
+  weight: z.number(),
+  targetValue: z.number(),
+  acceptance: z.array(acceptanceItem),
+  ownerMemberUserId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type OkrTaskLinkView = z.infer<typeof taskLinkView>;
+
 export const okrEndpoints = {
   // ---------- 概览 / 上下文 ----------
   Okr_overview: {
@@ -955,6 +1222,226 @@ export const okrEndpoints = {
           z.object({ key: z.string(), label: z.string(), weight: z.number() }),
         ),
         metricRefreshHour: z.number(),
+      }),
+    ),
+  },
+
+  // ---------- 目标书（OKR 2.0） ----------
+  Okr_briefList: {
+    method: "get" as const,
+    path: "/enterprise/okr/briefs",
+    params: z.object({}),
+    query: z.object({
+      cycleId: z.coerce.number().int().optional(),
+      status: z.string().optional(),
+    }),
+    body: z.undefined(),
+    response: envelope(z.array(okrBriefView)),
+  },
+  Okr_briefGet: {
+    method: "get" as const,
+    path: "/enterprise/okr/briefs/:id",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(okrBriefView),
+  },
+  Okr_briefSave: {
+    method: "post" as const,
+    path: "/enterprise/okr/briefs",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.object({
+      id: z.number().int().min(0).default(0),
+      cycleId: z.number().int().min(0).default(0),
+      title: z.string().min(1).max(200),
+      businessGoal: z.string().max(5000).default(""),
+      scopeWhat: z.string().max(3000).default(""),
+      scopeTarget: z.string().max(3000).default(""),
+      deliverables: z.array(briefDeliverable).max(50).default([]),
+      startDate: z.string().max(16).default(""),
+      endDate: z.string().max(16).default(""),
+      budgetAmount: z.number().min(0).default(0),
+      budgetHours: z.number().min(0).default(0),
+      currency: z.string().max(8).default("CNY"),
+      labor: z.array(briefLabor).max(50).default([]),
+      materials: z.array(briefMaterial).max(50).default([]),
+      equipment: z.array(briefEquipment).max(50).default([]),
+      externalServices: z.array(briefExternal).max(50).default([]),
+      constraints: z.string().max(3000).default(""),
+      status: z.enum(OKR_BRIEF_STATUSES).optional(),
+    }),
+    response: envelope(okrBriefView),
+  },
+  Okr_briefRemove: {
+    method: "post" as const,
+    path: "/enterprise/okr/briefs/:id/remove",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ id: z.number(), removed: z.boolean() })),
+  },
+
+  // ---------- 互动澄清 ----------
+  Okr_dialogList: {
+    method: "get" as const,
+    path: "/enterprise/okr/briefs/:id/dialog",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(dialogTurnView)),
+  },
+  Okr_dialogSend: {
+    method: "post" as const,
+    path: "/enterprise/okr/briefs/:id/dialog",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.object({
+      message: z.string().max(3000).default(""),
+      answers: z.record(z.string(), z.string()).default({}),
+    }),
+    response: envelope(
+      z.object({
+        turns: z.array(dialogTurnView),
+        questions: z.array(clarifyQuestion),
+        assumptions: z.array(z.string()),
+        risks: z.array(riskItem),
+        readyToDecompose: z.boolean(),
+        mode: z.enum(["LLM", "RULE"]),
+      }),
+    ),
+  },
+
+  // ---------- 拆解方案 ----------
+  Okr_decompositionList: {
+    method: "get" as const,
+    path: "/enterprise/okr/briefs/:id/decompositions",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(okrDecompositionView)),
+  },
+  Okr_decompositionGenerate: {
+    method: "post" as const,
+    path: "/enterprise/okr/briefs/:id/decompositions",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.object({
+      optionKey: z
+        .enum(["CONSERVATIVE", "BALANCED", "AGGRESSIVE"])
+        .optional(),
+      forceRule: z.boolean().default(false),
+    }),
+    response: envelope(z.array(okrDecompositionView)),
+  },
+  Okr_decompositionSimulate: {
+    method: "post" as const,
+    path: "/enterprise/okr/decompositions/:id/simulate",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(okrDecompositionView),
+  },
+  Okr_decompositionCommit: {
+    method: "post" as const,
+    path: "/enterprise/okr/decompositions/:id/commit",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.object({
+      /** 人工闸门：必须显式确认，缺了直接 400。 */
+      confirmed: z.literal(true),
+      createProject: z.boolean().default(false),
+      projectId: z.number().int().min(0).default(0),
+      projectName: z.string().max(200).default(""),
+    }),
+    response: envelope(
+      z.object({
+        decompositionId: z.number(),
+        projectId: z.number(),
+        objectives: z.array(objectiveView),
+        tasks: z.array(
+          z.object({
+            id: z.number(),
+            title: z.string(),
+            objectiveId: z.number(),
+            krId: z.number(),
+            ownerMemberUserId: z.string(),
+          }),
+        ),
+        links: z.array(taskLinkView),
+      }),
+    ),
+  },
+
+  // ---------- 任务关联与考核 ----------
+  Okr_taskLinkList: {
+    method: "get" as const,
+    path: "/enterprise/okr/task-links",
+    params: z.object({}),
+    query: z.object({
+      objectiveId: z.coerce.number().int().optional(),
+      krId: z.coerce.number().int().optional(),
+      taskId: z.coerce.number().int().optional(),
+    }),
+    body: z.undefined(),
+    response: envelope(z.array(taskLinkView)),
+  },
+  Okr_taskLinkSave: {
+    method: "post" as const,
+    path: "/enterprise/okr/task-links",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.object({
+      id: z.number().int().min(0).default(0),
+      objectiveId: z.number().int().min(1),
+      krId: z.number().int().min(0).default(0),
+      taskId: z.number().int().min(1),
+      weight: z.number().min(0).default(1),
+      targetValue: z.number().default(0),
+      acceptance: z.array(acceptanceItem).max(30).default([]),
+      ownerMemberUserId: z.string().max(64).default(""),
+    }),
+    response: envelope(taskLinkView),
+  },
+  Okr_taskLinkRemove: {
+    method: "post" as const,
+    path: "/enterprise/okr/task-links/:id/remove",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ id: z.number(), removed: z.boolean() })),
+  },
+  Okr_assessmentPreview: {
+    method: "get" as const,
+    path: "/enterprise/okr/assessment-preview",
+    params: z.object({}),
+    query: z.object({
+      cycleId: z.coerce.number().int().optional(),
+      memberUserId: z.string().optional(),
+    }),
+    body: z.undefined(),
+    response: envelope(
+      z.object({
+        cycleId: z.number(),
+        memberUserId: z.string(),
+        memberName: z.string(),
+        items: z.array(
+          z.object({
+            taskId: z.number(),
+            taskTitle: z.string(),
+            objectiveId: z.number(),
+            krId: z.number(),
+            weight: z.number(),
+            status: z.string(),
+            acceptanceTotal: z.number(),
+            acceptanceDone: z.number(),
+            evidence: z.array(z.string()),
+          }),
+        ),
+        krScore: z.number(),
+        taskScore: z.number(),
+        okrScore: z.number(),
+        notes: z.array(z.string()).default([]),
       }),
     ),
   },

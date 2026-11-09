@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/current-user';
 import { ContentModelSettingService } from '../content/model-setting.service';
 import { geoChatMulti } from '../geo/geo-llm.client';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 import { BiScopeService, BiContext } from './bi.scope';
 import { BiQueryService, DatasetRow } from './bi.query.service';
 import { internalDataset } from './bi.internal';
@@ -51,9 +52,7 @@ export class BiChatService {
     const keyword = text(query.keyword).trim();
     const where = {
       ownerUserId: ctx.ownerUserId,
-      ...(keyword
-        ? { title: { contains: keyword } }
-        : {}),
+      ...(keyword ? { title: { contains: keyword } } : {}),
     };
     const [rows, total] = await Promise.all([
       this.prisma.biChatSession.findMany({
@@ -372,10 +371,10 @@ export class BiChatService {
           sessionId,
           role: 'assistant',
           sqlText: sql,
-          resultPreview: result.rows.slice(0, 200) as never,
-          chartConfig: chart as never,
+          resultPreview: toJsonInput(result.rows.slice(0, 200)),
+          chartConfig: toJsonInput(chart),
           analysis,
-          followups: followups as never,
+          followups: toJsonInput(followups),
           status: 'ok',
           elapsedMs: result.elapsedMs,
           tokens: reply.promptTokens + reply.completionTokens,

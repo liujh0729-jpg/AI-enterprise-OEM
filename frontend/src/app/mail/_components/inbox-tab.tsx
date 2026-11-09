@@ -21,6 +21,8 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
 import { mailApi } from "@/api/mail";
+import { aiApi, type AiMailboxAnalyze } from "@/api/ai";
+import { AiLevelTag, AiList, AiResultModal } from "@/components/ai-result";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
 import { fmtTime } from "@/lib/datetime";
 
@@ -57,6 +59,9 @@ export function MailInboxTab({ accounts }: { accounts: MailAccount[] }) {
   const [reply, setReply] = useState("");
   const [acting, setActing] = useState<"" | "draft" | "send">("");
   const [actionNote, setActionNote] = useState("");
+  const [aiMail, setAiMail] = useState<AiMailboxAnalyze | null>(null);
+  const [aiMailOpen, setAiMailOpen] = useState(false);
+  const [aiMailLoading, setAiMailLoading] = useState(false);
 
   const load = useCallback(async () => {
     const targets = (
@@ -128,6 +133,33 @@ export function MailInboxTab({ accounts }: { accounts: MailAccount[] }) {
       setDetailError((caught as Error).message || "邮件正文读取失败");
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const runAiMail = async () => {
+    if (!viewing) return;
+    if (!detailText.trim()) {
+      message.warning("正文还没读取到，稍后再试");
+      return;
+    }
+    setAiMailOpen(true);
+    setAiMailLoading(true);
+    setAiMail(null);
+    try {
+      setAiMail(
+        await aiApi.mailboxAnalyze({
+          body: {
+            subject: viewing.subject || undefined,
+            from: detail?.fromAddress || viewing.fromAddress || undefined,
+            body: detailText,
+          },
+        }),
+      );
+    } catch (caught) {
+      message.error((caught as Error).message || "AI 分析失败");
+      setAiMailOpen(false);
+    } finally {
+      setAiMailLoading(false);
     }
   };
 
@@ -293,6 +325,11 @@ export function MailInboxTab({ accounts }: { accounts: MailAccount[] }) {
         size={720}
         title={viewing ? `邮件 · ${viewing.subject}` : "邮件"}
         onClose={() => setViewing(null)}
+        extra={
+          detail ? (
+            <Button onClick={() => void runAiMail()}>AI 摘要与回复</Button>
+          ) : null
+        }
       >
         {detailError ? <Notice variant="error">{detailError}</Notice> : null}
         {detail ? (
@@ -370,6 +407,53 @@ export function MailInboxTab({ accounts }: { accounts: MailAccount[] }) {
           <EmptyState text={detailLoading ? "正在读取正文…" : "正文没有读到"} />
         )}
       </Drawer>
+
+      <AiResultModal
+        open={aiMailOpen}
+        title={viewing ? `AI 邮件分析 · ${viewing.subject}` : "AI 邮件分析"}
+        loading={aiMailLoading}
+        mode={aiMail?.mode}
+        model={aiMail?.model}
+        onClose={() => setAiMailOpen(false)}
+        footer={
+          aiMail?.replyDraft ? (
+            <Button
+              type="primary"
+              onClick={() => {
+                setReply(aiMail.replyDraft);
+                setAiMailOpen(false);
+                message.success("已填入回复框，可继续修改后发送");
+              }}
+            >
+              使用回信草稿
+            </Button>
+          ) : null
+        }
+      >
+        {aiMail ? (
+          <>
+            <Space wrap>
+              <Tag>{aiMail.categoryLabel}</Tag>
+              <AiLevelTag level={aiMail.priority} />
+            </Space>
+            <div>{aiMail.summary}</div>
+            <AiList
+              title="待办"
+              items={aiMail.todos.map((todo) =>
+                todo.dueAt ? `${todo.text}（${todo.dueAt}）` : todo.text,
+              )}
+            />
+            {aiMail.replyDraft ? (
+              <div>
+                <strong>回信草稿</strong>
+                <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>
+                  {aiMail.replyDraft}
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </AiResultModal>
     </>
   );
 }

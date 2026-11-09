@@ -1,0 +1,16 @@
+{
+  "total": 6,
+  "byCat": {
+    "asNever": 0,
+    "asAny": 0,
+    "asUnknownAs": 3,
+    "tsIgnore": 0,
+    "tsExpectError": 0,
+    "eslintDisable": 3,
+    "explicitAny": 0,
+    "tsNocheck": 0
+  },
+  "allowlisted": 6,
+  "commit": "5e152c3",
+  "date": "2026-11-09"
+}

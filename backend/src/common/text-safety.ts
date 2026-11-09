@@ -4,8 +4,8 @@
  */
 const INVISIBLE =
   /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
-// eslint-disable-next-line no-control-regex -- 要清掉的就是这些控制符本身
-const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+// \p{Cc} 覆盖 0x00–0x1F 与 0x7F–0x9F；换行/制表/回车是可读空白，用否定前瞻留下。
+const CONTROL = /(?![\t\n\r])\p{Cc}/gu;
 
 export function stripInvisible(raw: string) {
   return String(raw ?? '')

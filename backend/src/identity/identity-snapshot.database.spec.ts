@@ -1,6 +1,8 @@
 import { PrismaClient } from '../../generated/prisma';
 import { readIdentitySnapshot } from './identity-snapshot';
 import { runInRequestContext } from '../common/request-context';
+import type { PrismaService } from '../prisma/prisma.service';
+import { stub } from '../../test/doubles';
 
 const databaseUrl = process.env.IDENTITY_SNAPSHOT_TEST_DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -158,7 +160,9 @@ describeDatabase('identity snapshot PostgreSQL parity', () => {
         where: { key: 'flex_payroll_enabled' },
       }),
     ]);
-    expect(await readIdentitySnapshot(prisma as never, userId)).toEqual({
+    expect(
+      await readIdentitySnapshot(stub<PrismaService>(prisma), userId),
+    ).toEqual({
       enterprise,
       providerApps,
       staffProfile,
@@ -171,7 +175,9 @@ describeDatabase('identity snapshot PostgreSQL parity', () => {
 
   it('returns empty qualifications for unknown ids and never interprets ids as SQL', async () => {
     for (const id of ['unknown-user', "x' OR 1=1 --"]) {
-      expect(await readIdentitySnapshot(prisma as never, id)).toEqual({
+      expect(
+        await readIdentitySnapshot(stub<PrismaService>(prisma), id),
+      ).toEqual({
         enterprise: null,
         providerApps: [],
         staffProfile: null,
@@ -201,7 +207,7 @@ describeDatabase('identity snapshot PostgreSQL parity', () => {
       data: { value: 'false' },
     });
     const snapshot = await runInRequestContext(() =>
-      readIdentitySnapshot(prisma as never, userId),
+      readIdentitySnapshot(stub<PrismaService>(prisma), userId),
     );
     expect(snapshot.enterprise).toBeNull();
     expect(

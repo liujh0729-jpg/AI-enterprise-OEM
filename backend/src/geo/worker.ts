@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GeoSettingsService } from './geo-settings.service';
 import { GeoCollectionService } from './geo-collection.service';
 import { GeoCollectionScheduler } from './geo-collection.scheduler';
+import { createSeoScheduler } from '../seo/seo-worker';
 import { modelMetrics } from './metrics';
 
 async function start() {
@@ -19,6 +20,8 @@ async function start() {
   );
   const scheduler = new GeoCollectionScheduler(collection);
   scheduler.onModuleInit();
+  const seoScheduler = createSeoScheduler(prisma);
+  seoScheduler.onModuleInit();
   const app = new Hono();
   let stopping = false;
   app.get('/health', (c) =>
@@ -37,11 +40,13 @@ async function start() {
     const backlog = await prisma.geoCollectItem.count({
       where: { status: 'PENDING' },
     });
+    const seoBacklog = await seoScheduler.backlog();
     return c.json(
       {
         status: stopping ? 'stopping' : 'alive',
         ...collection.workerStatus,
         backlog,
+        seoBacklog,
       },
       stopping ? 503 : 200,
     );
@@ -57,6 +62,7 @@ async function start() {
     const forced = setTimeout(() => process.exit(1), 65000);
     forced.unref();
     scheduler.onModuleDestroy();
+    seoScheduler.onModuleDestroy();
     try {
       await collection.stop(60000);
     } catch {

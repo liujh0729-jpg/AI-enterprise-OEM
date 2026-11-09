@@ -36,6 +36,18 @@ export function useApiKeyActions() {
       (id: number) => identityApi.revokeKey({ params: { id: String(id) } }),
       [keys],
     ),
+    quota: useBusinessMutation(
+      ({ id, pointsQuota }: { id: number; pointsQuota: number | null }) =>
+        identityApi.updateKeyQuota({
+          params: { id: String(id) },
+          body: { pointsQuota },
+        }),
+      [keys],
+    ),
+    reveal: useBusinessMutation(
+      (id: number) => identityApi.revealKey({ params: { id: String(id) } }),
+      [keys],
+    ),
   };
 }
 

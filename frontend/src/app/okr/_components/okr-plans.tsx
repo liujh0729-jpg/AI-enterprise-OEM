@@ -12,7 +12,7 @@ import {
   Table,
   Tag,
 } from "antd";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   OKR_PLAN_KINDS,
   OKR_PLAN_KIND_LABELS,
@@ -102,7 +102,7 @@ export function OkrPlansTab({
   >([]);
   const [scheduleId, setScheduleId] = useState(0);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const rows = await okrApi.plans({
@@ -115,12 +115,11 @@ export function OkrPlansTab({
     } finally {
       setLoading(false);
     }
-  };
+  }, [ctx.cycle]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.cycle?.id]);
+  }, [load]);
 
   const refreshAll = async () => {
     await load();

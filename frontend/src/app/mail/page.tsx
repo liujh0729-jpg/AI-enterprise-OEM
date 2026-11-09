@@ -9,8 +9,9 @@ import { MailAccountsTab } from "./_components/accounts-tab";
 import { MailDraftsTab } from "./_components/drafts-tab";
 import { MailInboxTab } from "./_components/inbox-tab";
 import { MailScriptsTab } from "./_components/scripts-tab";
+import { GapsMailTemplatesTab } from "./_components/gaps-templates";
 
-type View = "accounts" | "inbox" | "drafts" | "scripts";
+type View = "accounts" | "inbox" | "drafts" | "scripts" | "templates";
 
 /**
  * AI邮箱服务（「工作台」栏目 · 排在 Workbuddy 企业云之前）：
@@ -51,6 +52,7 @@ export default function MailPage() {
           { key: "inbox", label: "收件箱" },
           { key: "drafts", label: "草稿箱" },
           { key: "scripts", label: "知识与话术" },
+          { key: "templates", label: "邮件模板" },
         ]}
         activeTab={view}
         onTabChange={(key) => setView(key as View)}
@@ -67,8 +69,10 @@ export default function MailPage() {
         <MailInboxTab accounts={accounts} />
       ) : view === "drafts" ? (
         <MailDraftsTab accounts={accounts} />
-      ) : (
+      ) : view === "scripts" ? (
         <MailScriptsTab accounts={accounts} />
+      ) : (
+        <GapsMailTemplatesTab />
       )}
     </ConfigProvider>
   );

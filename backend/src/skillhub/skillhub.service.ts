@@ -176,8 +176,8 @@ export class SkillHubService {
     const slug = this.slug(rawSlug);
     const zip = await this.client.download(slug);
     const skill = await this.skills.importZip(user, zip.bytes, zip.filename);
-    // 「下载并安装」＝下载 + 自动入库，并确保 Agent 立刻能用。
-    if (!skill.enabled) {
+    // 「下载并安装」＝下载 + 自动入库；声明了权限的技能要先让用户在站内确认，不能替用户点同意
+    if (!skill.enabled && !skill.permissionsDeclared) {
       return this.skills.setEnabled(user, String(skill.id), { enabled: true });
     }
     return skill;

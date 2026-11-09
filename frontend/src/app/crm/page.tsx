@@ -2,6 +2,7 @@
 
 import { Button, ConfigProvider } from "antd";
 import { useEffect, useState } from "react";
+import { AiCopilot } from "@/components/ai-copilot";
 import { Notice, PageHero } from "@/components/ui/panel";
 import { crmApi } from "@/api/crm";
 import {
@@ -21,12 +22,14 @@ import {
   SettingsTab,
   WorkbenchTab,
 } from "./_components/crm-ops";
+import { GapsQuotationsTab } from "./_components/gaps-quotations";
 
 const TABS = [
   { key: "workbench", label: "工作台" },
   { key: "leads", label: "线索" },
   { key: "customers", label: "客户" },
   { key: "opportunities", label: "商机" },
+  { key: "quotations", label: "报价跟踪" },
   { key: "contracts", label: "合同" },
   { key: "payments", label: "回款" },
   { key: "orders", label: "订单" },
@@ -101,6 +104,7 @@ export default function CrmPage() {
       {isMember === true && tab === "leads" ? <LeadsTab customers={customers} /> : null}
       {isMember === true && tab === "customers" ? <CustomersTab customers={customers} /> : null}
       {isMember === true && tab === "opportunities" ? <OpportunitiesTab customers={customers} /> : null}
+      {isMember === true && tab === "quotations" ? <GapsQuotationsTab /> : null}
       {isMember === true && tab === "contracts" ? <ContractsTab customers={customers} /> : null}
       {isMember === true && tab === "payments" ? <PaymentsTab /> : null}
       {isMember === true && tab === "orders" ? <OrdersTab customers={customers} /> : null}
@@ -108,6 +112,12 @@ export default function CrmPage() {
       {isMember === true && tab === "approvals" ? <ApprovalsTab /> : null}
       {isMember === true && tab === "reports" ? <ReportsTab /> : null}
       {isMember === true && tab === "settings" ? <SettingsTab /> : null}
+      <AiCopilot
+        module="crm"
+        moduleLabel="CRM"
+        context={`当前页签：${TABS.find((item) => item.key === tab)?.label || tab}`}
+        suggestions={["这个页签能做什么", "帮我看下最近的跟进重点"]}
+      />
     </ConfigProvider>
   );
 }

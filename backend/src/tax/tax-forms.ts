@@ -1,9 +1,6 @@
 import { TAX_FORM_TYPES } from '../common/constants';
 export type TaxFormType = (typeof TAX_FORM_TYPES)[number];
-export function calcTaxAmount(
-  taxType: string,
-  form: Record<string, number | string | undefined>,
-) {
+export function calcTaxAmount(taxType: string, form: Record<string, unknown>) {
   const num = (key: string, fallback = 0) => Number(form[key] ?? fallback) || 0;
   switch (taxType) {
     case 'vat_general':

@@ -167,6 +167,7 @@ export const SERVICE_PUBLISH_CATEGORY_BY_DOMAIN: Record<string, string> = {
   LOGISTICS: 'LOGISTICS',
   IP: 'IP_SERVICE',
   LEGAL: 'LEGAL_SERVICE',
+  THINK_TANK: 'THINK_TANK_SERVICE',
   FLEX: 'FLEX_WORK',
   MARKETING: 'MARKETING',
   SMART: 'SMART_SERVICE',
@@ -175,17 +176,18 @@ export const SERVICE_PUBLISH_CATEGORY_BY_DOMAIN: Record<string, string> = {
   OVERSEAS: 'EXPORT_REFUND',
 };
 /**
- * 平台直连板块（2026-09-26 用户口径）：「需求信息」与「服务发布」都直接调用 AIworkin
- * 运行时接口（`/enterprise/market/<板块>/…`），本系统不审核发布资质、也不落一行数据。
- * 出海因新增「需求信息」栏目并入本表（服务发布界面未开，但接口门控与其余两块同口径，
- * 不留未门控的发布路径）。其余板块仍是过渡期本地台账（#227 统一下线，见对接说明 §4.10）。
+ * 平台直连板块：`/enterprise/market/<板块>/…` 这组接口的门控（财税 / 供销 / 出海）。
+ * 需求列表读本系统台账（`market_listing_records`）并同步平台挂单、记回挂单号；
+ * 服务发布自 2026-11-09 起财税 / 供销并入「服务市集」（公开池 + 本地台账），出海服务界面未开。
+ * 其余板块仍是过渡期本地台账（#227 统一下线，见对接说明 §4.10）。
  */
 export const PLATFORM_DIRECT_DOMAINS: string[] = ['TAX', 'SUPPLY', 'OVERSEAS'];
 /**
- * 服务市集板块（2026-10-28 用户口径）：各板块的「××服务市集」栏目只读扫 AIworkin 的
- * SUPPLY 公开池，列出全平台服务商在本板块已发布的服务，本系统不落库、不做主体/类目门控。
- * 与 `PLATFORM_DIRECT_DOMAINS` 不同：这里的板块不开放本系统的「服务发布」写入，只读浏览。
- * 物流 2026-10-28 追加（用户：「物流也应该有物流服务市集」），财税 / 供销仍叫「服务发布」。
+ * 服务市集板块（2026-10-28 用户口径，2026-11-09 归并）：各板块的「××服务市集」栏目
+ * 列表读 AIworkin 的 SUPPLY 公开池（全平台服务商在本板块已发布的服务），服务商身份另可切
+ * 「我发布的服务」读本系统台账（`provider_service_listings`，发布时落库并记平台挂单号）。
+ * 物流 2026-10-28 追加；资产交易 2026-11-09 追加；供销网络 / 财税服务 2026-11-09 由
+ * 「服务发布」改名并入（用户：「与其他市集统一，既能看到公共池，又能看到我的服务发布」）。
  */
 export const MARKETPLACE_DOMAINS: string[] = [
   'LOGISTICS',
@@ -196,6 +198,9 @@ export const MARKETPLACE_DOMAINS: string[] = [
   'IP',
   'LEGAL',
   'THINK_TANK',
+  'ASSET',
+  'SUPPLY',
+  'TAX',
 ];
 export const CONTRACT_CATEGORIES: string[] = [
   ...new Set([

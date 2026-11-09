@@ -430,6 +430,10 @@ body,
 
 .table-wrap {
   overflow-x: auto;
+  /* 只滚横向。overflow-y 留空时会被 overflow-x:auto 提升成 auto，而表格整行高常带小数
+     （如 517.688px，内层四舍五入到 518），1px 级纵向溢出就够浏览器在列表右侧画出整根竖滚动条。
+     显式 hidden 与 antd 自身 `.ant-table-content` 同口径。 */
+  overflow-y: hidden;
 }
 
 /* 靠 auto 外边距贴行末：首行放不下整组折到第二行时，页签条仍然顶到该行右边
@@ -488,7 +492,9 @@ body,
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
 }
 
-/* 面板内胶囊分段（PillTabs）：替掉 antd Segmented 的滑块观感，与页头页签同一套语言 */
+/* 面板内胶囊分段（PillTabs）：替掉 antd Segmented 的滑块观感，与页头页签同一套语言。
+   字号与高度对齐 antd 默认控件（Select / Input 的 14px / 32px）——与同一行里的筛选框等高，
+   `small` 变体只收横向内边距，不再压字号 / 高度（2026-11-09 用户裁定）。 */
 .pill-tabs {
   display: inline-flex;
   flex-wrap: wrap;
@@ -499,14 +505,16 @@ body,
 .pill-tab {
   display: inline-flex;
   align-items: center;
+  box-sizing: border-box;
   gap: 6px;
   margin: 0;
-  padding: 6px 15px;
+  height: 32px;
+  padding: 0 15px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: var(--card);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.5;
   color: var(--text-2);
@@ -565,14 +573,15 @@ body,
 }
 
 .pill-tabs.small .pill-tab {
-  padding: 3px 11px;
-  font-size: 12px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 14px;
 }
 
 @media (max-width: 640px) {
   .pill-tabs { gap: 6px; }
-  .pill-tab { padding: 5px 12px; font-size: 12px; }
-  .pill-tabs.small .pill-tab { padding: 3px 10px; }
+  .pill-tab { padding: 0 12px; }
+  .pill-tabs.small .pill-tab { padding: 0 10px; }
 }
 
 /* 面板（demo .panel） */
@@ -925,6 +934,289 @@ body,
   transform: none;
 }
 
+/* 模型广场：筛选区（分类胶囊 + 下拉一行） */
+.mp-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mp-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mp-filter-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-4);
+}
+
+/* 模型广场：模型卡片 */
+.mp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+}
+
+.mp-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.mp-card:hover {
+  border-color: var(--primary-light);
+  box-shadow: 0 6px 18px -8px rgba(16, 24, 40, 0.16);
+}
+
+.mp-card:hover .mp-card-name {
+  color: var(--primary);
+}
+
+.mp-card-off {
+  opacity: 0.62;
+}
+
+.mp-card-sale .mp-card-head {
+  padding-right: 78px;
+}
+
+/* 折扣角标：比整条横幅更轻，但仍是最抢眼的元素 */
+.mp-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 12px 6px;
+  border-radius: 0 var(--radius-card) 0 12px;
+  background: linear-gradient(135deg, #ff4d4f 0%, #fa541c 100%);
+  color: #fff;
+  line-height: 1.15;
+  box-shadow: 0 4px 10px rgba(250, 84, 28, 0.28);
+}
+
+.mp-ribbon strong {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.mp-ribbon em {
+  font-style: normal;
+  font-size: 10.5px;
+  opacity: 0.92;
+}
+
+.mp-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mp-card-name {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-card-key {
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-card-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mp-card-tags .ant-tag {
+  margin: 0;
+}
+
+.mp-card-official {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-subtle, #f7f8fa);
+  font-size: 11.5px;
+  color: var(--text-4);
+  line-height: 20px;
+}
+
+.mp-card-vendor {
+  margin-left: auto;
+  max-width: 55%;
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-card-price {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-subtle, #f7f8fa);
+}
+
+.mp-card-sale .mp-card-price {
+  border-color: #ffd8c2;
+  background: linear-gradient(180deg, #fff6f2 0%, #fffdfc 100%);
+}
+
+.mp-card-price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+
+.mp-price-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.mp-price-cell em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.mp-price-cell b {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-1);
+  letter-spacing: 0.2px;
+}
+
+.mp-card-sale .mp-price-cell b {
+  color: #d4380d;
+}
+
+.mp-price-cell s {
+  font-size: 11.5px;
+  color: var(--text-4);
+}
+
+.mp-card-price-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-4);
+}
+
+.mp-card-specs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.mp-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-subtle, #f7f8fa);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.mp-chip b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.mp-card-note,
+.mp-card-eps {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-4);
+}
+
+.mp-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.mp-card-usage {
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-card-more {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.mp-card:hover .mp-card-more {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .mp-filter-count {
+    margin-left: 0;
+  }
+}
+
+.mp-price-old {
+  margin-right: 8px;
+  color: var(--text-4);
+  text-decoration: line-through;
+}
+
+.mp-price-now {
+  color: #d4380d;
+  font-weight: 700;
+  font-size: 15px;
+}
+
 .tool-name {
   font-size: 13.5px;
   font-weight: 600;
@@ -1114,6 +1406,8 @@ body,
   .exec-grid { grid-template-columns: 1fr; }
 }
 .exec-grid > .panel { margin-bottom: 0; }
+/* 「与我相关的申请」紧跟在两栏动态概览之后：栅格子面板底边距为 0，需补出与上方板块一致的行间距 */
+.exec-grid + .panel { margin-top: 24px; }
 .exec-list { display: flex; flex-direction: column; }
 .exec-msg,
 .exec-row {
@@ -2771,6 +3065,16 @@ body,
 }
 .data-table-form-item { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .data-table-form-label { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+/* 多维表格 AI 问数：一问一答的会话条 */
+.data-table-ask { border-top: 1px dashed var(--border, #e5e6eb); padding-top: 12px; margin-top: 12px; }
+.data-table-ask:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.data-table-ask-q { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; margin-right: 8px; }
+.data-table-ask-a { white-space: pre-wrap; line-height: 1.7; margin: 6px 0; }
+/* 多维表格看板视图：与 lowcode 看板同一套呈现语言 */
+.data-table-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 6px; }
+.data-table-kanban-col { background: #f7f8fa; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+.data-table-kanban-head { font-weight: 500; color: var(--text-1, #1d2129); }
+.data-table-kanban-card { background: #fff; border: 1px solid #e5e6eb; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
 .enterprise-pro-layout .ant-pro-layout-content > .stat-grid { margin-bottom: 22px; }
 .page-hero { background: #fff; border-radius: 8px; padding: 20px 24px; }
 .page-hero-title { font-size: 24px; font-weight: 600; }
@@ -3283,6 +3587,11 @@ body,
 .embed-rate { display: flex; align-items: center; gap: 8px; padding: 0 12px 12px; }
 .embed-intro { padding: 24px 18px; display: flex; flex-direction: column; gap: 10px; }
 .embed-tip { padding: 40px; text-align: center; color: #8f959e; }
+/* 企微员工侧边栏（H5，宽度通常 360-480px） */
+.embed-field { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; font-size: 13px; word-break: break-word; }
+.embed-task, .embed-material { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; border: 1px solid #f2f3f5; border-radius: 10px; padding: 10px; background: #fff; }
+.embed-task > div:first-child, .embed-material > div:first-child { min-width: 0; flex: 1; }
+.embed-task .ant-space, .embed-material .ant-space { flex: none; }
 
 /* ---------- CRM / BI ---------- */
 .crm-stack { display: flex; flex-direction: column; gap: 12px; }
@@ -3627,6 +3936,52 @@ body,
   .resume-muted { flex: 1 1 100%; order: 3; text-align: center; }
   .resume-doc { padding: 26px 20px 24px; }
   .resume-contacts { grid-template-columns: 1fr; }
+}
+
+/* 页面助手（顶栏入口 → 抽屉）：上下文条 / 回答卡 / 最近提问，沿用全站问答呈现语言 */
+.pa-context { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 12px; color: var(--text-3); }
+.pa-context code { padding: 1px 6px; border-radius: 4px; background: var(--bg-muted); border: 1px solid var(--border); color: var(--text-2); font-size: 12px; word-break: break-all; }
+.pa-hint { margin-top: 6px; font-size: 12px; color: var(--text-4); }
+.pa-error { margin-top: 8px; font-size: 12px; color: var(--danger); }
+.pa-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 22px 0; font-size: 12px; color: var(--text-3); }
+.pa-answer { margin-top: 14px; border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: var(--radius-card); background: var(--bg-muted); padding: 12px 14px; }
+.pa-answer-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.pa-answer-title { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text-1); }
+.pa-answer-meta { font-size: 12px; color: var(--text-4); text-align: right; }
+.pa-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.pa-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--card); font-size: 12px; color: var(--text-2); }
+.pa-chip-label { color: var(--text-4); }
+.pa-answer-body { font-size: 13px; color: var(--text-1); white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
+.pa-history-head { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--text-1); }
+.pa-history { display: flex; flex-direction: column; gap: 8px; }
+.pa-history-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--card); }
+.pa-history-q { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--text-1); }
+.pa-history-meta { font-size: 12px; color: var(--text-4); margin: 2px 0 4px; }
+.pa-history-a { font-size: 12px; color: var(--text-3); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* 积分中心（/points → 积分服务）：充值档位卡与支付操作区 */
+.points-block-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.points-tab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-bottom: 14px; }
+.points-tab-desc { margin-top: 4px; font-size: 12px; color: var(--text-4); }
+.points-inline-form { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.points-tier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 10px; }
+.points-tier { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; min-height: 104px; padding: 12px 16px; text-align: left; font: inherit; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: border-color .15s, background-color .15s, box-shadow .15s; }
+.points-tier:hover { border-color: var(--primary); }
+.points-tier:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.points-tier.active { border-color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 1px var(--primary) inset; }
+.points-tier-amount { font-size: 17px; font-weight: 700; color: var(--text-1); }
+.points-tier-points { font-size: 12px; color: var(--text-3); }
+.points-tier-bonus { margin-top: 4px; padding: 0 8px; border-radius: 999px; background: #e8f7ee; color: #1a7f37; font-size: 11.5px; line-height: 20px; }
+.points-pay-grid { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 1fr); gap: 16px 24px; margin-top: 18px; }
+.points-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.points-field-label { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.points-form { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.points-pay-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border); }
+.points-rate-note { flex: 1 1 420px; font-size: 12px; color: var(--text-4); line-height: 1.7; }
+@media (max-width: 720px) {
+  .points-pay-grid { grid-template-columns: 1fr; }
+  .points-pay-actions { align-items: stretch; }
+  .points-pay-actions .ant-btn { width: 100%; }
 }
 
 /* 打印 / 另存为 PDF：只留简历正文，去掉工具栏与灰底，按 A4 排 page-break */

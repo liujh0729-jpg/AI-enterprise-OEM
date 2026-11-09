@@ -1,17 +1,22 @@
 import { pageOf, pageParam, text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { toJsonInput } from '../common/json-input';
 import { currentRequest, runInRequestContext } from '../common/request-context';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../generated/prisma';
 import { jsonText } from '../common/sql-json';
-import { geoChatMulti, type ChatMessage } from '../geo/geo-llm.client';
+import { aiChat } from '../ai/ai-gateway';
+import { messageText, type ChatMessage } from '../geo/geo-llm.client';
 import { ModelKeyService } from '../aiworkin/model-key.service';
 import { DataTableService } from '../data-table/data-table.service';
 import { RpaLlmService } from '../rpa/rpa-llm.service';
-import { buildDeliverableCsv, type DeliverableSink } from '../content/deliverable';
+import {
+  buildDeliverableCsv,
+  type DeliverableSink,
+} from '../content/deliverable';
 import {
   BIGDATA_DATASETS,
   type BigdataDatasetKey,
@@ -74,7 +79,7 @@ export class BigdataQueryService {
     const columnCount = table
       ? await this.prisma.dataTableField.count({ where: { tableId: table.id } })
       : 0;
-    const key = await this.keyStatus(token);
+    const key = this.keyStatus(token);
     return {
       dataset,
       label: definition.label,
@@ -132,9 +137,9 @@ export class BigdataQueryService {
    * 降级为「未确认配置」（keyConfigured=false + 原样带出错误），结果表与模型这些本地项
    * 照常可看可存——辅助通道故障不许打断整页读取。
    */
-  private async keyStatus(token?: string) {
+  private keyStatus(token?: string) {
     try {
-      const key = await this.modelKeys.status(token);
+      const key = this.modelKeys.status(token);
       return {
         configured: key.configured,
         keyMasked: key.keyMasked,
@@ -315,19 +320,19 @@ export class BigdataQueryService {
     if (!messages.length) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请至少发送一条消息');
     }
-    const apiKey = await this.modelKeys.requireKey(token);
     const setting = await this.settingRow(user, dataset);
-    const reply = await geoChatMulti({
-      baseUrl: this.llm.baseUrl(),
-      apiKey,
-      model: text(setting?.model).trim(),
+    const reply = await aiChat(this.prisma, {
+      userId: user.userId,
+      token,
+      moduleModel: text(setting?.model).trim(),
+      module: 'bigdata',
+      operation: 'ask_data',
       messages: [
         { role: 'system', content: buildIntentSystemPrompt(dataset) },
         ...messages,
       ],
       maxTokens: CHAT_MAX_TOKENS,
       timeoutMs: CHAT_TIMEOUT_MS,
-      userId: user.userId,
       purpose: 'chat',
     });
     const spec = parseQueryJson(dataset, reply.reply);
@@ -341,7 +346,7 @@ export class BigdataQueryService {
           dataset,
           taskId: 0,
           role: 'user',
-          content: lastUser.content,
+          content: messageText(lastUser.content),
         },
       });
     }
@@ -402,7 +407,7 @@ export class BigdataQueryService {
       data: {
         userId: user.userId,
         dataset,
-        spec: spec as never,
+        spec: toJsonInput(spec),
         rawIntent: text(body.rawIntent).trim().slice(0, 4000),
         dataTableId,
       },
@@ -661,7 +666,10 @@ export class BigdataQueryService {
       if (this.deliverableSink && deliverableRows.length) {
         await this.deliverableSink(user.userId, {
           bytes: buildDeliverableCsv(
-            definition.columns.map((column) => ({ key: column.fieldKey, label: column.name })),
+            definition.columns.map((column) => ({
+              key: column.fieldKey,
+              label: column.name,
+            })),
             deliverableRows,
           ),
           filename: `大数据查询-${definition.label || dataset}-任务${taskId}.csv`,

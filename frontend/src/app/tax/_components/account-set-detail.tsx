@@ -229,7 +229,7 @@ export function AccountSetDetail({
         </div>
       </Panel>
 
-      {declarationsQuery.isError ? <Alert type="error" message={declarationsQuery.error.message} action={<Button onClick={() => void declarationsQuery.refetch()}>重试</Button>} /> : null}
+      {declarationsQuery.isError ? <Alert type="error" title={declarationsQuery.error.message} action={<Button onClick={() => void declarationsQuery.refetch()}>重试</Button>} /> : null}
       <Panel title="申报单" titleBadge={`共 ${declTotal} 张`}>
         <div className="table-wrap">
           <Table<TaxDeclaration>

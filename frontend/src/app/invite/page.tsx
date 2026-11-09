@@ -96,7 +96,7 @@ export default function InvitePage() {
         ) : loading ? (
           <span className="muted text-12">加载中…</span>
         ) : (
-          <Space direction="vertical" size={14} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={14} style={{ width: "100%" }}>
             <Space size={10} wrap>
               <span
                 style={{
@@ -175,7 +175,7 @@ export default function InvitePage() {
                 value={info?.invitedCount ?? 0}
                 suffix="人"
                 prefix={<TeamOutlined aria-hidden />}
-                valueStyle={{ fontSize: 22 }}
+                styles={{ content: { fontSize: 22 } }}
               />
             </Space>
           </Space>

@@ -84,6 +84,49 @@ describe('OssService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('deletes an object with a signed V4 DELETE and treats 404 as already gone', async () => {
+    const service = new OssService();
+    await service.remove(ossObjectKey(path));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(init.method).toBe('DELETE');
+    expect(headers.authorization).toContain(
+      'OSS4-HMAC-SHA256 Credential=unit-access-key/',
+    );
+    expect(new URL(url).pathname).toContain(
+      '%E8%90%A5%E4%B8%9A%20%E6%89%A7%E7%85%A7%281%29%23%3F.png',
+    );
+
+    fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
+    await expect(service.remove('asset/missing.png')).resolves.toBeUndefined();
+  });
+
+  it('reads object metadata from HEAD and reports missing objects', async () => {
+    const service = new OssService();
+    fetchMock.mockResolvedValue(
+      new Response(null, {
+        status: 200,
+        headers: {
+          'content-length': '42',
+          'content-type': 'text/markdown; charset=utf-8',
+        },
+      }),
+    );
+    await expect(service.stat('asset/report.md')).resolves.toEqual({
+      exists: true,
+      size: 42,
+      contentType: 'text/markdown; charset=utf-8',
+    });
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('HEAD');
+
+    fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
+    await expect(service.stat('asset/missing.md')).resolves.toEqual({
+      exists: false,
+      size: 0,
+      contentType: '',
+    });
+  });
+
   it('reports upstream failure as 503 without logging credential-bearing XML', async () => {
     fetchMock.mockResolvedValue(
       new Response(

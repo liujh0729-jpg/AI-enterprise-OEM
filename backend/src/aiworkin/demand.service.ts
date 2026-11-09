@@ -1,6 +1,7 @@
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { AiworkinClient } from './aiworkin.client';
+import { MarketMcpService } from './market-mcp.service';
 import {
   AgentConversation,
   AgentConversationPage,
@@ -31,7 +32,15 @@ const REPLY_MAX_LENGTH = 20000;
  * 契约见《企业财税出海物流综合服务系统需求文档 2.0》§7。
  */
 export class DemandService {
-  constructor(private readonly client: AiworkinClient) {}
+  constructor(
+    private readonly client: AiworkinClient,
+    private readonly mcp: MarketMcpService,
+  ) {}
+  /**
+   * 发布需求 / 服务：平台把写出通道收口到 MCP（REST 写一律 401），
+   * 因此这里走 `MarketMcpService`，并把结果适配回既有 `PublishDemandResult`，
+   * 让 `DemandSyncService` 与各板块的调用契约保持不变。
+   */
   async publish(
     token: string,
     draft: DemandDraft,
@@ -39,26 +48,21 @@ export class DemandService {
   ): Promise<PublishDemandResult> {
     const direction = draft.direction === 'SUPPLY' ? 'SUPPLY' : 'DEMAND';
     assertDraftRules(draft, direction);
-    const result = await this.client.request<PublishDemandResult>(
-      '/market/listings',
-      {
-        method: 'POST',
-        token,
-        body: {
-          publishAction: 'PUBLISH',
-          ...draft,
-          direction,
-        },
-        idempotencyKey: idempotencyKey || this.client.newIdempotencyKey(),
+    const key = idempotencyKey || this.client.newIdempotencyKey();
+    this.client.assertValidIdempotencyKey(key);
+    const result =
+      direction === 'SUPPLY'
+        ? await this.mcp.publishSupply(draft, token, key)
+        : await this.mcp.publishDemand(draft, token, key);
+    return {
+      listing: {
+        ...draft,
+        id: result.listingId,
+        direction,
+        status: result.status,
       },
-    );
-    if (!result?.listing?.id) {
-      throw new BusinessException(
-        ErrorCode.AIWORKIN_UNAVAILABLE,
-        'AIworkin 未返回需求标识',
-      );
-    }
-    return result;
+      initialMatchRunId: result.matchRunId || null,
+    };
   }
   /**
    * 我的挂单：平台 `GET /market/listings/mine` 只接受 `direction/page/pageSize`

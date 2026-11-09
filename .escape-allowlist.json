@@ -1,0 +1,40 @@
+{
+  "entries": [
+    {
+      "file": "backend/src/http/automation-routes.ts",
+      "line": 67,
+      "pattern": "asUnknownAs",
+      "reason": "动态端点注册：endpoints 由契约聚合成运行时注册表，这里集中重建一次索引签名。"
+    },
+    {
+      "file": "backend/test/doubles.ts",
+      "line": 8,
+      "pattern": "asUnknownAs",
+      "reason": "单测替身收口点：stub<T> 是全仓唯一保留的双重断言，替身只实现被测用到的成员。"
+    },
+    {
+      "file": "frontend/src/test/doubles.ts",
+      "line": 8,
+      "pattern": "asUnknownAs",
+      "reason": "前端单测替身收口点：与 backend/test/doubles.ts 同口径。"
+    },
+    {
+      "file": "frontend/src/app/agent/_components/chat-panel.tsx",
+      "line": 780,
+      "pattern": "eslintDisable",
+      "reason": "react-hooks/exhaustive-deps：输入区高度每次渲染对一次且写回有等值守卫，空依赖数组会丢掉逐次同步。"
+    },
+    {
+      "file": "frontend/src/components/ui/raw-img.tsx",
+      "line": 11,
+      "pattern": "eslintDisable",
+      "reason": "@next/next/no-img-element：域名不固定的 OSS/外部直链与 data URL 不走 next/image。"
+    },
+    {
+      "file": "frontend/src/lib/session.tsx",
+      "line": 85,
+      "pattern": "eslintDisable",
+      "reason": "react-hooks/exhaustive-deps：作废在途响应的计数只在清理函数里读，不应作为重订阅依赖。"
+    }
+  ]
+}

@@ -28,6 +28,7 @@ import { crmEndpoints } from "./crm";
 import { biEndpoints } from "./bi";
 import { lowcodeEndpoints } from "./lowcode";
 import { okrEndpoints } from "./okr";
+import { partyEndpoints } from "./party";
 import { oaEndpoints } from "./oa";
 import { questionHallEndpoints } from "./question-hall";
 import { distributionEndpoints } from "./distribution";
@@ -35,6 +36,28 @@ import { helpEndpoints } from "./help";
 import { imEndpoints } from "./im";
 import { skillHubEndpoints } from "./skillhub";
 import { communityEndpoints, communityAdminEndpoints } from "./community";
+import { videoTemplateEndpoints } from "./video-templates";
+import { governanceEndpoints } from "./governance";
+import { kbEndpoints } from "./kb";
+import { hrmEndpoints } from "./hrm";
+import { skillGeneratorEndpoints } from "./skill-generator";
+import { surveyEndpoints } from "./survey";
+import { moderationEndpoints } from "./moderation";
+import { storageEndpoints } from "./storage";
+import { mechanismsEndpoints } from "./mechanisms";
+import { projectEndpoints } from "./project";
+import { growthEndpoints } from "./growth";
+import { erpEndpoints } from "./erp";
+import { mktEndpoints } from "./mkt";
+import { recruitEndpoints } from "./recruit";
+import { seoEndpoints } from "./seo";
+import { acquisitionEndpoints } from "./acquisition";
+import { collabEndpoints } from "./collab";
+import { scrmEndpoints } from "./wecom-scrm";
+import { enterpriseGapEndpoints } from "./enterprise-gaps";
+import { aiEndpoints } from "./ai";
+import { modelPlazaEndpoints, modelPlazaAdminEndpoints } from "./model-plaza";
+import { hardwareEndpoints } from "./hardware";
 const jsonValueSchema = z.union([
   z.null(),
   z.string(),
@@ -2062,6 +2085,7 @@ const localEndpoints = {
                       z.literal("TAX"),
                       z.literal("SUPPLY"),
                       z.literal("OVERSEAS"),
+                      z.literal("THINK_TANK"),
                     ]),
                     label: z.string(),
                     category1: z.string(),
@@ -7979,6 +8003,10 @@ const localEndpoints = {
                 createdAt: z.string(),
                 masked: z.string(),
                 lastUsedAt: z.string().nullable(),
+                /** 积分额度（调用模型广场累计消耗上限）；null = 不限额度。 */
+                pointsQuota: z.number().nullable(),
+                /** 该 Key 累计已消耗积分（对外调用按实际用量记账）。 */
+                pointsUsed: z.number(),
               })
               .passthrough(),
           ),
@@ -8072,6 +8100,54 @@ const localEndpoints = {
               })
               .passthrough(),
           ),
+        ]),
+      })
+      .passthrough(),
+  },
+  Identity_updateKeyQuota: {
+    method: "post",
+    path: "/enterprise/api-keys/:id/quota",
+    params: z.object({ id: z.string() }),
+    query: z.object({}).passthrough(),
+    body: z.object({
+      /** 积分额度（须大于 0）；null = 不限额度。 */
+      pointsQuota: z.number().positive().nullable(),
+    }),
+    response: z
+      .object({
+        code: z.number(),
+        message: z.string(),
+        data: z.union([
+          z.null(),
+          z
+            .object({
+              id: z.number(),
+              pointsQuota: z.number().nullable(),
+            })
+            .passthrough(),
+        ]),
+      })
+      .passthrough(),
+  },
+  Identity_revealKey: {
+    method: "post",
+    path: "/enterprise/api-keys/:id/reveal",
+    params: z.object({ id: z.string() }),
+    query: z.object({}).passthrough(),
+    body: z.undefined(),
+    response: z
+      .object({
+        code: z.number(),
+        message: z.string(),
+        data: z.union([
+          z.null(),
+          z
+            .object({
+              id: z.number(),
+              plainKey: z.string(),
+              masked: z.string(),
+            })
+            .passthrough(),
         ]),
       })
       .passthrough(),
@@ -10111,6 +10187,11 @@ const localEndpoints = {
       .object({
         province: z.string().optional(),
         city: z.string().optional(),
+        // 二级类目筛选（供需市场跨板块公开池用；其余板块由板块本身收窄，不传）。
+        subCategoryId: z.string().optional(),
+        // 取数范围：all＝只读 AIworkin 公开池；mine＝只读本地发布台账（「我发布的」）。
+        // 供需市场用它切「全部 / 我发布的」；其余板块不传＝既有口径。
+        scope: z.enum(["all", "mine"]).optional(),
         cursor: z.string().uuid().optional(),
         pageSize: z.coerce.number().int().positive().max(200).default(20),
       })
@@ -10275,6 +10356,11 @@ const localEndpoints = {
       .object({
         province: z.string().optional(),
         city: z.string().optional(),
+        // 二级类目筛选（供需市场跨板块公开池用；其余板块由板块本身收窄，不传）。
+        subCategoryId: z.string().optional(),
+        // 取数范围：all＝只读 AIworkin 公开池；mine＝只读本地发布台账（「我发布的」）。
+        // 供需市场用它切「全部 / 我发布的」；其余板块不传＝既有口径。
+        scope: z.enum(["all", "mine"]).optional(),
         cursor: z.string().uuid().optional(),
         pageSize: z.coerce.number().int().positive().max(200).default(20),
       })
@@ -15482,6 +15568,7 @@ type ModuleEndpoints = typeof adminPageEndpoints &
   typeof biEndpoints &
   typeof lowcodeEndpoints &
   typeof okrEndpoints &
+  typeof partyEndpoints &
   typeof oaEndpoints &
   typeof questionHallEndpoints &
   typeof distributionEndpoints &
@@ -15489,7 +15576,30 @@ type ModuleEndpoints = typeof adminPageEndpoints &
   typeof imEndpoints &
   typeof skillHubEndpoints &
   typeof communityEndpoints &
-  typeof communityAdminEndpoints;
+  typeof communityAdminEndpoints &
+  typeof videoTemplateEndpoints &
+  typeof governanceEndpoints &
+  typeof kbEndpoints &
+  typeof hrmEndpoints &
+  typeof skillGeneratorEndpoints &
+  typeof surveyEndpoints &
+  typeof moderationEndpoints &
+  typeof storageEndpoints &
+  typeof mechanismsEndpoints &
+  typeof projectEndpoints &
+  typeof growthEndpoints &
+  typeof erpEndpoints &
+  typeof mktEndpoints &
+  typeof recruitEndpoints &
+  typeof seoEndpoints &
+  typeof acquisitionEndpoints &
+  typeof collabEndpoints &
+  typeof scrmEndpoints &
+  typeof enterpriseGapEndpoints &
+  typeof aiEndpoints &
+  typeof modelPlazaEndpoints &
+  typeof modelPlazaAdminEndpoints &
+  typeof hardwareEndpoints;
 export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...adminPageEndpoints,
   ...automationEndpoints,
@@ -15504,6 +15614,7 @@ export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...biEndpoints,
   ...lowcodeEndpoints,
   ...okrEndpoints,
+  ...partyEndpoints,
   ...oaEndpoints,
   ...questionHallEndpoints,
   ...distributionEndpoints,
@@ -15512,6 +15623,29 @@ export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...skillHubEndpoints,
   ...communityEndpoints,
   ...communityAdminEndpoints,
+  ...videoTemplateEndpoints,
+  ...governanceEndpoints,
+  ...kbEndpoints,
+  ...hrmEndpoints,
+  ...skillGeneratorEndpoints,
+  ...surveyEndpoints,
+  ...moderationEndpoints,
+  ...storageEndpoints,
+  ...mechanismsEndpoints,
+  ...projectEndpoints,
+  ...growthEndpoints,
+  ...erpEndpoints,
+  ...mktEndpoints,
+  ...recruitEndpoints,
+  ...seoEndpoints,
+  ...acquisitionEndpoints,
+  ...collabEndpoints,
+  ...scrmEndpoints,
+  ...enterpriseGapEndpoints,
+  ...aiEndpoints,
+  ...modelPlazaEndpoints,
+  ...modelPlazaAdminEndpoints,
+  ...hardwareEndpoints,
   ...localEndpoints,
 };
 export type EndpointId = keyof typeof endpoints;

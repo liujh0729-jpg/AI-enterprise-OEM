@@ -204,7 +204,7 @@ export function AttachmentList({
   const [failed, setFailed] = useState("");
   if (!items?.length) return <span className="muted text-12">无</span>;
   return (
-    <Space direction="vertical" size={4}>
+    <Space orientation="vertical" size={4}>
       {items.map((item) => (
         <div key={item.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <PaperClipOutlined aria-hidden />

@@ -8,18 +8,20 @@ import {
   Modal,
   Select,
   Space,
-  Tabs,
   Tag,
   message,
 } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   CrmCustomerRow,
   CrmLeadRow,
   CrmMemberRow,
 } from "@enterprise/contracts";
 import { crmApi } from "@/api/crm";
-import { Panel } from "@/components/ui/panel";
+import { aiApi, type AiCrmLeadScore } from "@/api/ai";
+import { AiLevelTag, AiList, AiResultModal } from "@/components/ai-result";
+import { scrmContactApi } from "@/api/scrm";
+import { Notice, Panel, PanelTabs } from "@/components/ui/panel";
 import { OaLaunchButton } from "@/app/oa/_components/oa-launch-button";
 import { moneyCny } from "@/lib/money";
 import {
@@ -62,6 +64,7 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
   const [pools, setPools] = useState<Array<{ id: number; name: string }>>([]);
   const [modal, setModal] = useState<{ open: boolean; row?: CrmLeadRow }>({ open: false });
   const [detail, setDetail] = useState<CrmLeadRow | null>(null);
+  const [leadTab, setLeadTab] = useState("follow");
   const [follows, setFollows] = useState<Array<Record<string, unknown>>>([]);
   const [plans, setPlans] = useState<Array<Record<string, unknown>>>([]);
   const [followText, setFollowText] = useState("");
@@ -72,9 +75,12 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
   const [transferTo, setTransferTo] = useState("");
   const [poolOpen, setPoolOpen] = useState(false);
   const [poolId, setPoolId] = useState(0);
+  const [aiScore, setAiScore] = useState<AiCrmLeadScore | null>(null);
+  const [aiScoreOpen, setAiScoreOpen] = useState(false);
+  const [aiScoreLoading, setAiScoreLoading] = useState(false);
   const members = useMembers();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const data = await crmApi.leads({
@@ -93,13 +99,12 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, view, stage, keyword]);
 
   useEffect(() => {
     void load();
     void crmApi.leadPools().then((data) => setPools((data || []) as Array<{ id: number; name: string }>)).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, view, stage, keyword]);
+  }, [load]);
 
   const openDetail = async (row: CrmLeadRow) => {
     try {
@@ -113,6 +118,21 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
       setPlans((planRows || []) as Array<Record<string, unknown>>);
     } catch (error) {
       message.error(errText(error));
+    }
+  };
+
+  const runLeadScore = async () => {
+    if (!detail) return;
+    setAiScoreOpen(true);
+    setAiScoreLoading(true);
+    setAiScore(null);
+    try {
+      setAiScore(await aiApi.crmLeadScore({ body: { leadId: detail.id } }));
+    } catch (error) {
+      message.error(errText(error));
+      setAiScoreOpen(false);
+    } finally {
+      setAiScoreLoading(false);
     }
   };
 
@@ -225,7 +245,7 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
         onClose={() => setModal({ open: false })}
         onSubmit={async (values) => {
           if (modal.row) await crmApi.updateLead({ params: { id: String(modal.row.id) }, body: values });
-          else await crmApi.createLead({ body: values as never });
+          else await crmApi.createLead({ body: { ...values, name: String(values.name) } });
           message.success("已保存");
           void load();
         }}
@@ -239,6 +259,7 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
         extra={
           detail ? (
             <Space>
+              <Button onClick={() => void runLeadScore()}>AI 线索评分</Button>
               <Button onClick={() => setConvertOpen(true)}>转客户</Button>
               <Button onClick={() => setTransferOpen(true)}>转移</Button>
               <Button onClick={() => setPoolOpen(true)}>移入池</Button>
@@ -275,8 +296,10 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
                 { key: "8", label: "审批", children: <StatusTag value={detail.approvalStatus} label={detail.approvalStatusLabel} /> },
               ]}
             />
-            <Tabs
+            <PanelTabs
               style={{ marginTop: 16 }}
+              value={leadTab}
+              onChange={setLeadTab}
               items={[
                 {
                   key: "follow",
@@ -366,6 +389,40 @@ export function LeadsTab({ customers }: { customers: { id: number; name: string 
         ) : null}
       </Drawer>
 
+      <AiResultModal
+        open={aiScoreOpen}
+        title={detail ? `AI 线索评分 · ${detail.name}` : "AI 线索评分"}
+        loading={aiScoreLoading}
+        mode={aiScore?.mode}
+        model={aiScore?.model}
+        onClose={() => setAiScoreOpen(false)}
+        footer={
+          aiScore ? (
+            <Button onClick={() => void runLeadScore()}>重新评分</Button>
+          ) : null
+        }
+      >
+        {aiScore ? (
+          <>
+            <Space>
+              <span>
+                综合评分 <strong>{aiScore.score}</strong>
+              </span>
+              <AiLevelTag level={aiScore.level} />
+            </Space>
+            <AiList title="判断依据" items={aiScore.reasons} />
+            <div>
+              <strong>建议动作：</strong>
+              {aiScore.nextStep}
+            </div>
+            <div>
+              <strong>跟进建议：</strong>
+              {aiScore.advice}
+            </div>
+          </>
+        ) : null}
+      </AiResultModal>
+
       <Modal
         open={convertOpen}
         title="线索转客户"
@@ -445,6 +502,12 @@ export function CustomersTab({ customers }: { customers: { id: number; name: str
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; row?: CrmCustomerRow }>({ open: false });
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof crmApi.customer360>> | null>(null);
+  const [customerTab, setCustomerTab] = useState("contacts");
+  const [scrmContacts, setScrmContacts] = useState<
+    NonNullable<Awaited<ReturnType<typeof scrmContactApi.contacts>>>["list"]
+  >([]);
+  const [scrmLoading, setScrmLoading] = useState(false);
+  const [scrmError, setScrmError] = useState("");
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeSecondary, setMergeSecondary] = useState(0);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -453,7 +516,7 @@ export function CustomersTab({ customers }: { customers: { id: number; name: str
   const [contactDraft, setContactDraft] = useState<Record<string, string>>({});
   const members = useMembers();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const data = await crmApi.customers({
@@ -466,19 +529,39 @@ export function CustomersTab({ customers }: { customers: { id: number; name: str
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, view, keyword]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, view, keyword]);
+  }, [load]);
+
+  const loadScrm = async (customerId: number) => {
+    setScrmLoading(true);
+    setScrmError("");
+    try {
+      const data = await scrmContactApi.contacts({
+        query: { page: 1, pageSize: 50, crmCustomerId: customerId },
+      });
+      setScrmContacts(data?.list || []);
+    } catch (error) {
+      setScrmContacts([]);
+      setScrmError(errText(error));
+    } finally {
+      setScrmLoading(false);
+    }
+  };
 
   const openDetail = async (row: CrmCustomerRow) => {
+    setCustomerTab("contacts");
+    setScrmContacts([]);
+    setScrmError("");
     try {
       setDetail(await crmApi.customer360({ params: { id: String(row.id) } }));
     } catch (error) {
       message.error(errText(error));
+      return;
     }
+    void loadScrm(row.id);
   };
 
   const fields: FieldSpec[] = [
@@ -490,28 +573,25 @@ export function CustomersTab({ customers }: { customers: { id: number; name: str
     { name: "remark", label: "备注", kind: "textarea", span: 24 },
   ];
 
-  const columns = useMemo(
-    () => [
-      { title: "客户", dataIndex: "name", width: 220 },
-      { title: "负责人", dataIndex: "ownerName", width: 110 },
-      { title: "行业", dataIndex: "industry", width: 100 },
-      { title: "地区", width: 140, render: (_: unknown, row: CrmCustomerRow) => [row.province, row.city].filter(Boolean).join(" · ") || "—" },
-      { title: "联系人", dataIndex: "contactCount", width: 80 },
-      { title: "商机", dataIndex: "opportunityCount", width: 70 },
-      { title: "合同金额", dataIndex: "contractAmount", width: 130, render: (value: unknown) => moneyCny(value) },
-      {
-        title: "操作",
-        width: 160,
-        render: (_: unknown, row: CrmCustomerRow) => (
-          <Space size={0}>
-            <ActionButton onClick={() => void openDetail(row)}>360</ActionButton>
-            <ActionButton onClick={() => setModal({ open: true, row })}>编辑</ActionButton>
-          </Space>
-        ),
-      },
-    ],
-    [],
-  );
+  const columns = [
+    { title: "客户", dataIndex: "name", width: 220 },
+    { title: "负责人", dataIndex: "ownerName", width: 110 },
+    { title: "行业", dataIndex: "industry", width: 100 },
+    { title: "地区", width: 140, render: (_: unknown, row: CrmCustomerRow) => [row.province, row.city].filter(Boolean).join(" · ") || "—" },
+    { title: "联系人", dataIndex: "contactCount", width: 80 },
+    { title: "商机", dataIndex: "opportunityCount", width: 70 },
+    { title: "合同金额", dataIndex: "contractAmount", width: 130, render: (value: unknown) => moneyCny(value) },
+    {
+      title: "操作",
+      width: 160,
+      render: (_: unknown, row: CrmCustomerRow) => (
+        <Space size={0}>
+          <ActionButton onClick={() => void openDetail(row)}>360</ActionButton>
+          <ActionButton onClick={() => setModal({ open: true, row })}>编辑</ActionButton>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <Panel title="客户" extra={<Button onClick={() => setModal({ open: true })}>新建客户</Button>}>
@@ -539,7 +619,7 @@ export function CustomersTab({ customers }: { customers: { id: number; name: str
         onClose={() => setModal({ open: false })}
         onSubmit={async (values) => {
           if (modal.row) await crmApi.updateCustomer({ params: { id: String(modal.row.id) }, body: values });
-          else await crmApi.createCustomer({ body: values as never });
+          else await crmApi.createCustomer({ body: { ...values, name: String(values.name) } });
           message.success("已保存");
           void load();
         }}
@@ -562,7 +642,9 @@ export function CustomersTab({ customers }: { customers: { id: number; name: str
         }
       >
         {detail ? (
-          <Tabs
+          <PanelTabs
+            value={customerTab}
+            onChange={setCustomerTab}
             items={[
               {
                 key: "contacts",
@@ -664,6 +746,53 @@ export function CustomersTab({ customers }: { customers: { id: number; name: str
                       { title: "审批", dataIndex: "approvalStatusLabel" },
                     ]}
                     rows={detail.orders}
+                  />
+                ),
+              },
+              {
+                key: "scrm",
+                label: `企微（${scrmContacts.length}）`,
+                children: scrmError ? (
+                  <Notice variant="warn">
+                    企微客户暂不可用：{scrmError}
+                  </Notice>
+                ) : (
+                  <TableShell
+                    loading={scrmLoading}
+                    empty="该客户还没有关联的企微联系人：可从线索转客户或企微同步后关联。"
+                    columns={[
+                      { title: "企微客户", dataIndex: "name" },
+                      {
+                        title: "状态",
+                        dataIndex: "status",
+                        width: 90,
+                        render: (value: string) =>
+                          value === "LOST" ? <Tag>已流失</Tag> : <Tag color="green">正常</Tag>,
+                      },
+                      {
+                        title: "归属员工",
+                        dataIndex: "staff",
+                        render: (rows: (typeof scrmContacts)[number]["staff"]) =>
+                          rows.map((item) => item.name || item.userId).join("、") || "—",
+                      },
+                      {
+                        title: "标签",
+                        dataIndex: "tags",
+                        render: (rows: (typeof scrmContacts)[number]["tags"]) =>
+                          rows.length
+                            ? rows.map((item) => (
+                                <Tag key={item.id}>{item.name}</Tag>
+                              ))
+                            : "—",
+                      },
+                      {
+                        title: "最后互动",
+                        dataIndex: "lastInteractionAt",
+                        width: 160,
+                        render: (value: string) => value?.slice(0, 16).replace("T", " ") || "—",
+                      },
+                    ]}
+                    rows={scrmContacts}
                   />
                 ),
               },

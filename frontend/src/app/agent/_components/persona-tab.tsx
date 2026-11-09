@@ -1,22 +1,40 @@
 "use client";
 
 import { EditOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { App, Button, Input, Modal, Radio, Space, Tag } from "antd";
+import { App, Button, Input, Modal, Radio, Select, Space, Tag } from "antd";
 import {
   CONTENT_AGENT_PERSONA_MAX,
   CONTENT_AGENT_PERSONA_MAX_COUNT,
   CONTENT_AGENT_PERSONA_NAME_MAX,
   CONTENT_AGENT_STYLES,
   type ContentAgentPersona,
+  type ContentLibraryItem,
 } from "@enterprise/contracts";
 import { useCallback, useEffect, useState } from "react";
 import { contentApi } from "@/api/content";
+import { kbApi, type KbSpace } from "@/api/kb";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
 
-type Draft = { name: string; style: string; persona: string };
+type Draft = {
+  name: string;
+  style: string;
+  persona: string;
+  spaceId: number;
+  libraryIds: number[];
+  channelId: number;
+  model: string;
+};
 
-const EMPTY: Draft = { name: "", style: "", persona: "" };
+const EMPTY: Draft = {
+  name: "",
+  style: "",
+  persona: "",
+  spaceId: 0,
+  libraryIds: [],
+  channelId: 0,
+  model: "",
+};
 
 const styleLabel = (key: string) =>
   CONTENT_AGENT_STYLES.find((item) => item.key === key)?.label || "不限定风格";
@@ -34,6 +52,11 @@ export function AgentPersonaTab() {
   const [editing, setEditing] = useState<ContentAgentPersona | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [spaces, setSpaces] = useState<KbSpace[]>([]);
+  const [library, setLibrary] = useState<ContentLibraryItem[]>([]);
+  const [channels, setChannels] = useState<{ value: number; label: string }[]>([]);
+  const [models, setModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const { request, modal } = usePasswordConfirm();
 
   const load = useCallback(async () => {
@@ -53,13 +76,63 @@ export function AgentPersonaTab() {
     void load();
   }, [load]);
 
+  /** 挂库/绑模型用到的清单：知识空间、资料库、模型渠道；取不到只影响这几项下拉。 */
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [spaceRows, libraryRows, settings] = await Promise.all([
+          kbApi.listSpaces(),
+          contentApi.library(),
+          contentApi.settings(),
+        ]);
+        setSpaces(spaceRows || []);
+        setLibrary(libraryRows || []);
+        setChannels(
+          (settings?.channels || []).map((item) => ({
+            value: item.id,
+            label: item.id === 0 ? `${item.name}（内置）` : item.name,
+          })),
+        );
+      } catch {
+        // 清单读取失败时仍可保存人设，只是不能选绑定项
+      }
+    })();
+  }, []);
+
+  const loadModels = useCallback(async (channelId: number) => {
+    setModels([]);
+    if (channelId <= 0) return;
+    setModelsLoading(true);
+    try {
+      const result = await contentApi.models({ query: { channelId } });
+      setModels(
+        (result?.models || [])
+          .filter((item) => item.kind === "text")
+          .map((item) => item.id),
+      );
+    } catch {
+      setModels([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+
   const openEditor = (row: ContentAgentPersona | null) => {
     setEditing(row);
     setDraft(
       row
-        ? { name: row.name, style: row.style, persona: row.persona }
+        ? {
+            name: row.name,
+            style: row.style,
+            persona: row.persona,
+            spaceId: row.spaceId,
+            libraryIds: row.libraryIds || [],
+            channelId: row.channelId,
+            model: row.model,
+          }
         : EMPTY,
     );
+    void loadModels(row?.channelId || 0);
     setOpen(true);
   };
 
@@ -82,6 +155,10 @@ export function AgentPersonaTab() {
       name: draft.name.trim(),
       style: draft.style,
       persona: draft.persona.trim(),
+      spaceId: draft.spaceId,
+      libraryIds: draft.libraryIds,
+      channelId: draft.channelId,
+      model: draft.model,
     };
     if (!payload.name) {
       message.warning("请给数字分身起个名字");
@@ -178,6 +255,27 @@ export function AgentPersonaTab() {
               <div className="text-12 muted" style={{ marginTop: 8 }}>
                 {row.persona || "还没有写人设，只按上面的风格说话。"}
               </div>
+              <Space size={[6, 6]} wrap style={{ marginTop: 6 }}>
+                {row.spaceId ? (
+                  <Tag color="blue">
+                    {`知识空间：${
+                      spaces.find((item) => item.id === row.spaceId)?.name ||
+                      `#${row.spaceId}`
+                    }`}
+                  </Tag>
+                ) : null}
+                {row.libraryIds.length ? (
+                  <Tag color="cyan">{`默认资料 ${row.libraryIds.length} 篇`}</Tag>
+                ) : null}
+                {row.channelId > 0 || row.model ? (
+                  <Tag color="purple">
+                    {`模型：${
+                      channels.find((item) => item.value === row.channelId)
+                        ?.label || `渠道 #${row.channelId}`
+                    }${row.model ? ` / ${row.model}` : ""}`}
+                  </Tag>
+                ) : null}
+              </Space>
             </div>
           ))}
         </div>
@@ -242,6 +340,87 @@ export function AgentPersonaTab() {
                 setDraft((prev) => ({ ...prev, persona: event.target.value }))
               }
             />
+            <div className="text-12 muted" style={{ marginTop: 4 }}>
+              分身的私有记忆在「记忆」页签里按分身选择后编辑；共用记忆仍会一起注入。
+            </div>
+          </div>
+          <div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              默认知识空间（可选）
+            </div>
+            <Select
+              allowClear
+              style={{ width: "100%" }}
+              value={draft.spaceId || undefined}
+              placeholder="不限定：检索所有可见的知识空间"
+              options={spaces.map((item) => ({
+                value: item.id,
+                label: item.name,
+              }))}
+              onChange={(value) =>
+                setDraft((prev) => ({ ...prev, spaceId: value || 0 }))
+              }
+            />
+          </div>
+          <div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              默认资料库（可选，多选）
+            </div>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: "100%" }}
+              value={draft.libraryIds}
+              placeholder="不限定：检索资料库里的全部资料"
+              maxTagCount="responsive"
+              options={library.map((item) => ({
+                value: item.id,
+                label: item.name,
+              }))}
+              onChange={(value) =>
+                setDraft((prev) => ({ ...prev, libraryIds: value }))
+              }
+            />
+            <div className="text-12 muted" style={{ marginTop: 4 }}>
+              对话输入区另选资料时以本轮选择为准；这里只是没另选时的默认范围。
+            </div>
+          </div>
+          <div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              默认执行模型（可选）
+            </div>
+            <Space.Compact style={{ width: "100%" }}>
+              <Select
+                style={{ width: 220 }}
+                value={draft.channelId}
+                options={[
+                  { value: 0, label: "跟随模型设置" },
+                  ...channels,
+                ]}
+                onChange={(value) => {
+                  setDraft((prev) => ({ ...prev, channelId: value, model: "" }));
+                  void loadModels(value);
+                }}
+              />
+              <Select
+                allowClear
+                style={{ flex: 1 }}
+                value={draft.model || undefined}
+                placeholder={
+                  draft.channelId > 0 ? "选择文本模型" : "先选渠道"
+                }
+                disabled={draft.channelId <= 0}
+                loading={modelsLoading}
+                showSearch
+                options={models.map((item) => ({ value: item, label: item }))}
+                onChange={(value) =>
+                  setDraft((prev) => ({ ...prev, model: value || "" }))
+                }
+              />
+            </Space.Compact>
+            <div className="text-12 muted" style={{ marginTop: 4 }}>
+              对话、定时任务、助理通道里没有另选模型时，用这里的默认值。
+            </div>
           </div>
         </div>
       </Modal>

@@ -5,7 +5,10 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import type { Account } from '../../generated/prisma';
-import { AccountSettingsService, type RegisterMode } from './account-settings.service';
+import {
+  AccountSettingsService,
+  type RegisterMode,
+} from './account-settings.service';
 import { NotifyChannelService } from './notify-channel.service';
 import type { PointsService } from '../points/points.service';
 
@@ -19,6 +22,14 @@ const LOCK_MS = 10 * 60_000;
 const INVITE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 
 export type LoginContext = { ip?: string; userAgent?: string };
+/** 微信授权拉回来的身份资料（openid 维度绑定，unionid 用于跨应用识别同一人）。 */
+export type WechatProfileInput = {
+  provider: string;
+  openId: string;
+  unionId?: string;
+  nickname?: string;
+  avatarUrl?: string;
+};
 
 /**
  * 本地账户服务（开源版核心增量）：注册 / 登录 / 找回密码 / 改密 / 换绑 / 注销 / 登录日志，
@@ -26,7 +37,10 @@ export type LoginContext = { ip?: string; userAgent?: string };
  */
 export class AccountService {
   /** 连错锁定：进程内窗口（重启即清零，登录日志仍完整留档）。 */
-  private readonly failures = new Map<string, { count: number; lockedUntil: number }>();
+  private readonly failures = new Map<
+    string,
+    { count: number; lockedUntil: number }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -56,11 +70,17 @@ export class AccountService {
   async assertSessionValid(userId: string, tokenVersion: number) {
     const id = Number(userId);
     if (!Number.isInteger(id) || id <= 0) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED, '会话无效，请重新登录');
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '会话无效，请重新登录',
+      );
     }
     const account = await this.findById(id);
     if (!account) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED, '会话无效，请重新登录');
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '会话无效，请重新登录',
+      );
     }
     if (account.status === 'BANNED') {
       throw new BusinessException(
@@ -69,10 +89,16 @@ export class AccountService {
       );
     }
     if (account.status === 'DELETED') {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED, '会话无效，请重新登录');
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '会话无效，请重新登录',
+      );
     }
     if (account.tokenVersion !== tokenVersion) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED, '会话已失效，请重新登录');
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '会话已失效，请重新登录',
+      );
     }
   }
 
@@ -150,14 +176,23 @@ export class AccountService {
     const mode = input.mode || 'USERNAME';
     const modes = await this.settings.registerModes();
     if (!modes.includes(mode)) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '该注册方式未被管理员开启');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该注册方式未被管理员开启',
+      );
     }
     const availability = await this.settings.channelAvailability();
     if (mode === 'EMAIL' && !availability.EMAIL) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '邮箱注册未配置 SMTP，暂不可用');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '邮箱注册未配置 SMTP，暂不可用',
+      );
     }
     if (mode === 'PHONE' && !availability.PHONE) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '手机号注册未配置短信服务，暂不可用');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '手机号注册未配置短信服务，暂不可用',
+      );
     }
     this.assertPassword(input.password || '');
     // 用户名归一化为小写：MySQL 默认排序规则不区分大小写、PostgreSQL 区分，
@@ -177,15 +212,29 @@ export class AccountService {
       if (!EMAIL_PATTERN.test(email)) {
         throw new BusinessException(ErrorCode.BAD_REQUEST, '邮箱格式不正确');
       }
-      await this.channels.consumeCode('REGISTER', 'EMAIL', email, input.code || '');
+      await this.channels.consumeCode(
+        'REGISTER',
+        'EMAIL',
+        email,
+        input.code || '',
+      );
       // 邮箱注册自动生成可用名（截断去重留给冲突检查兜底）
-      if (!username) username = email.split('@')[0].slice(0, 32).replace(/[^\w-]/g, '_');
+      if (!username)
+        username = email
+          .split('@')[0]
+          .slice(0, 32)
+          .replace(/[^\w-]/g, '_');
     } else {
       phone = (input.phone || '').trim();
       if (!PHONE_PATTERN.test(phone)) {
         throw new BusinessException(ErrorCode.BAD_REQUEST, '手机号格式不正确');
       }
-      await this.channels.consumeCode('REGISTER', 'SMS', phone, input.code || '');
+      await this.channels.consumeCode(
+        'REGISTER',
+        'SMS',
+        phone,
+        input.code || '',
+      );
       if (!username) username = `u_${phone.slice(-8)}`;
     }
     await this.assertUnique({ username, email, phone });
@@ -197,7 +246,10 @@ export class AccountService {
         where: { inviteCode: inviteCodeInput },
       });
       if (!inviter) {
-        throw new BusinessException(ErrorCode.BAD_REQUEST, '邀请码不存在，请核对后重试');
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          '邀请码不存在，请核对后重试',
+        );
       }
       inviterId = inviter.id;
     }
@@ -269,7 +321,10 @@ export class AccountService {
     const modes = await this.settings.registerModes();
     const mode = channel === 'EMAIL' ? 'EMAIL' : 'PHONE';
     if (!modes.includes(mode)) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '该注册方式未被管理员开启');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该注册方式未被管理员开启',
+      );
     }
     const normalized =
       channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
@@ -299,7 +354,13 @@ export class AccountService {
     const key = identifier.trim().toLowerCase();
     const state = this.failures.get(key);
     if (state && state.lockedUntil > Date.now()) {
-      await this.logLogin(key, null, false, ctx, '尝试过于频繁，账号已临时锁定');
+      await this.logLogin(
+        key,
+        null,
+        false,
+        ctx,
+        '尝试过于频繁，账号已临时锁定',
+      );
       throw new BusinessException(
         ErrorCode.RATE_LIMITED,
         '连续失败次数过多，账号已锁定 10 分钟',
@@ -307,20 +368,35 @@ export class AccountService {
     }
     const account = await this.prisma.account.findFirst({
       where: {
-        OR: [
-          { username: key },
-          { email: key },
-          { phone: identifier.trim() },
-        ],
+        OR: [{ username: key }, { email: key }, { phone: identifier.trim() }],
       },
     });
     const ok =
-      account?.passwordHash && (await bcrypt.compare(password, account.passwordHash));
+      account?.passwordHash &&
+      (await bcrypt.compare(password, account.passwordHash));
     if (!account || !ok) {
       this.registerFailure(key);
-      await this.logLogin(key, account?.id.toString(), false, ctx, '账号或密码错误');
+      await this.logLogin(
+        key,
+        account?.id.toString(),
+        false,
+        ctx,
+        '账号或密码错误',
+      );
       throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号或密码错误');
     }
+    return this.establishSession(account, key, ctx);
+  }
+
+  /**
+   * 身份核验通过后的统一收口（密码登录与验证码登录共用）：
+   * 锁定计数清零 → 封禁/注销处置（冷静期内登录即撤销注销）→ 续期 → 审计 → 会话素材。
+   */
+  private async establishSession(
+    account: Account,
+    key: string,
+    ctx: LoginContext,
+  ) {
     this.failures.delete(key);
     if (account.status === 'BANNED') {
       await this.logLogin(key, String(account.id), false, ctx, '账号已被封禁');
@@ -332,7 +408,8 @@ export class AccountService {
     if (account.status === 'DELETED') {
       const cooldownMs = (await this.settings.cooldownDays()) * 86_400_000;
       const cancelled =
-        account.deletedAt && Date.now() - account.deletedAt.getTime() <= cooldownMs;
+        account.deletedAt &&
+        Date.now() - account.deletedAt.getTime() <= cooldownMs;
       if (!cancelled) {
         await this.logLogin(key, String(account.id), false, ctx, '账号已注销');
         throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号或密码错误');
@@ -343,7 +420,11 @@ export class AccountService {
         data: { status: 'ACTIVE', deletedAt: null },
       });
       await this.syncDirectory({ ...account, status: 'ACTIVE' });
-      await this.audit(String(account.id), 'ACCOUNT_DEACTIVATE_CANCELLED', '冷静期内重新登录');
+      await this.audit(
+        String(account.id),
+        'ACCOUNT_DEACTIVATE_CANCELLED',
+        '冷静期内重新登录',
+      );
     }
     const renewed = await this.prisma.account.update({
       where: { id: account.id },
@@ -358,6 +439,236 @@ export class AccountService {
       mustChangePassword: renewed.mustChangePassword === 1,
       public: this.toPublic(renewed),
     };
+  }
+
+  // ---------- 验证码登录 ----------
+
+  /**
+   * 发送登录验证码：要求「该登录方式已开 + 通道已配」，目标必须已注册。
+   * 为防枚举，账号不存在时同样回「已发送」而不真的发码（与找回密码同口径）。
+   */
+  async sendLoginCode(channel: 'EMAIL' | 'SMS', target: string) {
+    const methods = await this.settings.loginMethods();
+    const method = channel === 'EMAIL' ? 'EMAIL_CODE' : 'SMS_CODE';
+    if (!methods.includes(method)) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该登录方式未被管理员开启',
+      );
+    }
+    const normalized =
+      channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
+    if (channel === 'EMAIL') {
+      if (!EMAIL_PATTERN.test(normalized)) {
+        throw new BusinessException(ErrorCode.BAD_REQUEST, '邮箱格式不正确');
+      }
+    } else if (!PHONE_PATTERN.test(normalized)) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '手机号格式不正确');
+    }
+    const account = await this.prisma.account.findFirst({
+      where:
+        channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
+    });
+    if (!account) return { sent: true };
+    if (channel === 'EMAIL') {
+      await this.channels.sendEmailCode(
+        'LOGIN',
+        normalized,
+        '【登录】验证码',
+        (code) => `您的登录验证码是 ${code}，5 分钟内有效。`,
+      );
+    } else {
+      await this.channels.sendSmsCode('LOGIN', normalized);
+    }
+    return { sent: true };
+  }
+
+  /** 验证码登录：核销 LOGIN 验证码 → 按邮箱/手机找账号 → 与密码登录同一收口。 */
+  async loginByCode(
+    channel: 'EMAIL' | 'SMS',
+    target: string,
+    code: string,
+    ctx: LoginContext,
+  ) {
+    const methods = await this.settings.loginMethods();
+    const method = channel === 'EMAIL' ? 'EMAIL_CODE' : 'SMS_CODE';
+    if (!methods.includes(method)) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该登录方式未被管理员开启',
+      );
+    }
+    const normalized =
+      channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
+    await this.channels.consumeCode('LOGIN', channel, normalized, code);
+    const account = await this.prisma.account.findFirst({
+      where:
+        channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
+    });
+    if (!account) {
+      throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
+    }
+    return this.establishSession(account, normalized, ctx);
+  }
+
+  // ---------- 微信扫码 ----------
+
+  /**
+   * 扫码授权回来后：优先按 unionId、其次 openId 找绑定。
+   * 已绑定 → 登录；未绑定且后台开了自动注册 → 建号并绑定；否则回「待绑定」，由前端用
+   * 账号密码 / 验证码证明身份后再绑。
+   */
+  async wechatAuthenticate(
+    profile: WechatProfileInput,
+    ctx: LoginContext,
+  ): Promise<
+    | { status: 'LOGIN'; session: Awaited<ReturnType<AccountService['login']>> }
+    | { status: 'BIND'; profile: WechatProfileInput }
+  > {
+    let binding = profile.unionId
+      ? await this.prisma.accountBinding.findFirst({
+          where: { provider: profile.provider, unionId: profile.unionId },
+        })
+      : null;
+    if (!binding) {
+      binding = await this.prisma.accountBinding.findUnique({
+        where: {
+          provider_openId: {
+            provider: profile.provider,
+            openId: profile.openId,
+          },
+        },
+      });
+    }
+    if (binding) {
+      const account = await this.findById(Number(binding.userId));
+      if (account) {
+        // 同一微信在新应用下换了 openid：补一条绑定，后续按新 openid 直达
+        if (binding.openId !== profile.openId) {
+          await this.prisma.accountBinding
+            .create({
+              data: this.bindingData(account.id, profile),
+            })
+            .catch(() => undefined);
+        }
+        await this.prisma.accountBinding
+          .update({
+            where: { id: binding.id },
+            data: {
+              unionId: profile.unionId || undefined,
+              nickname: profile.nickname || undefined,
+              avatarUrl: profile.avatarUrl || undefined,
+            },
+          })
+          .catch(() => undefined);
+        await this.audit(
+          String(account.id),
+          'ACCOUNT_WECHAT_LOGIN',
+          `provider=${profile.provider}`,
+        );
+        return {
+          status: 'LOGIN',
+          session: await this.establishSession(account, profile.openId, ctx),
+        };
+      }
+    }
+    const wechat = await this.settings.wechat();
+    if (wechat?.autoRegister) {
+      const account = await this.createWechatAccount(profile);
+      await this.audit(
+        String(account.id),
+        'ACCOUNT_WECHAT_LOGIN',
+        `provider=${profile.provider} auto-register`,
+      );
+      return {
+        status: 'LOGIN',
+        session: await this.establishSession(account, profile.openId, ctx),
+      };
+    }
+    return { status: 'BIND', profile };
+  }
+
+  /** 把当前微信身份绑到已核验身份的账号上（已绑同账号幂等，绑了别人则明确冲突）。 */
+  async bindWechat(userId: string, profile: WechatProfileInput) {
+    const accountId = Number(userId);
+    const existing = await this.prisma.accountBinding.findUnique({
+      where: {
+        provider_openId: {
+          provider: profile.provider,
+          openId: profile.openId,
+        },
+      },
+    });
+    if (existing) {
+      if (existing.userId === String(accountId)) return { bound: true };
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        '该微信已绑定其他账号，无法重复绑定',
+      );
+    }
+    await this.prisma.accountBinding.create({
+      data: this.bindingData(accountId, profile),
+    });
+    await this.audit(
+      userId,
+      'ACCOUNT_WECHAT_BIND',
+      `provider=${profile.provider}`,
+    );
+    return { bound: true };
+  }
+
+  private bindingData(accountId: number, profile: WechatProfileInput) {
+    return {
+      userId: String(accountId),
+      provider: profile.provider,
+      openId: profile.openId,
+      unionId: profile.unionId || null,
+      nickname: profile.nickname?.slice(0, 64) || null,
+      avatarUrl: profile.avatarUrl?.slice(0, 512) || null,
+    };
+  }
+
+  /** 微信自动注册：生成 wx_ 前缀用户名，密码留空（只能走微信/验证码登录）。 */
+  private async createWechatAccount(
+    profile: WechatProfileInput,
+  ): Promise<Account> {
+    const tail = profile.openId.slice(-8).replace(/[^A-Za-z0-9]/g, '');
+    let username = `wx_${tail || Date.now().toString(36)}`
+      .toLowerCase()
+      .slice(0, 32);
+    if (await this.prisma.account.findFirst({ where: { username } })) {
+      username = `${username}_${randomBytes(2).toString('hex')}`.slice(0, 32);
+    }
+    const account = await this.prisma.account.create({
+      data: {
+        username,
+        passwordHash: null,
+        inviteCode: await this.reserveInviteCode(),
+        avatar: profile.avatarUrl?.slice(0, 512) || null,
+      },
+    });
+    try {
+      await this.prisma.accountBinding.create({
+        data: this.bindingData(account.id, profile),
+      });
+    } catch {
+      // 并发下同 openid 已抢先绑定：回收刚建的账号，交由下一次登录命中绑定
+      await this.prisma.account.delete({ where: { id: account.id } });
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        '该微信正在绑定中，请重试',
+      );
+    }
+    await this.syncDirectory(account);
+    await this.audit(String(account.id), 'ACCOUNT_REGISTER', 'mode=WECHAT');
+    if (this.points) {
+      try {
+        await this.points.grantOnRegister(String(account.id), null);
+      } catch {
+        // 忽略积分发放异常
+      }
+    }
+    return account;
   }
 
   private registerFailure(key: string) {
@@ -414,7 +725,8 @@ export class AccountService {
     const normalized =
       channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
     const account = await this.prisma.account.findFirst({
-      where: channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
+      where:
+        channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
     });
     // 账号不存在与存在都返回成功，避免探测注册库
     if (!account) return { sent: true };
@@ -440,11 +752,18 @@ export class AccountService {
     const normalized =
       channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
     this.assertPassword(newPassword);
-    await this.channels.consumeCode('RESET_PASSWORD', channel, normalized, code);
+    await this.channels.consumeCode(
+      'RESET_PASSWORD',
+      channel,
+      normalized,
+      code,
+    );
     const account = await this.prisma.account.findFirst({
-      where: channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
+      where:
+        channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
     });
-    if (!account) throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
+    if (!account)
+      throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
     await this.prisma.account.update({
       where: { id: account.id },
       data: {
@@ -453,7 +772,11 @@ export class AccountService {
         mustChangePassword: 0,
       },
     });
-    await this.audit(String(account.id), 'ACCOUNT_PASSWORD_RESET', `channel=${channel}`);
+    await this.audit(
+      String(account.id),
+      'ACCOUNT_PASSWORD_RESET',
+      `channel=${channel}`,
+    );
     return { reset: true };
   }
 
@@ -461,13 +784,21 @@ export class AccountService {
 
   private async ownedAccount(user: CurrentUser): Promise<Account> {
     const account = await this.findByUserId(user.userId);
-    if (!account) throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
+    if (!account)
+      throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
     return account;
   }
 
-  async changePassword(user: CurrentUser, oldPassword: string, newPassword: string) {
+  async changePassword(
+    user: CurrentUser,
+    oldPassword: string,
+    newPassword: string,
+  ) {
     const account = await this.ownedAccount(user);
-    if (!account.passwordHash || !(await bcrypt.compare(oldPassword, account.passwordHash))) {
+    if (
+      !account.passwordHash ||
+      !(await bcrypt.compare(oldPassword, account.passwordHash))
+    ) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '原密码不正确');
     }
     this.assertPassword(newPassword);
@@ -500,8 +831,12 @@ export class AccountService {
     const updated = await this.prisma.account.update({
       where: { id: account.id },
       data: {
-        ...(body.avatar !== undefined ? { avatar: body.avatar.slice(0, 512) } : {}),
-        ...(body.intro !== undefined ? { intro: body.intro.slice(0, 500) } : {}),
+        ...(body.avatar !== undefined
+          ? { avatar: body.avatar.slice(0, 512) }
+          : {}),
+        ...(body.intro !== undefined
+          ? { intro: body.intro.slice(0, 500) }
+          : {}),
         ...(body.lang !== undefined ? { lang: body.lang.slice(0, 16) } : {}),
       },
     });
@@ -509,11 +844,16 @@ export class AccountService {
     return this.toPublic(updated);
   }
 
-  async sendRebindCode(user: CurrentUser, channel: 'EMAIL' | 'SMS', target: string) {
+  async sendRebindCode(
+    user: CurrentUser,
+    channel: 'EMAIL' | 'SMS',
+    target: string,
+  ) {
     const normalized =
       channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
     const clash = await this.prisma.account.findFirst({
-      where: channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
+      where:
+        channel === 'EMAIL' ? { email: normalized } : { phone: normalized },
     });
     if (clash && clash.id.toString() !== user.userId) {
       throw new BusinessException(
@@ -540,7 +880,12 @@ export class AccountService {
     return { sent: true };
   }
 
-  async confirmRebind(user: CurrentUser, channel: 'EMAIL' | 'SMS', target: string, code: string) {
+  async confirmRebind(
+    user: CurrentUser,
+    channel: 'EMAIL' | 'SMS',
+    target: string,
+    code: string,
+  ) {
     const normalized =
       channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
     await this.channels.consumeCode('REBIND', channel, normalized, code);
@@ -561,7 +906,11 @@ export class AccountService {
     const account = await this.ownedAccount(user);
     const updated = await this.prisma.account.update({
       where: { id: account.id },
-      data: { status: 'DELETED', deletedAt: new Date(), tokenVersion: { increment: 1 } },
+      data: {
+        status: 'DELETED',
+        deletedAt: new Date(),
+        tokenVersion: { increment: 1 },
+      },
     });
     await this.syncDirectory(updated);
     await this.audit(user.userId, 'ACCOUNT_DEACTIVATED', '');
@@ -575,7 +924,8 @@ export class AccountService {
     const account = await this.prisma.account.findUnique({
       where: { id: Number(user.userId) },
     });
-    if (!account) throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
+    if (!account)
+      throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
     return this.toPublic(account);
   }
 
@@ -590,7 +940,9 @@ export class AccountService {
           bytes,
           (byte) => INVITE_ALPHABET[byte % INVITE_ALPHABET.length],
         ).join('');
-        const clash = await this.prisma.account.findUnique({ where: { inviteCode: code } });
+        const clash = await this.prisma.account.findUnique({
+          where: { inviteCode: code },
+        });
         if (!clash) return code;
       }
     }
@@ -609,9 +961,14 @@ export class AccountService {
       // 并发下唯一索引兜底：冲突则重读已有码
       const updated = await this.prisma.account
         .update({ where: { id: account.id }, data: { inviteCode } })
-        .catch(() => this.prisma.account.findUniqueOrThrow({ where: { id: account.id } }));
+        .catch(() =>
+          this.prisma.account.findUniqueOrThrow({ where: { id: account.id } }),
+        );
       if (!updated.inviteCode) {
-        throw new BusinessException(ErrorCode.INTERNAL_ERROR, '邀请码生成失败，请稍后重试');
+        throw new BusinessException(
+          ErrorCode.INTERNAL_ERROR,
+          '邀请码生成失败，请稍后重试',
+        );
       }
       inviteCode = updated.inviteCode;
     }
@@ -637,7 +994,8 @@ export class AccountService {
 
   async adminResetPassword(user: CurrentUser, userId: string) {
     const account = await this.findByUserId(userId);
-    if (!account) throw new BusinessException(ErrorCode.NOT_FOUND, '用户不存在');
+    if (!account)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '用户不存在');
     const plain = `${randomBytes(6).toString('base64url')}aA1`;
     await this.prisma.account.update({
       where: { id: account.id },
@@ -652,9 +1010,15 @@ export class AccountService {
     return { userId, newPassword: plain, mustChangePassword: true };
   }
 
-  async adminSetStatus(user: CurrentUser, userId: string, status: 'ACTIVE' | 'BANNED', reason = '') {
+  async adminSetStatus(
+    user: CurrentUser,
+    userId: string,
+    status: 'ACTIVE' | 'BANNED',
+    reason = '',
+  ) {
     const account = await this.findByUserId(userId);
-    if (!account) throw new BusinessException(ErrorCode.NOT_FOUND, '用户不存在');
+    if (!account)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '用户不存在');
     const updated = await this.prisma.account.update({
       where: { id: account.id },
       data: {
@@ -695,7 +1059,12 @@ export class AccountService {
   // ---------- 目录同步与审计 ----------
 
   /** user_directory 是本地 users 的投影：各模块「createdBy → 显示名」的查询不改代码。 */
-  async syncDirectory(account: Pick<Account, 'id' | 'username' | 'email' | 'avatar' | 'status' | 'createdAt'>) {
+  async syncDirectory(
+    account: Pick<
+      Account,
+      'id' | 'username' | 'email' | 'avatar' | 'status' | 'createdAt'
+    >,
+  ) {
     const data = {
       username: account.username,
       displayName: account.username,
@@ -709,14 +1078,24 @@ export class AccountService {
       .upsert({
         where: { userId: String(account.id) },
         update: data,
-        create: { userId: String(account.id), createdAt: account.createdAt, ...data },
+        create: {
+          userId: String(account.id),
+          createdAt: account.createdAt,
+          ...data,
+        },
       })
       .catch(() => undefined);
   }
 
   private async audit(userId: string, action: string, detail: string) {
     await this.prisma.auditLog
-      .create({ data: { userId, action: action.slice(0, 64), detail: detail.slice(0, 500) } })
+      .create({
+        data: {
+          userId,
+          action: action.slice(0, 64),
+          detail: detail.slice(0, 500),
+        },
+      })
       .catch(() => undefined);
   }
 }

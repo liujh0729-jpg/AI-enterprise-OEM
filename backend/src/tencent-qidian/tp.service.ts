@@ -13,8 +13,12 @@ import { Logger } from '../common/logger';
 import { runInRequestContext } from '../common/request-context';
 import { CrmReportService } from '../crm/crm.report.service';
 import { DataTableService } from '../data-table/data-table.service';
-import { buildDeliverableCsv, type DeliverableSink } from '../content/deliverable';
+import {
+  buildDeliverableCsv,
+  type DeliverableSink,
+} from '../content/deliverable';
 import { IdentityService } from '../identity/identity.service';
+import { HrmScopeService } from '../hrm/hrm.scope';
 import { NotificationService } from '../notifications/notification.service';
 import { TransportError } from '../http/transport';
 import { Prisma } from '../../generated/prisma';
@@ -457,6 +461,7 @@ export class TencentQidianService {
     private readonly crypto: TencentQidianCrypto,
     private readonly dataTable: DataTableService,
     private readonly crm: CrmReportService,
+    private readonly hrm: HrmScopeService,
   ) {}
 
   // ---------- 凭据 ----------
@@ -832,6 +837,20 @@ export class TencentQidianService {
 
   /** 企点客户写入本系统 CRM：走 CRM 自己的预检与导入，重名按 CRM 口径跳过。 */
   async crmImport(user: CurrentUser, body: Row) {
+    // 同步源唯一：原生 SCRM 启用时，企点侧不再写客户主数据，避免两端各写一份。
+    const org = await this.hrm.resolve(user);
+    const scrm = await this.prisma.scrmCorp.findUnique({
+      where: {
+        orgType_orgUserId: { orgType: org.orgType, orgUserId: org.orgUserId },
+      },
+      select: { enabled: true, qidianPaused: true },
+    });
+    if (scrm?.enabled && scrm.qidianPaused) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '企业微信 SCRM 已启用并作为唯一客户同步源，企点客户导入已暂停；请到「营销工具 → 企微 SCRM」同步客户，或先停用 SCRM',
+      );
+    }
     const mapping = mapOf(body.mapping);
     if (!Object.keys(mapping).length) {
       throw new BusinessException(

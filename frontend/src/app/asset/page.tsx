@@ -21,9 +21,11 @@ import { ServicePublishTab, serviceMarketTab } from "@/components/service-publis
 import { type HeroTab } from "@/components/ui/panel";
 import { servicesApi } from "@/api/services";
 import { useBusinessQuery } from "@/query/business";
+import { filterBoardTabs } from "@/lib/board-tabs";
 import { isProviderAccount } from "@/lib/can-work-on";
 import { ASSET_SUB_ITEMS } from "@/lib/provider-categories";
 import { useSession } from "@/lib/session";
+import { useSiteBrand } from "@/lib/site-brand";
 
 type AssetRow = import("@enterprise/contracts").AssetRow;
 
@@ -84,6 +86,7 @@ export default function AssetPage() {
   const isEnterpriseAccount = (me?.roles || []).includes("ENTERPRISE_USER");
   const canPost = !isAdmin && (isProviderAccount(me) || isEnterpriseAccount);
   const [tab, setTab] = useState("requests");
+  const { hiddenBoardTabs } = useSiteBrand();
   const tabs: HeroTab[] = [
     {
       key: "requests",
@@ -106,6 +109,9 @@ export default function AssetPage() {
       ),
     },
   ];
+  // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染，命中当前页签则回退到第一个可见页签。
+  const visibleTabs = filterBoardTabs("asset", tabs, hiddenBoardTabs);
+  const activeTab = visibleTabs.some((item) => item.key === tab) ? tab : visibleTabs[0]?.key || "";
   const myUserId = me?.userId || "";
 
   /** 本人是否已发布「资产交易」服务（承接前置，草稿亦算） */
@@ -115,7 +121,7 @@ export default function AssetPage() {
     {},
     (signal) => servicesApi.list({ query: { domain: "ASSET" } }, { signal }),
     "all",
-    !isAdmin && tab === "requests",
+    !isAdmin && activeTab === "requests",
   );
   const hasAssetService = !!eligibilityQuery.data?.length;
 
@@ -130,7 +136,7 @@ export default function AssetPage() {
     createdTip: "需求已提交",
     editPasswordTitle: "修改资产需求（需密码）",
     removePasswordTitle: "删除资产需求",
-    autoLoad: tab === "requests",
+    autoLoad: activeTab === "requests",
   });
 
   const canBroker = !isAdmin && hasAssetService;
@@ -160,7 +166,7 @@ export default function AssetPage() {
       {eligibilityQuery.isError ? (
         <Alert
           type="error"
-          message={`承接资格查询失败：${eligibilityQuery.error.message}`}
+          title={`承接资格查询失败：${eligibilityQuery.error.message}`}
           action={
             <Button onClick={() => void eligibilityQuery.refetch()}>重试</Button>
           }
@@ -171,12 +177,12 @@ export default function AssetPage() {
           title: "资产交易",
           desc: `${ASSET_TYPE_LABEL} · 资产服务商（平台备案服务商名录，按 5 个资产细项分区 → 企业按细项发起签约）＋ 需求信息通道：${heroDesc}`,
         }}
-        tabs={tabs}
-        activeTab={tab}
+        tabs={visibleTabs}
+        activeTab={activeTab}
         onTabChange={setTab}
         board={board}
         toDemand={toDemand}
-        serviceTab={<ServicePublishTab domain="ASSET" />}
+        serviceTab={<ServicePublishTab domain="ASSET" pool />}
         providersTab={
           <ProviderDirectoryTab
             serviceType="ASSET_TRADE"

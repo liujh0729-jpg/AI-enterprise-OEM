@@ -11,7 +11,8 @@ import { httpRequest, TransportError } from '../http/transport';
  * Host / Version / Action。每个登录账号用自己的 RAM 子账号 AK。
  *
  * 业务侧只走：QueryReceiverByParam / CreateReceiver / SaveReceiverDetail /
- * QueryMailAddressByParam。发送、模板、域名一律不进本系统。
+ * QueryMailAddressByParam；以及 AI 获客单条触达用的 SingleSendMail。
+ * 模板、域名、批量发送仍不进本系统，在阿里云控制台维护。
  */
 
 const API_VERSION = '2015-11-23';
@@ -78,6 +79,11 @@ export type DmSaveItem = {
   email: string;
   /** 模板变量；空对象表示只写邮箱。 */
   data: Record<string, string>;
+};
+
+export type DmSendResult = {
+  envId: string;
+  requestId: string;
 };
 
 export class DirectMailError extends Error {
@@ -304,6 +310,49 @@ export class DirectMailClient {
       successCount: num(payload.SuccessCount),
       errorCount: num(payload.ErrorCount),
       failures,
+    };
+  }
+
+  /**
+   * 单封发送（SingleSendMail）：本系统里只有 AI 获客的单条邮件触达用它。
+   * 发信地址必须是在控制台验证过的 AccountName，所以调用方要先用
+   * listSenderAddresses 取一个可用地址，不能自己拼域名。
+   */
+  async singleSendMail(input: {
+    accountName: string;
+    toAddress: string;
+    subject: string;
+    text: string;
+  }): Promise<DmSendResult> {
+    const accountName = input.accountName.trim();
+    const toAddress = input.toAddress.trim();
+    if (!accountName) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '缺少发信地址：请到阿里云邮件推送控制台验证发信域名',
+      );
+    }
+    if (!toAddress) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '缺少收件邮箱');
+    }
+    const payload = await this.call(
+      'SingleSendMail',
+      {
+        AccountName: accountName,
+        // 1 = 使用控制台验证过的发信地址，0 是随机地址（回信收不到，不用）
+        AddressType: 1,
+        // 客户回信要能直接回到发信地址，否则回复无处可去
+        ReplyToAddress: true,
+        ToAddress: toAddress,
+        Subject: input.subject.slice(0, 200),
+        TextBody: input.text.slice(0, 100_000),
+        ClickTrace: 0,
+      },
+      { retry: false },
+    );
+    return {
+      envId: str(payload.EnvId),
+      requestId: str(payload.RequestId),
     };
   }
 }

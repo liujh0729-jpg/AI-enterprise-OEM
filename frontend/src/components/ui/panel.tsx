@@ -49,7 +49,6 @@ export function TabStrip({
 
 /** 胶囊分段选项：value 与 label 成对，count 只在需要时带上。 */
 export type PillTab = { key: string; label: ReactNode; count?: number };
-
 /**
  * 面板内的轻量分段选择（筛选 / 二选一开关）：与页头 TabStrip 同一套胶囊语言，但更紧凑。
  * 不用 antd `Segmented`：滑块动效在选项多时会跳，小尺寸下与本站胶囊页签风格也不搭。
@@ -89,6 +88,34 @@ export function PillTabs({
           {item.count ? <span className="pill-tab-count">{item.count}</span> : null}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 面板 / 抽屉内的页签：页签条与页头共用 TabStrip 胶囊，负责只渲染当前页签内容。
+ * 业务页不再直接用 antd `Tabs`，避免两套页签语言并存。
+ */
+export function PanelTabs({
+  items,
+  value,
+  onChange,
+  style,
+}: {
+  items: { key: string; label: ReactNode; children: ReactNode }[];
+  value: string;
+  onChange: (key: string) => void;
+  style?: CSSProperties;
+}) {
+  return (
+    <div>
+      <TabStrip
+        items={items.map(({ key, label }) => ({ key, label }))}
+        value={value}
+        onChange={onChange}
+        style={{ marginBottom: 14, ...style }}
+      />
+      {items.find((item) => item.key === value)?.children}
     </div>
   );
 }

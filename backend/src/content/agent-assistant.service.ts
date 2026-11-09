@@ -10,6 +10,7 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
 import { AgentAssistantCrypto } from './agent-assistant-crypto';
 import {
   createAssistantToken,
@@ -41,6 +42,8 @@ type ChannelRow = {
   name: string;
   webhookToken: string;
   configCipher: string;
+  /// 回复用的数字分身；0＝自动
+  personaId: number;
   channelId: number;
   model: string;
   allowedUsers: string;
@@ -131,6 +134,7 @@ export class ContentAgentAssistantService {
       webhookPath: `${WEBHOOK_PREFIX}${row.webhookToken}`,
       config: visible,
       secretKeys,
+      personaId: row.personaId,
       channelId: row.channelId,
       model: row.model,
       allowedUsers: row.allowedUsers,
@@ -236,6 +240,23 @@ export class ContentAgentAssistantService {
     return { channelId, model };
   }
 
+  /** 绑定回复用的数字分身：0＝自动；只能绑自己的分身。 */
+  private async readPersona(user: CurrentUser, raw: unknown) {
+    const id = Number(raw ?? 0);
+    if (!Number.isInteger(id) || id <= 0) return 0;
+    const row = await this.prisma.contentAgentPersona.findFirst({
+      where: { id, userId: user.userId },
+      select: { id: true },
+    });
+    if (!row) {
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        '数字分身不存在或已被删除',
+      );
+    }
+    return row.id;
+  }
+
   async save(user: CurrentUser, body: Record<string, unknown>) {
     const kind = this.readKind(body.kind);
     const spec = this.specOf(kind);
@@ -243,6 +264,7 @@ export class ContentAgentAssistantService {
       text(body.name).trim().slice(0, NAME_MAX) || spec?.label || '助理通道';
     const config = this.mergeConfig(kind, body.config, {});
     const execution = await this.readExecution(user, body);
+    const personaId = await this.readPersona(user, body.personaId);
     const row = await this.prisma.contentAgentAssistantChannel.create({
       data: {
         userId: user.userId,
@@ -250,6 +272,7 @@ export class ContentAgentAssistantService {
         name,
         webhookToken: createAssistantToken(),
         configCipher: this.crypto.encrypt(JSON.stringify(config)),
+        personaId,
         channelId: execution.channelId,
         model: execution.model,
         allowedUsers: text(body.allowedUsers).trim().slice(0, 500),
@@ -280,7 +303,7 @@ export class ContentAgentAssistantService {
 
   async update(user: CurrentUser, id: string, body: Record<string, unknown>) {
     const existing = await this.ownedChannel(user, id);
-    const data: Record<string, unknown> = {};
+    const data: Prisma.ContentAgentAssistantChannelUncheckedUpdateInput = {};
     if (body.kind !== undefined && text(body.kind).trim() !== existing.kind) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
@@ -313,13 +336,16 @@ export class ContentAgentAssistantService {
     if (body.allowedUsers !== undefined) {
       data.allowedUsers = text(body.allowedUsers).trim().slice(0, 500);
     }
+    if (body.personaId !== undefined) {
+      data.personaId = await this.readPersona(user, body.personaId);
+    }
     if (body.enabled !== undefined) data.enabled = body.enabled !== false;
     if (!Object.keys(data).length) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '没有要改的内容');
     }
     const row = await this.prisma.contentAgentAssistantChannel.update({
       where: { id: existing.id },
-      data: data as never,
+      data,
     });
     return this.shape(row);
   }
@@ -528,7 +554,11 @@ export class ContentAgentAssistantService {
         undefined,
         conversationId,
         event.text,
-        { channelId: row.channelId, model: row.model },
+        {
+          channelId: row.channelId > 0 ? row.channelId : undefined,
+          model: row.model,
+          personaId: row.personaId > 0 ? row.personaId : undefined,
+        },
       );
       const reply = text(result.text).trim() || '（这一轮没有产出文字回复）';
       await sendAssistantMessage(

@@ -1,39 +1,47 @@
 "use client";
 
 import { CompassOutlined, LockOutlined } from "@ant-design/icons";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { EmptyState, PageHero, Panel } from "@/components/ui/panel";
-import { ADMIN_PATH_PREFIX, ADMIN_SECTIONS } from "@/config/routes";
+import { ADMIN_SECTIONS } from "@/config/routes";
 import { useSession } from "@/lib/session";
 import { CapabilityTab } from "../_components/capability-tab";
 import { CommunityAdminTab } from "../_components/community-admin-tab";
 import { ContractsTab } from "../_components/contracts-tab";
 import { FlexPayrollSwitch } from "../_components/flex-payroll-switch";
 import { GeoSettingsTab } from "../_components/geo-settings-tab";
-import { OverviewTab } from "../_components/overview-tab";
 import { ProviderApplicationsTab } from "../_components/provider-applications-tab";
 import { ProvidersManageTab } from "../_components/providers-manage-tab";
 import { SettingsTab } from "../_components/settings-tab";
-import { ProvidersDisplayTab } from "../_components/providers-display-tab";
 import { TaxAdminTab } from "../_components/tax-admin-tab";
 import { SupplyTab } from "../_components/supply-tab";
 import { EnterprisesTab } from "../_components/enterprises-tab";
+import { FeaturesTab } from "../_components/features-tab";
+import { SkillGeneratorTab } from "../_components/skill-generator-tab";
+import { PublishReviewTab } from "../_components/publish-review-tab";
 import { UsersTab } from "../_components/users-tab";
 import { LivecodeAdminTab } from "../_components/livecode-admin-tab";
+import { VideoTemplateAdminTab } from "../_components/video-template-admin-tab";
 import { PointsTab } from "../_components/points-tab";
+import { ModelPlazaAdminTab } from "../_components/model-plaza-admin-tab";
+import { HardwareAdminTab } from "../_components/hardware-admin-tab";
+import {
+  GapsChangelogTab,
+  GapsEntitlementsTab,
+  GapsTermsTab,
+  GapsUsageTab,
+} from "../_components/gaps-admin";
 
 /**
  * 平台管理后台板块页（`/admin/<板块>`）：板块由侧栏菜单切换，菜单/顶栏/hero 文案同源于
- * `ADMIN_SECTIONS`；总览的「前往审核」按板块 key 跳转。
+ * `ADMIN_SECTIONS`；平台数据总览已并入高管驾驶舱，这里只渲染分组下的管理板块。
  */
 export default function AdminSectionPage() {
   const params = useParams<{ section: string }>();
-  const router = useRouter();
   const { me, loading } = useSession();
   const isAdmin = Boolean(me?.identities?.includes("PLATFORM_ADMIN"));
   const section = String(params?.section || "");
   const meta = ADMIN_SECTIONS.find((item) => item.key === section);
-  const go = (key: string) => router.push(`${ADMIN_PATH_PREFIX}/${key}`);
 
   /**
    * 深链直达也要按身份收口：非平台管理员不渲染任何管理板块（接口另有 403，
@@ -63,7 +71,6 @@ export default function AdminSectionPage() {
     <>
       <PageHero title={meta.name} desc={meta.desc} />
 
-      {section === "overview" ? <OverviewTab onGoSection={go} /> : null}
       {section === "users" ? <UsersTab /> : null}
       {section === "enterprises" ? <EnterprisesTab /> : null}
       {section === "provider-applications" ? <ProviderApplicationsTab /> : null}
@@ -76,9 +83,18 @@ export default function AdminSectionPage() {
       {section === "geo" ? <GeoSettingsTab /> : null}
       {section === "marketing-livecode" ? <LivecodeAdminTab /> : null}
       {section === "community" ? <CommunityAdminTab /> : null}
+      {section === "video-templates" ? <VideoTemplateAdminTab /> : null}
       {section === "points" ? <PointsTab /> : null}
+      {section === "model-plaza" ? <ModelPlazaAdminTab /> : null}
+      {section === "hardware" ? <HardwareAdminTab /> : null}
+      {section === "features" ? <FeaturesTab /> : null}
+      {section === "skill-generator" ? <SkillGeneratorTab /> : null}
+      {section === "publish-review" ? <PublishReviewTab /> : null}
+      {section === "entitlements" ? <GapsEntitlementsTab /> : null}
+      {section === "usage" ? <GapsUsageTab /> : null}
+      {section === "terms" ? <GapsTermsTab /> : null}
+      {section === "changelog" ? <GapsChangelogTab /> : null}
       {section === "settings" ? <SettingsTab /> : null}
-      {section === "provider-display" ? <ProvidersDisplayTab /> : null}
     </>
   );
 }

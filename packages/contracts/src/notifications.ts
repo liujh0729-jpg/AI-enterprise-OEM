@@ -18,6 +18,7 @@ export const NOTIFICATION_CATEGORIES = [
   "oa",
   "question",
   "sns",
+  "collab",
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
@@ -33,6 +34,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<string, string> = {
   oa: "OA审批",
   question: "专题大厅",
   sns: "AIworkin 社交",
+  collab: "协作",
 };
 
 export const NOTIFICATION_LEVELS = ["info", "warning", "error"] as const;

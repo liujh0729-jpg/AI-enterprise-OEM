@@ -1,5 +1,10 @@
 import { CommunityAwardService } from './community-award.service';
 import { CurrentUser } from '../auth/current-user';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityService } from '../identity/identity.service';
+import type { PointsService } from '../points/points.service';
+import type { PointsSettingsService } from '../points/points-settings.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 社区奖励发放的单测：重点是「幂等靠积分流水，而不是状态字段」和「不发奖也绝不能把审核动作带崩」。
@@ -36,10 +41,10 @@ function build(flags: Record<string, string> = {}) {
   };
   const identity = { audit: jest.fn().mockResolvedValue(undefined) };
   const service = new CommunityAwardService(
-    prisma as never,
-    points as never,
-    settings as never,
-    identity as never,
+    stub<PrismaService>(prisma),
+    stub<PointsService>(points),
+    stub<PointsSettingsService>(settings),
+    stub<IdentityService>(identity),
   );
   return { prisma, points, settings, identity, service };
 }

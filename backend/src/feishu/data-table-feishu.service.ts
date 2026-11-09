@@ -1,5 +1,6 @@
 import { createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
@@ -269,7 +270,7 @@ export class DataTableFeishuService {
       feishuTableId,
       verificationToken,
       encryptKeyCipher,
-      fieldMapping: mapping as unknown as Prisma.InputJsonValue,
+      fieldMapping: toJsonInput(mapping),
       status,
     };
     const row = existing

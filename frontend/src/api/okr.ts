@@ -49,4 +49,22 @@ export const okrApi = {
 
   settings: endpoint(endpoints.Okr_settingsGet),
   saveSettings: endpoint(endpoints.Okr_settingsSave),
+
+  briefs: endpoint(endpoints.Okr_briefList),
+  brief: endpoint(endpoints.Okr_briefGet),
+  saveBrief: endpoint(endpoints.Okr_briefSave),
+  removeBrief: endpoint(endpoints.Okr_briefRemove),
+
+  dialogTurns: endpoint(endpoints.Okr_dialogList),
+  sendDialog: endpoint(endpoints.Okr_dialogSend),
+
+  decompositions: endpoint(endpoints.Okr_decompositionList),
+  generateDecomposition: endpoint(endpoints.Okr_decompositionGenerate),
+  simulateDecomposition: endpoint(endpoints.Okr_decompositionSimulate),
+  commitDecomposition: endpoint(endpoints.Okr_decompositionCommit),
+
+  taskLinks: endpoint(endpoints.Okr_taskLinkList),
+  saveTaskLink: endpoint(endpoints.Okr_taskLinkSave),
+  removeTaskLink: endpoint(endpoints.Okr_taskLinkRemove),
+  assessmentPreview: endpoint(endpoints.Okr_assessmentPreview),
 };

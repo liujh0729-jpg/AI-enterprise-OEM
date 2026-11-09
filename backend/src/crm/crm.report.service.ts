@@ -3,6 +3,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import { CrmSettingsService } from './crm.settings.service';
 import { DataTableService } from '../data-table/data-table.service';
@@ -12,6 +13,7 @@ import {
   asArray,
   int,
   iso,
+  jsonObject,
   moneyStr,
   normEmail,
   normName,
@@ -58,28 +60,28 @@ export class CrmReportService {
             ...base,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmCustomer.count({
           where: {
             ...base,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmOpportunity.count({
           where: {
             ...base,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmContract.count({
           where: {
             ...finance,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmOpportunity.findMany({
           where: {
@@ -87,7 +89,7 @@ export class CrmReportService {
             deletedAt: null,
             actualEndAt: { gte: since, not: null },
             failureReason: '',
-          } as never,
+          },
           select: { amount: true },
         }),
         this.prisma.crmPaymentRecord.aggregate({
@@ -96,7 +98,7 @@ export class CrmReportService {
             contractId: {
               in: (
                 await this.prisma.crmContract.findMany({
-                  where: { ...finance, deletedAt: null } as never,
+                  where: { ...finance, deletedAt: null },
                   select: { id: true },
                 })
               ).map((row) => row.id),
@@ -131,7 +133,7 @@ export class CrmReportService {
           contractId: {
             in: (
               await this.prisma.crmContract.findMany({
-                where: { ...finance, deletedAt: null } as never,
+                where: { ...finance, deletedAt: null },
                 select: { id: true },
               })
             ).map((row) => row.id),
@@ -146,7 +148,7 @@ export class CrmReportService {
           contractId: {
             in: (
               await this.prisma.crmContract.findMany({
-                where: { ...finance, deletedAt: null } as never,
+                where: { ...finance, deletedAt: null },
                 select: { id: true },
               })
             ).map((row) => row.id),
@@ -228,21 +230,21 @@ export class CrmReportService {
     const row = await this.prisma.crmSetting.findUnique({
       where: { ownerUserId: ctx.ownerUserId },
     });
-    const titleFields = (row?.titleFields || {}) as Record<string, unknown>;
+    const titleFields = jsonObject(row?.titleFields);
     await this.prisma.crmSetting.upsert({
       where: { ownerUserId: ctx.ownerUserId },
       create: {
         ownerUserId: ctx.ownerUserId,
-        titleFields: {
+        titleFields: toJsonInput({
           ...titleFields,
           quickAccess: asArray(body.items),
-        } as never,
+        }),
       },
       update: {
-        titleFields: {
+        titleFields: toJsonInput({
           ...titleFields,
           quickAccess: asArray(body.items),
-        } as never,
+        }),
       },
     });
     return { saved: true };
@@ -263,7 +265,7 @@ export class CrmReportService {
             { contactName: { contains: keyword } },
             { phone: { contains: keyword } },
           ],
-        } as never,
+        },
         take: 10,
       }),
       this.prisma.crmCustomer.findMany({
@@ -271,7 +273,7 @@ export class CrmReportService {
           ...base,
           deletedAt: null,
           name: { contains: keyword },
-        } as never,
+        },
         take: 10,
       }),
       this.prisma.crmOpportunity.findMany({
@@ -279,7 +281,7 @@ export class CrmReportService {
           ...base,
           deletedAt: null,
           name: { contains: keyword },
-        } as never,
+        },
         take: 10,
       }),
     ]);
@@ -357,9 +359,7 @@ export class CrmReportService {
         ownerUserId: ctx.ownerUserId,
         deletedAt: null,
         OR: [
-          ...(name
-            ? [{ name: { contains: name } }]
-            : []),
+          ...(name ? [{ name: { contains: name } }] : []),
           ...(phone ? [{ phoneNorm: phone }] : []),
           ...(email ? [{ emailNorm: email }] : []),
         ],
@@ -416,7 +416,7 @@ export class CrmReportService {
     const [leadStages, won, lost, contractSum, paymentSum] = await Promise.all([
       this.prisma.crmLead.groupBy({
         by: ['stage'],
-        where: { ...base, deletedAt: null, createdAt: { gte: since } } as never,
+        where: { ...base, deletedAt: null, createdAt: { gte: since } },
         _count: { _all: true },
       }),
       this.prisma.crmOpportunity.count({
@@ -425,7 +425,7 @@ export class CrmReportService {
           deletedAt: null,
           actualEndAt: { gte: since, not: null },
           failureReason: '',
-        } as never,
+        },
       }),
       this.prisma.crmOpportunity.count({
         where: {
@@ -433,14 +433,14 @@ export class CrmReportService {
           deletedAt: null,
           actualEndAt: { gte: since, not: null },
           failureReason: { not: '' },
-        } as never,
+        },
       }),
       this.prisma.crmContract.aggregate({
         where: {
           ...finance,
           deletedAt: null,
           createdAt: { gte: since },
-        } as never,
+        },
         _sum: { amount: true },
       }),
       this.prisma.crmPaymentRecord.aggregate({
@@ -471,7 +471,7 @@ export class CrmReportService {
     const base = await this.scope.scopeWhereAsync(ctx);
     const groups = await this.prisma.crmOpportunity.groupBy({
       by: ['stageId'],
-      where: { ...base, deletedAt: null } as never,
+      where: { ...base, deletedAt: null },
       _count: { _all: true },
       _sum: { amount: true },
     });
@@ -489,7 +489,7 @@ export class CrmReportService {
     const ctx = await this.scope.requireMember(user);
     const finance = await this.scope.scopeWhereAsync(ctx, 'FINANCE');
     const contracts = await this.prisma.crmContract.findMany({
-      where: { ...finance, deletedAt: null } as never,
+      where: { ...finance, deletedAt: null },
       select: {
         id: true,
         number: true,
@@ -558,7 +558,7 @@ export class CrmReportService {
           ...base,
           deletedAt: null,
           ...(filters.stage ? { stage: text(filters.stage) } : {}),
-        } as never,
+        },
         take: 10000,
       });
       return {
@@ -586,7 +586,7 @@ export class CrmReportService {
     }
     if (module === 'customers') {
       const rows = await this.prisma.crmCustomer.findMany({
-        where: { ...base, deletedAt: null } as never,
+        where: { ...base, deletedAt: null },
         take: 10000,
       });
       return {
@@ -610,7 +610,7 @@ export class CrmReportService {
     }
     if (module === 'opportunities') {
       const rows = await this.prisma.crmOpportunity.findMany({
-        where: { ...base, deletedAt: null } as never,
+        where: { ...base, deletedAt: null },
         take: 10000,
       });
       return {
@@ -634,7 +634,7 @@ export class CrmReportService {
     }
     if (module === 'contracts') {
       const rows = await this.prisma.crmContract.findMany({
-        where: { ...base, deletedAt: null } as never,
+        where: { ...base, deletedAt: null },
         take: 10000,
       });
       return {
@@ -679,7 +679,7 @@ export class CrmReportService {
       };
     }
     const rows = await this.prisma.crmOrder.findMany({
-      where: { ...base, deletedAt: null } as never,
+      where: { ...base, deletedAt: null },
       take: 10000,
     });
     return {
@@ -713,11 +713,11 @@ export class CrmReportService {
       data: {
         ownerUserId: ctx.ownerUserId,
         module,
-        query: { columns } as never,
+        query: toJsonInput({ columns }),
         status: 'DONE',
         fileName: `crm-${module}-${Date.now()}.csv`,
         rowCount: rows.length,
-        rows: rows as never,
+        rows: toJsonInput(rows),
         expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
       },
     });
@@ -864,6 +864,7 @@ export class CrmReportService {
         await this.prisma.crmLead.create({
           data: {
             ownerUserId: ctx.ownerUserId,
+            ...this.scope.orgKey(ctx),
             name,
             contactName: text(row.contactName).slice(0, 60),
             phone: text(row.phone).slice(0, 40),
@@ -896,6 +897,7 @@ export class CrmReportService {
         await this.prisma.crmCustomer.create({
           data: {
             ownerUserId: ctx.ownerUserId,
+            ...this.scope.orgKey(ctx),
             name,
             nameNorm: norm,
             ownerId: ctx.actorId,

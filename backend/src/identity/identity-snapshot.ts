@@ -26,28 +26,35 @@ export function readIdentitySnapshot(
   userId: string,
 ): Promise<IdentitySnapshot> {
   return requestMemo(`identity-snapshot:${userId}`, async () => {
-    const [enterprise, providerApps, staffProfile, staffOf, pref, directory, setting] =
-      await Promise.all([
-        prisma.enterpriseProfile.findFirst({
-          where: { userId, status: 'APPROVED' },
-          orderBy: { id: 'desc' },
-        }),
-        prisma.providerApplication.findMany({
-          where: { userId },
-          orderBy: { id: 'desc' },
-        }),
-        prisma.staffProfile.findUnique({ where: { userId } }),
-        prisma.providerStaff.findMany({
-          where: { staffUserId: userId, status: 'ACTIVE' },
-          orderBy: { id: 'asc' },
-        }),
-        prisma.identityPreference.findUnique({ where: { userId } }),
-        prisma.userDirectory.findUnique({ where: { userId } }),
-        prisma.systemSetting.findUnique({
-          where: { key: FLEX_PAYROLL_ENABLED_KEY },
-          select: { value: true },
-        }),
-      ]);
+    const [
+      enterprise,
+      providerApps,
+      staffProfile,
+      staffOf,
+      pref,
+      directory,
+      setting,
+    ] = await Promise.all([
+      prisma.enterpriseProfile.findFirst({
+        where: { userId, status: 'APPROVED' },
+        orderBy: { id: 'desc' },
+      }),
+      prisma.providerApplication.findMany({
+        where: { userId },
+        orderBy: { id: 'desc' },
+      }),
+      prisma.staffProfile.findUnique({ where: { userId } }),
+      prisma.providerStaff.findMany({
+        where: { staffUserId: userId, status: 'ACTIVE' },
+        orderBy: { id: 'asc' },
+      }),
+      prisma.identityPreference.findUnique({ where: { userId } }),
+      prisma.userDirectory.findUnique({ where: { userId } }),
+      prisma.systemSetting.findUnique({
+        where: { key: FLEX_PAYROLL_ENABLED_KEY },
+        select: { value: true },
+      }),
+    ]);
     return {
       enterprise,
       providerApps,

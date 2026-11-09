@@ -5,7 +5,11 @@ import { App, Button, Checkbox, Collapse, Input, Skeleton, Tag } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Notice, Panel } from "@/components/ui/panel";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
-import { memoryApi, type AgentGrantItem, type AgentGrants } from "./common";
+import {
+  memoryApi,
+  type AgentGrantItem,
+  type AgentGrants,
+} from "./common";
 
 type DomainGroup = {
   domain: string;
@@ -31,6 +35,8 @@ export function AgentGrantsPanel() {
   const [data, setData] = useState<AgentGrants | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [saved, setSaved] = useState<string[]>([]);
+  const [selectedConnectors, setSelectedConnectors] = useState<number[]>([]);
+  const [savedConnectors, setSavedConnectors] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -44,9 +50,14 @@ export function AgentGrantsPanel() {
       const granted = result.data.items
         .filter((item) => item.allowed)
         .map((item) => item.action);
+      const grantedConnectors = result.data.connectors
+        .filter((item) => item.allowed)
+        .map((item) => item.connectorId);
       setData(result.data);
       setSelected(granted);
       setSaved(granted);
+      setSelectedConnectors(grantedConnectors);
+      setSavedConnectors(grantedConnectors);
       setOpenKeys(
         result.data.domains
           .filter((domain) => domain.granted > 0)
@@ -86,12 +97,17 @@ export function AgentGrantsPanel() {
     return [...bucket.values()];
   }, [data, keyword, selected]);
 
-  const dirty = !sameSet(selected, saved);
+  const dirty =
+    !sameSet(selected, saved) || !sameSet(selectedConnectors.map(String), savedConnectors.map(String));
   const grantableCount = data ? data.total - data.forbiddenCount : 0;
-  // 本次相比已保存的勾选多放开多少个动作：只有净新增才要验密
+  // 本次相比已保存的勾选多放开多少个动作 / 连接器：只有净新增才要验密
   const addedCount = useMemo(
     () => selected.filter((action) => !saved.includes(action)).length,
     [saved, selected],
+  );
+  const addedConnectors = useMemo(
+    () => selectedConnectors.filter((id) => !savedConnectors.includes(id)).length,
+    [savedConnectors, selectedConnectors],
   );
 
   const toggle = (item: AgentGrantItem, checked: boolean) => {
@@ -103,12 +119,27 @@ export function AgentGrantsPanel() {
     );
   };
 
+  const toggleConnector = (connectorId: number, checked: boolean) => {
+    setSelectedConnectors((prev) =>
+      checked
+        ? [...prev.filter((id) => id !== connectorId), connectorId]
+        : prev.filter((id) => id !== connectorId),
+    );
+  };
+
   const persist = async (password?: string) => {
     setSaving(true);
     try {
-      const result = await memoryApi.saveGrants(selected, password);
+      const result = await memoryApi.saveGrants(
+        selected,
+        selectedConnectors,
+        password,
+      );
+      const extra = result.connectorsGranted || result.connectorsRevoked
+        ? `，连接器新增 ${result.connectorsGranted} 个、收回 ${result.connectorsRevoked} 个`
+        : "";
       message.success(
-        `已保存：新增授权 ${result.granted} 个、收回 ${result.revoked} 个`,
+        `已保存：新增授权 ${result.granted} 个、收回 ${result.revoked} 个${extra}`,
       );
       await load();
     } catch (caught) {
@@ -119,13 +150,19 @@ export function AgentGrantsPanel() {
   };
 
   const save = () => {
-    if (!addedCount) {
+    if (!addedCount && !addedConnectors) {
       void persist();
       return;
     }
+    const scope = [
+      addedCount ? `${addedCount} 个写动作` : "",
+      addedConnectors ? `${addedConnectors} 个 MCP 连接器` : "",
+    ]
+      .filter(Boolean)
+      .join("、");
     confirmPassword({
       title: "新增自动执行授权",
-      content: `本次要新放开 ${addedCount} 个写动作：保存后 Agent 与 MCP 客户端执行它们不再逐次确认。要放开就输入本站登录密码；取消授权不需要密码。`,
+      content: `本次要新放开 ${scope}：保存后 Agent 与 MCP 客户端执行它们不再逐次确认。要放开就输入本站登录密码；取消授权不需要密码。`,
       okText: "验证并保存",
       onOk: (password) => persist(password),
     });
@@ -159,10 +196,13 @@ export function AgentGrantsPanel() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <span className="text-12 muted">
               已授权 {selected.length} 个 / 可授权 {grantableCount} 个 · 永久排除{" "}
-              {data.forbiddenCount} 个
-              {addedCount ? (
+              {data.forbiddenCount} 个 · 连接器 {selectedConnectors.length} /{" "}
+              {data.connectors.length} 个
+              {addedCount || addedConnectors ? (
                 <Tag color="warning" style={{ marginLeft: 8 }}>
-                  本次新增 {addedCount} 个，保存要验密码
+                  本次新增 {addedCount} 个动作
+                  {addedConnectors ? `、${addedConnectors} 个连接器` : ""}
+                  ，保存要验密码
                 </Tag>
               ) : null}
             </span>
@@ -224,6 +264,58 @@ export function AgentGrantsPanel() {
           ) : (
             <span className="text-12 muted">没有匹配的动作</span>
           )}
+
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              paddingTop: 12,
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div>
+              <span>MCP 连接器（自建）</span>
+              <span className="text-12 muted" style={{ marginLeft: 8 }}>
+                按整条连接器授权：连接器里的工具由远端服务决定，名字随时会变，所以不逐个工具勾选。未勾选的连接器被 Agent 调用时只返回草案。
+              </span>
+            </div>
+            {data.connectors.length ? (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+                  gap: "6px 16px",
+                }}
+              >
+                {data.connectors.map((item) => (
+                  <Checkbox
+                    key={item.connectorId}
+                    checked={selectedConnectors.includes(item.connectorId)}
+                    onChange={(event) =>
+                      toggleConnector(item.connectorId, event.target.checked)
+                    }
+                  >
+                    <span>{item.name}</span>
+                    <span className="mono text-12 muted" style={{ marginLeft: 8 }}>
+                      #{item.connectorId} · {item.toolCount} 个工具
+                    </span>
+                    {!item.enabled ? (
+                      <Tag style={{ marginLeft: 8 }}>已停用</Tag>
+                    ) : null}
+                    {item.enabled && item.lastError ? (
+                      <Tag color="error" style={{ marginLeft: 8 }}>
+                        连不上：{item.lastError}
+                      </Tag>
+                    ) : null}
+                  </Checkbox>
+                ))}
+              </div>
+            ) : (
+              <span className="text-12 muted">
+                还没有自建 MCP 连接器；在「连接器」页签添加后即可在这里授权。
+              </span>
+            )}
+          </div>
         </div>
       ) : null}
       {passwordModal}

@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Button, Input, InputNumber, Modal, Select, Table, Tag } from "antd";
+import { App, Button, Input, InputNumber, Modal, Select, Space, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useState } from "react";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
@@ -250,7 +250,7 @@ export function AccountPanel({
       key: "actions",
       width: 110,
       render: (_, row) => (
-        <Button.Group>
+        <Space.Compact>
           <Button
             onClick={() => {
               setEditing(row);
@@ -263,7 +263,7 @@ export function AccountPanel({
           <Button danger onClick={() => remove(row)}>
             删
           </Button>
-        </Button.Group>
+        </Space.Compact>
       ),
     },
   ];

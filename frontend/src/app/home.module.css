@@ -1,0 +1,868 @@
+.page {
+  position: relative;
+  isolation: isolate;
+  height: 100dvh;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #06070a;
+  color: #f4f5f7;
+  scrollbar-width: thin;
+  scrollbar-color: #30343f #06070a;
+}
+
+.page::-webkit-scrollbar {
+  width: 10px;
+}
+
+.page::-webkit-scrollbar-track,
+.page::-webkit-scrollbar-corner {
+  background: #06070a;
+}
+
+.page::-webkit-scrollbar-thumb {
+  background: #30343f;
+  border-radius: 999px;
+  border: 2px solid #06070a;
+}
+
+.page::-webkit-scrollbar-thumb:hover {
+  background: #414652;
+}
+
+.page a {
+  text-decoration: none;
+}
+
+.page a:focus-visible,
+.page button:focus-visible,
+.page summary:focus-visible {
+  outline: 2px solid #6ea8ff;
+  outline-offset: 3px;
+}
+
+/* ---------- 顶栏：只保留品牌与「登录 / 注册」 ---------- */
+
+.topbar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px clamp(20px, 4vw, 56px);
+  background: rgba(6, 7, 10, 0.55);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(18px);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #fff;
+}
+
+/* BrandLogo 自身宽度自适应，这里必须锁高，否则 Logo 会按原图尺寸撑破顶栏 */
+.brand img {
+  width: auto;
+  height: 30px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ghostButton,
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.ghostButton {
+  color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.ghostButton:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.primaryButton {
+  background: #fff;
+  color: #06070a;
+}
+
+.primaryButton:hover {
+  background: #d9e4f5;
+  color: #06070a;
+}
+
+/* ---------- 首屏 ---------- */
+
+.hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 92vh;
+  padding: 132px clamp(20px, 5vw, 72px) 88px;
+  background-color: #0a0c11;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+.heroShade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(4, 5, 8, 0.94) 0%, rgba(4, 5, 8, 0.78) 42%, rgba(4, 5, 8, 0.18) 100%),
+    linear-gradient(180deg, rgba(4, 5, 8, 0.55) 0%, transparent 32%, rgba(6, 7, 10, 0.9) 100%);
+}
+
+.heroInner {
+  position: relative;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.heroBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 26px;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+.heroTitle {
+  max-width: 15em;
+  margin: 0;
+  font-size: clamp(42px, 6.4vw, 88px);
+  font-weight: 600;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+  color: #fff;
+  text-wrap: balance;
+}
+
+.highlight {
+  color: #8fbaff;
+  text-shadow: 0 0 46px rgba(64, 128, 255, 0.45);
+}
+
+.heroSubtitle {
+  max-width: 620px;
+  margin: 26px 0 0;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: clamp(15px, 1.4vw, 18px);
+  line-height: 1.8;
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 40px;
+}
+
+.heroPrimary,
+.heroSecondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 152px;
+  height: 52px;
+  padding: 0 30px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  transition: transform 0.2s, background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.heroPrimary {
+  background: #fff;
+  color: #06070a;
+}
+
+.heroPrimary:hover {
+  background: #dbe6f7;
+  color: #06070a;
+  transform: translateY(-1px);
+}
+
+.heroSecondary {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+}
+
+.heroSecondary:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(28px, 5vw, 72px);
+  margin: 72px 0 0;
+  padding-top: 34px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stat {
+  min-width: 120px;
+}
+
+.stat dd {
+  margin: 0;
+  font-size: clamp(26px, 2.8vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.stat dt {
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+
+/* ---------- 通用区块 ---------- */
+
+.section {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: clamp(72px, 9vw, 128px) clamp(20px, 4vw, 40px) 0;
+}
+
+.sectionHead {
+  display: grid;
+  gap: 16px;
+  margin-bottom: clamp(36px, 5vw, 64px);
+}
+
+.eyebrow {
+  margin: 0;
+  color: rgba(143, 186, 255, 0.85);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.sectionHead h2,
+.splitCopy h2 {
+  margin: 0;
+  font-size: clamp(30px, 4vw, 52px);
+  font-weight: 600;
+  line-height: 1.14;
+  letter-spacing: -0.03em;
+  color: #fff;
+  text-wrap: balance;
+}
+
+.sectionDesc {
+  max-width: 640px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+/* ---------- 场景轮播 ---------- */
+
+.sceneCard {
+  position: relative;
+  min-height: clamp(460px, 56vw, 620px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 26px;
+  background: #0b0d12;
+}
+
+.sceneImage {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  transition: opacity 0.4s ease;
+}
+
+.sceneShade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(5, 6, 9, 0.12) 0%, rgba(5, 6, 9, 0.35) 52%, rgba(5, 6, 9, 0.92) 100%),
+    linear-gradient(90deg, rgba(5, 6, 9, 0.72) 0%, transparent 62%);
+}
+
+.sceneBody {
+  position: absolute;
+  inset: auto auto 0 0;
+  max-width: 620px;
+  padding: clamp(24px, 4vw, 56px);
+}
+
+.sceneTag {
+  display: inline-flex;
+  margin-bottom: 18px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.sceneBody h3 {
+  margin: 0 0 14px;
+  font-size: clamp(26px, 3.2vw, 42px);
+  font-weight: 600;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.sceneBody p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.sceneControls {
+  position: absolute;
+  top: clamp(18px, 2.6vw, 30px);
+  right: clamp(18px, 2.6vw, 30px);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(6, 7, 10, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+.sceneIndex {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sceneBars {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sceneBar,
+.sceneBarActive {
+  width: 22px;
+  height: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  cursor: pointer;
+  transition: background-color 0.2s, width 0.2s;
+}
+
+.sceneBarActive {
+  width: 34px;
+  background: #fff;
+}
+
+.sceneArrows {
+  display: flex;
+  gap: 4px;
+}
+
+.sceneArrows button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.sceneArrows button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* ---------- 业务板块 ---------- */
+
+.serviceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.serviceCard {
+  position: relative;
+  padding: 26px 24px 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 0.2s, background-color 0.2s, transform 0.2s;
+}
+
+.serviceCard:hover {
+  border-color: rgba(143, 186, 255, 0.4);
+  background: rgba(255, 255, 255, 0.045);
+  transform: translateY(-2px);
+}
+
+.serviceIndex {
+  display: block;
+  margin-bottom: 22px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(143, 186, 255, 0.7);
+}
+
+.serviceCard h3 {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.serviceCard p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* ---------- 开放集成 ---------- */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(36px, 6vw, 88px);
+}
+
+.splitCopy {
+  display: grid;
+  gap: 18px;
+}
+
+.points {
+  display: grid;
+  gap: 0;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.points li {
+  position: relative;
+  padding: 18px 0 18px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.points li::before {
+  content: "";
+  position: absolute;
+  top: 28px;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6ea8ff;
+  box-shadow: 0 0 14px rgba(110, 168, 255, 0.8);
+}
+
+.codeCard {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: #0a0c11;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+.codeBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.42);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.code {
+  margin: 0;
+  padding: 24px 20px;
+  overflow-x: auto;
+  color: #a9c3f5;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.codeFoot {
+  margin: 0;
+  padding: 14px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- 使用步骤 ---------- */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.stepNo {
+  display: block;
+  margin-bottom: 18px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: rgba(143, 186, 255, 0.8);
+}
+
+.step h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.step p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+/* ---------- 常见问题 ---------- */
+
+.faq {
+  max-width: 920px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.faqItem {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.faqItem summary {
+  position: relative;
+  padding: 24px 44px 24px 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 17px;
+  line-height: 1.6;
+  cursor: pointer;
+  list-style: none;
+}
+
+.faqItem summary::-webkit-details-marker {
+  display: none;
+}
+
+.faqItem summary::after {
+  content: "+";
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 22px;
+  font-weight: 300;
+}
+
+.faqItem[open] summary::after {
+  content: "\2212";
+}
+
+.faqItem p {
+  margin: 0;
+  padding: 0 44px 26px 0;
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 15px;
+  line-height: 1.85;
+}
+
+/* ---------- 底部行动区 ---------- */
+
+.cta {
+  margin-top: clamp(80px, 10vw, 140px);
+  padding: clamp(72px, 10vw, 132px) clamp(20px, 4vw, 40px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(60% 120% at 50% 0%, rgba(46, 103, 214, 0.22) 0%, transparent 68%),
+    #080a0e;
+  text-align: center;
+}
+
+.cta h2 {
+  margin: 0 auto;
+  max-width: 16em;
+  font-size: clamp(32px, 4.6vw, 60px);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: #fff;
+  text-wrap: balance;
+}
+
+.cta p {
+  margin: 18px auto 0;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.ctaActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 38px;
+}
+
+/* ---------- 页脚：站点配置（名称 / logo / 简介 / 链接 / ICP） ---------- */
+
+.footer {
+  padding: 56px clamp(20px, 4vw, 40px) 40px;
+  background: #050609;
+}
+
+.footerInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 36px;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.footerBrand {
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.footerBrand p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.footerSlogan {
+  color: rgba(255, 255, 255, 0.26) !important;
+  font-size: 12px !important;
+  letter-spacing: 0.14em;
+}
+
+.footerMeta {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.footerMeta a:hover {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.footerLinks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 20px;
+}
+
+/* ---------- 响应式 ---------- */
+
+@media (max-width: 1024px) {
+  .serviceGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 36px;
+  }
+}
+
+@media (max-width: 860px) {
+  .hero {
+    min-height: auto;
+    padding: 120px 22px 64px;
+  }
+
+  .heroTitle {
+    max-width: 100%;
+  }
+
+  .stats {
+    margin-top: 48px;
+    gap: 28px;
+  }
+
+  .section {
+    padding-top: 76px;
+  }
+
+  .sceneCard {
+    min-height: 520px;
+  }
+
+  .sceneBody {
+    max-width: 100%;
+  }
+
+  .sceneControls {
+    top: 16px;
+    right: 16px;
+    gap: 12px;
+    padding: 8px 12px;
+  }
+
+  .serviceGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .footerInner {
+    flex-direction: column;
+  }
+
+  .footerMeta {
+    justify-items: start;
+  }
+
+  .footerLinks {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar {
+    padding: 12px 16px;
+  }
+
+  .brand span {
+    display: none;
+  }
+
+  .ghostButton,
+  .primaryButton {
+    height: 34px;
+    padding: 0 16px;
+    font-size: 13px;
+  }
+
+  .hero {
+    padding-top: 104px;
+  }
+
+  .heroBadge {
+    font-size: 12px;
+  }
+
+  .heroActions,
+  .ctaActions {
+    flex-direction: column;
+  }
+
+  .heroPrimary,
+  .heroSecondary {
+    width: 100%;
+  }
+
+  .serviceGrid,
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sceneCard {
+    min-height: 480px;
+  }
+
+  .sceneArrows {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroPrimary,
+  .heroSecondary,
+  .serviceCard,
+  .sceneImage,
+  .sceneBar,
+  .sceneBarActive {
+    transition: none;
+  }
+
+  .heroPrimary:hover,
+  .heroSecondary:hover,
+  .serviceCard:hover {
+    transform: none;
+  }
+}

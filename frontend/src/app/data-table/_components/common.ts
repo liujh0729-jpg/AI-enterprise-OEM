@@ -21,6 +21,9 @@ export function fieldTypeLabel(type: string) {
   return FIELD_TYPE_LABEL[type] || type;
 }
 
+/** 字段级 AI 列配置：提示词 + 取材列（后端的 options.ai）。 */
+export type FieldAi = { prompt: string; source_keys: string[] };
+
 /** 后端 decorateField 的返回形状。 */
 export type DataTableField = {
   id: number;
@@ -29,7 +32,7 @@ export type DataTableField = {
   fieldKey: string;
   fieldType: string;
   sortOrder: number;
-  options?: { choices?: string[] } | null;
+  options?: { choices?: string[]; ai?: FieldAi | null } | null;
   required: boolean;
   createdAt: string;
 };
@@ -109,6 +112,86 @@ export type RowPage = {
   pageSize: number;
 };
 
+/** 视图类型：网格 / 看板 / 汇总，只影响呈现。 */
+export type ViewType = "GRID" | "KANBAN" | "DASHBOARD";
+
+export const VIEW_TYPE_LABEL: Record<string, string> = {
+  GRID: "网格",
+  KANBAN: "看板",
+  DASHBOARD: "汇总",
+};
+
+/** 保存的表格视图（后端 data_table_views）。 */
+export type DataTableView = {
+  id: number;
+  tableId: number;
+  createdBy: string;
+  name: string;
+  type: ViewType;
+  config: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** AI 列填充结果。 */
+export type AiFillResult = {
+  fieldKey: string;
+  updated: number;
+  skipped: number;
+  model: string;
+  mode: "llm" | "rule";
+};
+
+/** AI 问数结果：结论 + 聚合口径 + 样本行。 */
+export type AiAskResult = {
+  answer: string;
+  mode: "llm" | "aggregate";
+  model: string;
+  columns: { key: string; name: string; type: string }[];
+  aggregates: Record<string, unknown>;
+  rows: Record<string, unknown>[];
+  total: number;
+  sampleSize: number;
+};
+
+/** 一句话建表的列草稿。 */
+export type PlanField = {
+  name: string;
+  field_key: string;
+  field_type: string;
+  choices: string[];
+  required: boolean;
+  ai: FieldAi | null;
+};
+
+/** 一句话建表草稿（不落库，确认后再走新建 + 批量建列）。 */
+export type PlanTable = {
+  name: string;
+  description: string;
+  fields: PlanField[];
+  model: string;
+  mode: "llm" | "rule";
+};
+
+/** AI 视图草稿。 */
+export type PlanView = {
+  name: string;
+  type: ViewType;
+  config: Record<string, unknown>;
+  model: string;
+};
+
+/** 看板/汇总视图能用的列（看板按单选或文本列分组，汇总只对数字列做合计）。 */
+export function groupableFields(fields: DataTableField[]) {
+  return fields.filter(
+    (field) => field.fieldType === "select" || field.fieldType === "text",
+  );
+}
+
+export function numericFields(fields: DataTableField[]) {
+  return fields.filter((field) => field.fieldType === "number");
+}
+
 /** 飞书同步：本地列键 ↔ 飞书字段名。 */
 export type FeishuMapping = { localKey: string; feishuName: string };
 
@@ -172,6 +255,13 @@ const api = {
   deleteRow: endpoint(endpoints.DataTable_removeRow),
   grants: endpoint(endpoints.DataTable_grants),
   saveGrants: endpoint(endpoints.DataTable_saveGrants),
+  aiFillColumn: endpoint(endpoints.DataTable_aiFillColumn),
+  aiAsk: endpoint(endpoints.DataTable_aiAsk),
+  aiPlanTable: endpoint(endpoints.DataTable_aiPlanTable),
+  aiPlanView: endpoint(endpoints.DataTable_aiPlanView),
+  views: endpoint(endpoints.DataTable_views),
+  saveView: endpoint(endpoints.DataTable_saveView),
+  removeView: endpoint(endpoints.DataTable_removeView),
   feishuSyncs: endpoint(endpoints.DataTable_feishuSyncs),
   createFeishuSync: endpoint(endpoints.DataTable_createFeishuSync),
   updateFeishuSync: endpoint(endpoints.DataTable_updateFeishuSync),
@@ -268,6 +358,33 @@ export const tableApi = {
       api.saveGrants({ params: { id: String(id) }, body: { grants } }),
     ),
   exportUrl: (id: number) => `/api/backend/enterprise/data-tables/${id}/export`,
+  aiFillColumn: (
+    id: number,
+    body: { field_key: string; prompt?: string; source_keys?: string[]; limit?: number },
+  ) =>
+    mutate<AiFillResult>(
+      api.aiFillColumn({ params: { id: String(id) }, body }),
+    ),
+  aiAsk: (id: number, question: string) =>
+    mutate<AiAskResult>(
+      api.aiAsk({ params: { id: String(id) }, body: { question } }),
+    ),
+  aiPlanTable: (text: string) =>
+    mutate<PlanTable>(api.aiPlanTable({ body: { text } })),
+  aiPlanView: (id: number, text: string) =>
+    mutate<PlanView>(
+      api.aiPlanView({ params: { id: String(id) }, body: { text } }),
+    ),
+  views: (id: number) =>
+    load<DataTableView[]>(api.views({ params: { id: String(id) } })),
+  saveView: (
+    id: number,
+    body: { id?: number; name: string; type: ViewType; config?: Record<string, unknown> },
+  ) => mutate<DataTableView>(api.saveView({ params: { id: String(id) }, body })),
+  removeView: (id: number, viewId: number) =>
+    mutate<{ id: number }>(
+      api.removeView({ params: { id: String(id), viewId: String(viewId) } }),
+    ),
   feishuSyncs: (id: number) =>
     load<FeishuSync[]>(api.feishuSyncs({ params: { id: String(id) } })),
   createFeishuSync: (id: number, body: Record<string, unknown>) =>

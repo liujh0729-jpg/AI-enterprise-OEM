@@ -284,6 +284,54 @@ export class FeishuClient {
     return data.data || {};
   }
 
+  async attendanceFlows(
+    token: string,
+    userIds: string[],
+    fromSec: number,
+    toSec: number,
+  ): Promise<{ externalUserId: string; checkTime: string }[]> {
+    if (!userIds.length) return [];
+    const data = await httpJson<{
+      code?: number;
+      msg?: string;
+      data?: {
+        user_flow_results?: Array<{
+          user_id?: string;
+          records?: Array<{ check_time?: string }>;
+        }>;
+      };
+    }>(`${FEISHU_BASE}/attendance/v1/user_flows/query?employee_type=open_id`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        user_ids: userIds.slice(0, 50),
+        check_time_from: String(fromSec),
+        check_time_to: String(toSec),
+      },
+    });
+    if (data.code && data.code !== 0) {
+      throw new BusinessException(
+        ErrorCode.FORBIDDEN,
+        `飞书考勤读取失败：${data.msg || '请检查考勤查询权限'}`,
+      );
+    }
+    const out: { externalUserId: string; checkTime: string }[] = [];
+    for (const item of data.data?.user_flow_results || []) {
+      if (!item.user_id) continue;
+      for (const record of item.records || []) {
+        if (!record.check_time) continue;
+        const sec = Number(record.check_time);
+        out.push({
+          externalUserId: item.user_id,
+          checkTime: new Date(
+            (Number.isFinite(sec) ? sec : 0) * 1000,
+          ).toISOString(),
+        });
+      }
+    }
+    return out;
+  }
+
   decryptEvent(encryptKey: string, encrypted: string): Record<string, unknown> {
     try {
       const key = createHash('sha256').update(encryptKey).digest();
@@ -394,6 +442,39 @@ export class WecomClient {
       }
     }
     return out;
+  }
+
+  async checkinRecords(
+    token: string,
+    userIds: string[],
+    fromSec: number,
+    toSec: number,
+  ): Promise<{ externalUserId: string; checkTime: string }[]> {
+    if (!userIds.length) return [];
+    const data = await httpJson<{
+      errcode?: number;
+      errmsg?: string;
+      checkindata?: Array<{ userid?: string; checkin_time?: number }>;
+    }>(`${WECOM_BASE}/checkin/getcheckindata?access_token=${token}`, {
+      method: 'POST',
+      body: {
+        useridlist: userIds.slice(0, 100),
+        starttime: fromSec,
+        endtime: toSec,
+      },
+    });
+    if (data.errcode && data.errcode !== 0) {
+      throw new BusinessException(
+        ErrorCode.FORBIDDEN,
+        `企业微信考勤读取失败：${data.errmsg || '请检查打卡应用权限'}`,
+      );
+    }
+    return (data.checkindata || [])
+      .filter((item) => item.userid && item.checkin_time)
+      .map((item) => ({
+        externalUserId: String(item.userid),
+        checkTime: new Date((item.checkin_time || 0) * 1000).toISOString(),
+      }));
   }
 
   async sendTextCard(

@@ -15,6 +15,7 @@ import type {
   ContentAgentAssistantKind,
   ContentAgentAssistantKindSpec,
   ContentAgentAssistantMessage,
+  ContentAgentPersona,
 } from "@enterprise/contracts";
 import { CONTENT_AGENT_ASSISTANT_KIND_SPECS } from "@enterprise/contracts";
 import {
@@ -78,6 +79,8 @@ type Editor = {
   config: Record<string, string>;
   channelId: number;
   model: string;
+  /** 回复用的数字分身；0＝自动（按语义自选） */
+  personaId: number;
   allowedUsers: string;
   enabled: boolean;
 };
@@ -90,6 +93,7 @@ const EMPTY_EDITOR: Editor = {
   config: {},
   channelId: 0,
   model: "",
+  personaId: 0,
   allowedUsers: "",
   enabled: true,
 };
@@ -114,6 +118,7 @@ export function AgentAssistantTab() {
     { value: number; label: string; enabled: boolean }[]
   >([]);
   const [slot, setSlot] = useState({ channelId: 0, model: "" });
+  const [personas, setPersonas] = useState<ContentAgentPersona[]>([]);
   const [editor, setEditor] = useState<Editor>(EMPTY_EDITOR);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -142,6 +147,14 @@ export function AgentAssistantTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 数字分身清单：只影响「谁来回复」，读不到就保持自动
+  useEffect(() => {
+    void contentApi
+      .personas()
+      .then((rows) => setPersonas(rows || []))
+      .catch(() => setPersonas([]));
+  }, []);
 
   // 渠道清单与文本槽位：读不到只影响弹窗默认值，不挡清单
   useEffect(() => {
@@ -233,6 +246,7 @@ export function AgentAssistantTab() {
       config,
       channelId: row.channelId,
       model: row.model,
+      personaId: row.personaId || 0,
       allowedUsers: row.allowedUsers,
       enabled: row.enabled,
     });
@@ -300,6 +314,7 @@ export function AgentAssistantTab() {
         config: editor.config,
         channelId: editor.channelId,
         model: editor.model.trim(),
+        personaId: editor.personaId,
         allowedUsers: editor.allowedUsers.trim(),
         enabled: editor.enabled,
       };
@@ -423,6 +438,13 @@ export function AgentAssistantTab() {
                 {spec?.direction === "twoWay" ? "可收可回" : "只推送"}
               </Tag>
               {row.enabled ? null : <Tag>已停用</Tag>}
+              {row.personaId > 0 ? (
+                <Tag color="purple">
+                  分身：
+                  {personas.find((item) => item.id === row.personaId)?.name ||
+                    `#${row.personaId}`}
+                </Tag>
+              ) : null}
             </Space>
             {row.lastError ? (
               <Tooltip title={row.lastError}>
@@ -775,6 +797,27 @@ export function AgentAssistantTab() {
                   ) : null}
                 </label>
               ))}
+
+              <label
+                className="data-table-form-item"
+                style={{ gridColumn: "1 / -1" }}
+              >
+                <span className="data-table-form-label">回复分身</span>
+                <Select
+                  value={editor.personaId}
+                  options={[
+                    { value: 0, label: "自动（按每轮语义自选）" },
+                    ...personas.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    })),
+                  ]}
+                  onChange={(value: number) => patchEditor({ personaId: value })}
+                />
+                <span className="text-12 muted">
+                  选定后这个通道的所有回复都用该分身的人设、知识与记忆；分身绑了模型时优先用它。
+                </span>
+              </label>
 
               <label className="data-table-form-item">
                 <span className="data-table-form-label">执行渠道</span>

@@ -1,4 +1,7 @@
 import { ContentAgentSkillService } from './agent-skills.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { IdentityService } from '../identity/identity.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 技能摘要进系统提示的收口：条数与字符都要有上限，
@@ -11,9 +14,9 @@ function serviceWith(rows: { name: string; description: string }[]) {
     .mockImplementation((query: { take?: number }) =>
       Promise.resolve(rows.slice(0, query.take ?? rows.length)),
     );
-  const prisma = { contentAgentSkill: { findMany } } as never;
+  const prisma = stub<PrismaService>({ contentAgentSkill: { findMany } });
   return {
-    service: new ContentAgentSkillService(prisma, {} as never),
+    service: new ContentAgentSkillService(prisma, stub<IdentityService>()),
     findMany,
   };
 }

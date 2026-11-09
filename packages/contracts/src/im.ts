@@ -42,6 +42,8 @@ export const IM_DIRECTION_LABELS: Record<string, string> = {
   BOTH: "双向",
 };
 
+export const IM_NOTIFY_TARGETS = ["OFF", "USER", "CHAT"] as const;
+
 /** 可推送的通知事件：白名单里勾选，未勾＝不推。 */
 export const IM_NOTIFY_EVENTS = [
   "approval_pending",
@@ -193,7 +195,7 @@ const notifyRulesBody = z.object({
     .array(
       z.object({
         event: z.string().min(1).max(40),
-        target: z.enum(["OFF", "USER", "CHAT"]).default("OFF"),
+        target: z.enum(IM_NOTIFY_TARGETS).default("OFF"),
         chatId: z.string().max(120).default(""),
       }),
     )

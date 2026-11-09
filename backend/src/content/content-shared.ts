@@ -3,6 +3,7 @@ import {
   CONTENT_CHANNEL_PRESET_BASE_URLS,
   CONTENT_CHANNEL_PROVIDERS,
   CONTENT_MEDIA_TYPES,
+  type ContentChannelPreset,
   type ContentMediaType,
 } from '@enterprise/contracts';
 import { text as readText } from '../common/api';
@@ -19,7 +20,11 @@ export function aipddBaseUrl() {
 
 /** 渠道预设默认地址（留空由调用方兜底为自定义）。 */
 export function presetBaseUrl(preset: string) {
-  return String(CONTENT_CHANNEL_PRESET_BASE_URLS[preset as never] || '');
+  return isPreset(preset) ? CONTENT_CHANNEL_PRESET_BASE_URLS[preset] : '';
+}
+
+export function isPreset(value: string): value is ContentChannelPreset {
+  return (CONTENT_CHANNEL_PRESETS as readonly string[]).includes(value);
 }
 
 /** Claude 走 Anthropic 原生协议（/messages + x-api-key），其余预设一律 OpenAI 兼容。 */

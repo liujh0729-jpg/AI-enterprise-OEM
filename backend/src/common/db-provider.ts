@@ -10,7 +10,8 @@ function fromUrl(url: string | undefined): DbProvider | null {
   try {
     const protocol = new URL(url).protocol;
     if (protocol === 'mysql:') return 'mysql';
-    if (protocol === 'postgres:' || protocol === 'postgresql:') return 'postgres';
+    if (protocol === 'postgres:' || protocol === 'postgresql:')
+      return 'postgres';
   } catch {
     return null;
   }

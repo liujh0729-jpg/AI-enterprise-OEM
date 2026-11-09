@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ConfigProvider } from "antd";
+import { AiCopilot } from "@/components/ai-copilot";
 import { PageHero } from "@/components/ui/panel";
 import { serviceDeskApi } from "@/api/collab";
 import { ConversationPanel } from "./_components/conversation-panel";
@@ -13,9 +14,11 @@ import {
 } from "./_components/settings-panels";
 import { ChannelsPanel } from "./_components/channel-panel";
 import { GroupsPanel, TeamPanel } from "./_components/team-panel";
+import { GapsAfterSalesTab } from "./_components/gaps-after-sales";
 
 type TabKey =
   | "conversations"
+  | "after-sales"
   | "team"
   | "settings"
   | "knowledge"
@@ -45,6 +48,7 @@ export default function ServiceDeskPage() {
     { key: "conversations", label: "会话" },
     ...(overview?.isManager
       ? [
+          { key: "after-sales", label: "售后工单" },
           { key: "team", label: "客服团队" },
           { key: "settings", label: "接待设置" },
           { key: "knowledge", label: "常用语与知识" },
@@ -70,6 +74,7 @@ export default function ServiceDeskPage() {
       {current === "conversations" ? (
         <ConversationPanel overview={overview} onOverview={loadOverview} />
       ) : null}
+      {current === "after-sales" ? <GapsAfterSalesTab /> : null}
       {current === "team" ? (
         <div className="sd-stack">
           <TeamPanel />
@@ -81,6 +86,12 @@ export default function ServiceDeskPage() {
       {current === "sites" ? <SitesPanel /> : null}
       {current === "channels" ? <ChannelsPanel /> : null}
       {current === "stats" ? <StatsPanel /> : null}
+      <AiCopilot
+        module="service_desk"
+        moduleLabel="AI客服"
+        context={`当前页签：${tabs.find((item) => item.key === current)?.label || current}`}
+        suggestions={["今天接待量怎么样", "帮我看下常用语怎么配"]}
+      />
     </ConfigProvider>
   );
 }

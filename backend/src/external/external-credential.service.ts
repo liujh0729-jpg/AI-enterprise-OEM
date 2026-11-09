@@ -4,7 +4,7 @@ import {
   createHash,
   randomBytes,
 } from 'node:crypto';
-import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { PrismaService } from '../prisma/prisma.service';
@@ -95,7 +95,7 @@ export class ExternalCredentialService {
     }
     const data = {
       secretCipher: this.encrypt(input.secret),
-      extra: (input.extra || {}) as unknown as Prisma.InputJsonValue,
+      extra: toJsonInput(input.extra || {}),
       expiresAt,
     };
     const row = await this.prisma.externalCredential.upsert({

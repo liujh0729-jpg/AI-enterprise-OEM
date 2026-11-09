@@ -19,7 +19,6 @@ import {
   Space,
   Steps,
   Table,
-  Tabs,
   Upload,
   Alert,
 } from "antd";
@@ -28,7 +27,7 @@ import { useSaveTaxRecord } from '@/query/tax';
 import { presentMutationError } from '@/query/errors';
 import { taxApi } from '@/api/tax';
 import { useBusinessQuery } from '@/query/business';
-import { EmptyState, Panel } from "@/components/ui/panel";
+import { EmptyState, Panel, PanelTabs } from "@/components/ui/panel";
 import { RowListEditor, type EditorRow } from "@/components/row-list-editor";
 import {
   fmtTime,
@@ -278,8 +277,8 @@ export function ReportToolsPanel({ enterpriseId }: { enterpriseId: number }) {
         <div className="text-12 muted" style={{ marginBottom: 10 }}>
           企业财务报表工具：查看本期资产负债表、利润表、现金流量表并下载；财务报表由平台依据账套出具，支持导出 CSV（Excel 可直接打开）。
         </div>
-        <Tabs
-          activeKey={activeKey}
+        <PanelTabs
+          value={activeKey}
           onChange={setActiveKey}
           items={reports.map((report) => ({
             key: report.key,

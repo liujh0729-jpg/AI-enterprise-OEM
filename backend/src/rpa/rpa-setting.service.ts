@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RpaCrypto } from './rpa-crypto';
 import {
   BITPHONE_COMPUTE_TYPES,
   BITPHONE_REGIONS,
@@ -15,6 +16,7 @@ const DEFAULT_API_ENDPOINT = 'http://127.0.0.1:54345';
 /** 一次保存里「被提交到的键」，未出现的键保持库中原值。 */
 type SettingDraft = {
   bitbrowserApiEndpoint?: string;
+  bitbrowserApiKeyCipher?: string;
   bitbrowserGroupId?: string;
   bitphoneRegionId?: string;
   bitphoneComputeType?: string;
@@ -28,6 +30,7 @@ export class RpaSettingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly crypto: RpaCrypto,
   ) {}
 
   async get(user: CurrentUser) {
@@ -51,6 +54,9 @@ export class RpaSettingService {
       const endpoint = text(body.bitbrowserApiEndpoint).trim().slice(0, 500);
       data.bitbrowserApiEndpoint = endpoint || DEFAULT_API_ENDPOINT;
     }
+    // 密钥留空＝不动已存密文（界面上不回显旧密钥，只回「是否已保存」）
+    const apiKey = text(body.bitbrowserApiKey);
+    if (apiKey) data.bitbrowserApiKeyCipher = this.crypto.encrypt(apiKey);
     if (body.bitbrowserGroupId !== undefined) {
       data.bitbrowserGroupId = text(body.bitbrowserGroupId)
         .trim()
@@ -88,6 +94,7 @@ export class RpaSettingService {
             createdBy: user.userId,
             bitbrowserApiEndpoint:
               data.bitbrowserApiEndpoint ?? DEFAULT_API_ENDPOINT,
+            bitbrowserApiKeyCipher: data.bitbrowserApiKeyCipher ?? '',
             bitbrowserGroupId: data.bitbrowserGroupId ?? '',
             bitphoneRegionId: data.bitphoneRegionId ?? '',
             bitphoneComputeType: data.bitphoneComputeType ?? '',
@@ -112,6 +119,7 @@ function defaultSetting(userId: string) {
     bitbrowserGroupId: '',
     bitphoneRegionId: '',
     bitphoneComputeType: '',
+    hasBitbrowserApiKey: false,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -121,6 +129,7 @@ function decorate(row: {
   id: number;
   createdBy: string;
   bitbrowserApiEndpoint: string;
+  bitbrowserApiKeyCipher: string;
   bitbrowserGroupId: string;
   bitphoneRegionId: string;
   bitphoneComputeType: string;
@@ -134,6 +143,7 @@ function decorate(row: {
     bitbrowserGroupId: row.bitbrowserGroupId,
     bitphoneRegionId: row.bitphoneRegionId,
     bitphoneComputeType: row.bitphoneComputeType,
+    hasBitbrowserApiKey: row.bitbrowserApiKeyCipher !== '',
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

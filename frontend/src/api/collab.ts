@@ -56,6 +56,7 @@ export const serviceDeskApi = {
   claim: endpoint(endpoints.ServiceDesk_claim),
   transfer: endpoint(endpoints.ServiceDesk_transfer),
   close: endpoint(endpoints.ServiceDesk_close),
+  convertToCrm: endpoint(endpoints.ServiceDesk_convertToCrm),
   aiSuggest: endpoint(endpoints.ServiceDesk_aiSuggest),
   canned: endpoint(endpoints.ServiceDesk_canned),
   saveCanned: endpoint(endpoints.ServiceDesk_saveCanned),

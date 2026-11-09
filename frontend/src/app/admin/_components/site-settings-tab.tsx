@@ -1,28 +1,138 @@
 "use client";
-import { App, Button, Checkbox, Form, Input, Select, Space, Switch } from "antd";
+import { App, Button, Checkbox, Form, Input, Select, Space } from "antd";
 import { useEffect } from "react";
 import { SettingOutlined } from "@ant-design/icons";
 import { Panel, Notice } from "@/components/ui/panel";
 import { platformApi, type SiteConfig } from "@/api/platform";
-import { enterpriseRoute } from "@/config/routes";
+import { enterpriseRoute, type EnterpriseRoute } from "@/config/routes";
+import { BOARD_TAB_DEFS } from "@/lib/board-tabs";
 import { normalizeSiteUrl } from "@/lib/site-url";
 import { LANGUAGES } from "@/lib/i18n/langs";
 import { useOperationMutation } from "@/query/business";
 import { presentMutationError } from "@/query/errors";
 import { PermissionNotice, useAdminData } from "./common";
 
-/** 业务服务菜单候选项：与侧栏菜单定义（enterpriseRoute）同源，新增/删减栏目只改 routes.ts。 */
-const BUSINESS_MENU_ITEMS = (
-  enterpriseRoute.routes?.find((route) => route.name === "业务服务")?.routes ?? []
-).map((route) => ({ label: route.name || route.path || "", value: route.path || "" }));
+/**
+ * 用户侧菜单候选项：与侧栏菜单定义（enterpriseRoute）同源，新增/删减栏目只改 routes.ts。
+ * 顶级单条（如首页）与每个分组各成一节；分组内的嵌套分组（如「工作台 → 内容创作」）拍平进所属节。
+ * 值即菜单里的 path（「AI增值服务」的外链为完整 URL）。
+ */
+function leafMenuItems(routes: EnterpriseRoute[]): { label: string; value: string }[] {
+  return routes.flatMap((route) =>
+    route.type === "group"
+      ? leafMenuItems(route.routes ?? [])
+      : route.path
+        ? [{ label: route.name || route.path, value: route.path }]
+        : [],
+  );
+}
 
-/** 开放集成菜单候选项：只开放「API 文档」与「MCP Server」两项给管理员控制显隐。 */
-const INTEGRATION_MENU_PATHS = ["/developer/docs", "/developer/mcp"];
-const INTEGRATION_MENU_ITEMS = (
-  enterpriseRoute.routes?.find((route) => route.name === "开放集成")?.routes ?? []
-)
-  .filter((route) => INTEGRATION_MENU_PATHS.includes(route.path || ""))
-  .map((route) => ({ label: route.name || route.path || "", value: route.path || "" }));
+const MENU_SECTIONS: { title: string; items: { label: string; value: string }[] }[] = [
+  ...(enterpriseRoute.routes ?? [])
+    .filter((route) => route.type !== "group")
+    .map((route) => ({ title: route.name || "首页", items: leafMenuItems([route]) })),
+  ...(enterpriseRoute.routes ?? [])
+    .filter((route) => route.type === "group")
+    .map((route) => ({ title: route.name || "未命名分组", items: leafMenuItems(route.routes ?? []) })),
+].filter((section) => section.items.length > 0);
+
+/**
+ * 菜单显隐控件：antd Checkbox.Group 不支持分组标题，这里按节渲染、共享同一个表单值。
+ * 每节只改本节勾选（把本节的项替换掉），其它节的隐藏项原样保留。
+ */
+function MenuVisibilityPicker({
+  value,
+  onChange,
+}: {
+  value?: string[];
+  onChange?: (next: string[]) => void;
+}) {
+  const hidden = new Set(value ?? []);
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {MENU_SECTIONS.map((section) => {
+        const sectionPaths = new Set(section.items.map((item) => item.value));
+        const hiddenCount = section.items.filter((item) => hidden.has(item.value)).length;
+        return (
+          <div
+            key={section.title}
+            style={{ border: "1px solid var(--border, #f0f0f0)", borderRadius: 8, padding: "10px 12px" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <strong style={{ fontSize: 13 }}>{section.title}</strong>
+              <span className="text-12 muted">
+                {hiddenCount ? `已隐藏 ${hiddenCount} / ${section.items.length} 项` : `${section.items.length} 项全部可见`}
+              </span>
+            </div>
+            <Checkbox.Group
+              options={section.items}
+              value={section.items.filter((item) => hidden.has(item.value)).map((item) => item.value)}
+              onChange={(checked) =>
+                onChange?.([
+                  ...[...hidden].filter((path) => !sectionPaths.has(path)),
+                  ...(checked as string[]),
+                ])
+              }
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * 板块页签显隐控件：每个「业务服务」板块一行，两个页签（需求信息 / 服务市集）勾选即隐藏。
+ * 与菜单显隐同口径：仅控制页签展示，对所有身份一致生效，直链/接口不受限。
+ */
+function BoardTabsVisibilityPicker({
+  value,
+  onChange,
+}: {
+  value?: string[];
+  onChange?: (next: string[]) => void;
+}) {
+  const hidden = new Set(value ?? []);
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {BOARD_TAB_DEFS.map((def) => {
+        const options = [
+          def.demand ? { label: def.demand.label, value: `${def.board}:demand` } : null,
+          def.services ? { label: def.services.label, value: `${def.board}:services` } : null,
+        ].filter((o): o is { label: string; value: string } => o !== null);
+        const tokens = options.map((o) => o.value);
+        const hiddenCount = tokens.filter((t) => hidden.has(t)).length;
+        return (
+          <div
+            key={def.board}
+            style={{ border: "1px solid var(--border, #f0f0f0)", borderRadius: 8, padding: "10px 12px" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <strong style={{ fontSize: 13 }}>{def.name}</strong>
+              <span className="text-12 muted">
+                {hiddenCount === 0
+                  ? "两个页签均展示"
+                  : hiddenCount === tokens.length
+                    ? "两个页签均隐藏"
+                    : "部分隐藏"}
+              </span>
+            </div>
+            <Checkbox.Group
+              options={options}
+              value={tokens.filter((t) => hidden.has(t))}
+              onChange={(checked) =>
+                onChange?.([
+                  ...[...hidden].filter((t) => !tokens.includes(t)),
+                  ...(checked as string[]),
+                ])
+              }
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** 语言下拉选项：与前台 i18n 清单同源（lib/i18n/langs），后端白名单校验同一套语言码。 */
 const LANGUAGE_OPTIONS = LANGUAGES.map((l) => ({ label: `${l.label}（${l.code}）`, value: l.code }));
@@ -32,7 +142,7 @@ const LANGUAGE_OPTIONS = LANGUAGES.map((l) => ({ label: `${l.label}（${l.code}�
  */
 export function SiteSettingsTab() {
   const { message } = App.useApp();
-  const [form] = Form.useForm<SiteConfig>();
+  const [form] = Form.useForm<SiteConfig & { footerLinksText?: string }>();
   const { data, denied, loading, reload } = useAdminData("site", (signal) =>
     platformApi.adminGetSite({ signal }),
   );
@@ -45,17 +155,15 @@ export function SiteSettingsTab() {
     if (data) {
       form.setFieldsValue({
         ...data,
-        // 后台存的是「是否隐藏」，表单用「是否可见」开关更好理解；缺省可见。
-        aiServicesVisible: data.aiServicesHidden !== true,
         footerLinksText: (data.footerLinks || [])
           .map((l) => `${l.label}\t${l.url}`)
           .join("\n"),
-      } as never);
+      });
     }
   }, [data, form]);
 
   const onSubmit = async (
-    values: SiteConfig & { footerLinksText?: string; aiServicesVisible?: boolean },
+    values: SiteConfig & { footerLinksText?: string },
   ) => {
     const footerLinks = String(values.footerLinksText || "")
       .split(/\r?\n/)
@@ -75,9 +183,8 @@ export function SiteSettingsTab() {
           icpRecord: values.icpRecord,
           footerLinks,
           aipddReferralCode: values.aipddReferralCode,
-          businessMenuHidden: values.businessMenuHidden || [],
-          integrationMenuHidden: values.integrationMenuHidden || [],
-          aiServicesHidden: values.aiServicesVisible === false,
+          hiddenMenuPaths: values.hiddenMenuPaths || [],
+          hiddenBoardTabs: values.hiddenBoardTabs || [],
           defaultLanguage: values.defaultLanguage || "zh-CN",
           // 后端只保留「协议 + 域名」，这里先把用户输入的原值交出去（清空即回落当前访问域名）
           siteUrl: String(values.siteUrl || "").trim(),
@@ -148,26 +255,18 @@ export function SiteSettingsTab() {
             <Input placeholder="你在 AIPDD 平台的推荐码" maxLength={64} allowClear />
           </Form.Item>
           <Form.Item
-            name="businessMenuHidden"
-            label="业务服务菜单显隐（勾选即隐藏）"
-            extra="控制前台侧栏「业务服务」分组里各菜单项是否显示，保存后对所有用户即时生效；仅影响菜单展示，已收藏链接的直接访问不受影响；全部隐藏后「业务服务」分组自动消失。"
+            name="hiddenMenuPaths"
+            label="用户侧菜单显隐（勾选即隐藏）"
+            extra="控制前台侧栏每一条菜单是否显示，覆盖首页入口与每个分组（含「AI增值服务」的外链），保存后对所有用户即时生效；仅影响菜单展示，已收藏链接的直接访问不受影响；某分组内的菜单项全部隐藏后该分组自动消失。"
           >
-            <Checkbox.Group options={BUSINESS_MENU_ITEMS} />
+            <MenuVisibilityPicker />
           </Form.Item>
           <Form.Item
-            name="integrationMenuHidden"
-            label="开放集成菜单显隐（勾选即隐藏）"
-            extra="控制前台侧栏「开放集成」分组里「API 文档」与「MCP Server」两个菜单项是否显示，默认均可见；仅影响菜单展示，已收藏链接的直接访问不受影响。"
+            name="hiddenBoardTabs"
+            label="业务服务板块页签（勾选即隐藏）"
+            extra="逐个「业务服务」板块控制其「需求信息」与「服务市集」页签是否展示：勾选即对该板块隐藏该页签，保存后对所有身份即时生效（管理员也看不到该页签）；仅影响页签展示，已收藏链接的直接访问不受影响。"
           >
-            <Checkbox.Group options={INTEGRATION_MENU_ITEMS} />
-          </Form.Item>
-          <Form.Item
-            name="aiServicesVisible"
-            label="AI增值服务菜单对用户可见"
-            valuePropName="checked"
-            extra="关闭后前台侧栏「AI增值服务」整组隐藏（算力服务 / A2A 供需平台），默认开启；仅影响菜单展示，外部链接本身仍可直达。"
-          >
-            <Switch checkedChildren="可见" unCheckedChildren="隐藏" />
+            <BoardTabsVisibilityPicker />
           </Form.Item>
           <Form.Item
             name="defaultLanguage"

@@ -216,7 +216,7 @@ export class CrmAiService {
     const id = Number(body.opportunityId);
     const base = await this.scope.scopeWhereAsync(ctx);
     const row = await this.prisma.crmOpportunity.findFirst({
-      where: { ...base, id, deletedAt: null } as never,
+      where: { ...base, id, deletedAt: null },
     });
     if (!row)
       throw new BusinessException(ErrorCode.NOT_FOUND, '商机不存在或无权查看');
@@ -452,28 +452,28 @@ ${followList}
             ...base,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmCustomer.count({
           where: {
             ...base,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmOpportunity.count({
           where: {
             ...base,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmContract.count({
           where: {
             ...finance,
             deletedAt: null,
             createdAt: { gte: since },
-          } as never,
+          },
         }),
         this.prisma.crmPaymentRecord.aggregate({
           where: { ownerUserId: ctx.ownerUserId, createdAt: { gte: since } },

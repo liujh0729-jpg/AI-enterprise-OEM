@@ -34,9 +34,10 @@ export const CONTENT_MEDIA_TYPE_LABELS: Record<ContentMediaType, string> = {
   embedding: "向量嵌入",
 };
 
-/** 渠道类型：aipdd 内置（Key 取「API Key 管理」），custom 通用 OpenAI 兼容，mediakit 火山增强。 */
+/** 渠道类型：aipdd 内置（Key 取「API Key 管理」），localapi 本站模型广场（免 Key），custom 通用 OpenAI 兼容，mediakit 火山增强。 */
 export const CONTENT_CHANNEL_PROVIDERS = [
   "aipdd",
+  "localapi",
   "custom",
   "volcengine",
   "mediakit",
@@ -126,6 +127,7 @@ export const CONTENT_CHANNEL_PROVIDER_LABELS: Record<
   string
 > = {
   aipdd: "AIPDD（内置）",
+  localapi: "LocalAPI（本站模型广场，免 Key）",
   custom: "自定义 OpenAI 兼容（支持 NewAPI）",
   volcengine: "火山引擎（豆包 / 方舟）",
   mediakit: "火山 AI MediaKit",
@@ -143,6 +145,12 @@ export const contentModelChannelSchema = z.object({
   /** 渠道预设（openai/anthropic/.../custom）；空串＝老数据，按 OpenAI 兼容处理 */
   preset: z.string(),
   enabled: z.boolean(),
+  /** Key 是否已通过连通校验；LocalAPI / 已绑定的 AIPDD 恒为 true */
+  verified: z.boolean(),
+  /** 是否可选：LocalAPI 免 Key；其余渠道必须已配置 Key 且通过校验 */
+  available: z.boolean(),
+  /** 不可选的原因（available=true 时为空串） */
+  unavailableReason: z.string(),
 });
 
 export const contentModelSlotSchema = z.object({
@@ -243,6 +251,11 @@ export const contentDigitalAssetSchema = z.object({
   fileSize: z.number(),
   labels: z.array(z.string()),
   isOpen: z.boolean(),
+  /** AI 理解产出的一句话摘要；未理解过为空串 */
+  caption: z.string().default(""),
+  /** 内容安全结论：pass/block/pending/off，空串＝未送审（off＝未配置内容安全） */
+  moderation: z.string().default(""),
+  moderationNote: z.string().default(""),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -252,6 +265,53 @@ export const contentDigitalAssetPageSchema = z.object({
   total: z.number(),
   page: z.number(),
   pageSize: z.number(),
+});
+
+/**
+ * 资产 AI 理解（P1-C）：把资产转成可直接复用的文本。
+ * 图片＝视觉模型的画面描述（kind=image），可读文档＝已抽取的正文（kind=text）；
+ * 缺可用模型时回落规则式摘要（mode=rule），不阻断。
+ */
+export const contentAssetExtractSchema = z.object({
+  assetId: z.number(),
+  kind: z.enum(["image", "text"]),
+  text: z.string(),
+  labels: z.array(z.string()),
+  caption: z.string().default(""),
+  model: z.string(),
+  mode: z.enum(["llm", "rule"]),
+});
+
+/** 资产自动打标候选：中文标签 + 可读理解摘要，由用户确认后写回。 */
+export const contentAssetAutoTagSchema = z.object({
+  assetId: z.number(),
+  labels: z.array(z.string()),
+  caption: z.string().default(""),
+  model: z.string(),
+  mode: z.enum(["llm", "rule"]),
+});
+
+/** 找相似：按向量余弦返回最相近的若干条（不含自身），scores 与 list 同序。 */
+export const contentAssetSimilarSchema = z.object({
+  list: z.array(contentDigitalAssetSchema),
+  scores: z.array(z.number()),
+});
+
+/** 内容安全：图/视频检测结论。off＝未配置内容安全，按未拦截放行。 */
+export const contentAssetModerateSchema = z.object({
+  assetId: z.number(),
+  status: z.enum(["pass", "block", "pending", "off"]),
+  note: z.string().default(""),
+  mode: z.enum(["green", "off"]),
+});
+
+/** 浏览器直传签名（PostObject 表单）：前端据此把字节直接传到桶，不过后端。 */
+export const contentAssetPresignSchema = z.object({
+  url: z.string(),
+  fields: z.record(z.string(), z.string()),
+  key: z.string(),
+  publicUrl: z.string(),
+  expiresAt: z.string(),
 });
 
 /** 共享资料：一条数字资产共享给一个企业内账号（多选时一个目标一行）。 */
@@ -373,6 +433,14 @@ export const contentAgentPersonaSchema = z.object({
   style: z.string(),
   /** 用户自己写的人设；空串＝不设置 */
   persona: z.string(),
+  /** 默认知识空间（KB）；0＝不限定 */
+  spaceId: z.number(),
+  /** 默认资料库 id 清单；空数组＝不限定 */
+  libraryIds: z.array(z.number()),
+  /** 默认执行渠道；0＝跟随「模型设置」文本槽位 */
+  channelId: z.number(),
+  /** 默认执行模型；空串＝跟随槽位默认 */
+  model: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -400,6 +468,8 @@ export const contentMemoriesSchema = z.object({
   entries: z.array(
     z.object({
       id: z.number(),
+      /** 0＝账号共用；>0＝该数字分身的私有记忆 */
+      personaId: z.number(),
       kind: z.string(),
       content: z.string(),
       source: z.string(),
@@ -516,6 +586,8 @@ export type ContentTool = {
   mediaKit?: boolean;
   /** 提交后是长任务（前端轮询任务） */
   async?: boolean;
+  /** 只在站内流程中使用（如视频模版复刻），不作为工具卡片展示 */
+  hidden?: boolean;
   fields: ContentField[];
 };
 
@@ -592,6 +664,58 @@ export const CONTENT_TOOLS: Record<string, ContentTool> = {
         label: "尾帧（可选）",
         type: "media",
         mediaKind: "image",
+      },
+      {
+        key: "duration",
+        label: "时长（秒）",
+        type: "number",
+        min: 1,
+        max: 30,
+        defaultValue: 5,
+      },
+      {
+        key: "resolution",
+        label: "像素规格（分辨率）",
+        type: "select",
+        defaultValue: "720p",
+        options: ["480p", "720p", "1080p"].map((value) => ({
+          value,
+          label: value,
+        })),
+      },
+      {
+        key: "ratio",
+        label: "尺寸（画面比例）",
+        type: "select",
+        defaultValue: "16:9",
+        options: RATIO_OPTIONS,
+      },
+    ],
+  },
+  /** 视频模版复刻专用：多张参考图 + 提示词直接交给视频模型，不在工具总览里出卡片。 */
+  "video-ref": {
+    key: "video-ref",
+    label: "参考图生视频",
+    description:
+      "带参考图约束主体与画面，写动作、镜头与风格生成视频。视频模版社区点「使用模版生成」时使用。",
+    produces: "video",
+    slots: ["video"],
+    async: true,
+    hidden: true,
+    fields: [
+      {
+        key: "prompt",
+        label: "提示词",
+        type: "textarea",
+        required: true,
+        placeholder: "主体、动作、镜头运动、风格",
+      },
+      {
+        key: "references",
+        label: "参考图（最多 6 张）",
+        type: "media",
+        mediaKind: "image",
+        multiple: true,
       },
       {
         key: "duration",
@@ -1011,6 +1135,25 @@ export const contentAgentSkillSchema = z.object({
   fileCount: z.number(),
   files: z.array(z.object({ path: z.string(), content: z.string() })),
   enabled: z.boolean(),
+  /** 安全审查状态（§5.9 先审后用）：pending/passed/rejected/needsAdmin；响应剥字段的旧缓存行可缺省 */
+  reviewStatus: z.string().optional(),
+  /** 审查结论摘要（rejected/needsAdmin 时告知整改方向） */
+  reviewMessage: z.string().optional(),
+  /** 技能分类（能力基线依据）；旧行可缺省 */
+  category: z.string().optional(),
+  /** 包内声明的权限（network/fs/exec/secrets） */
+  permissions: z
+    .object({
+      network: z.array(z.string()),
+      fs: z.array(z.string()),
+      exec: z.array(z.string()),
+      secrets: z.array(z.string()),
+    })
+    .optional(),
+  /** 是否声明了权限：声明了就必须在启用前二次确认 */
+  permissionsDeclared: z.boolean().optional(),
+  /** 用户是否已确认声明权限 */
+  permissionsAcknowledged: z.boolean().optional(),
   updatedAt: z.string(),
 });
 
@@ -1035,6 +1178,20 @@ export const contentAgentPluginSchema = z.object({
   /** 插件目录来源 owner/name；上传包为空串 */
   sourceSlug: z.string(),
   enabled: z.boolean(),
+  /** 安全审查状态与结论摘要（§5.9，口径同技能行） */
+  reviewStatus: z.string().optional(),
+  reviewMessage: z.string().optional(),
+  category: z.string().optional(),
+  permissions: z
+    .object({
+      network: z.array(z.string()),
+      fs: z.array(z.string()),
+      exec: z.array(z.string()),
+      secrets: z.array(z.string()),
+    })
+    .optional(),
+  permissionsDeclared: z.boolean().optional(),
+  permissionsAcknowledged: z.boolean().optional(),
   updatedAt: z.string(),
 });
 
@@ -1098,6 +1255,35 @@ export const contentConnectorTestSchema = z.object({
   message: z.string(),
 });
 export type ContentConnectorTest = z.infer<typeof contentConnectorTestSchema>;
+
+/** 统一工具 manifest（AI 底座 §4.3）：内置/业务/连接器/硬件/技能/插件归一注册的单一口径。 */
+export const agentToolKindSchema = z.enum([
+  "builtin",
+  "business",
+  "connector",
+  "hardware",
+  "skill",
+  "plugin",
+]);
+export const agentToolManifestSchema = z.object({
+  name: z.string(),
+  kind: agentToolKindSchema,
+  description: z.string(),
+  /** 会改数据/发起动作的工具为 true */
+  write: z.boolean(),
+  /** 对应契约 operationId（内置工具没有） */
+  operationId: z.string().optional(),
+  /** 动作人话（与「智能体记忆」操作流同一份词表） */
+  permission: z.string().optional(),
+  /** 权限红线：命中即不自动执行，理由逐条可见 */
+  forbiddenReason: z.string().optional(),
+  /** 计量口径 */
+  billing: z.string().optional(),
+  /** 来源（连接器名等归属信息） */
+  source: z.string().optional(),
+});
+export type AgentToolManifestEntry = z.infer<typeof agentToolManifestSchema>;
+
 
 export const contentAgentExpertSchema = z.object({
   id: z.number(),
@@ -1300,6 +1486,8 @@ export const contentAgentAssistantChannelSchema = z.object({
   config: z.record(z.string(), z.string()),
   /** 已保存值的敏感配置项 key */
   secretKeys: z.array(z.string()),
+  /** 回复用的数字分身；0＝自动（按语义自选） */
+  personaId: z.number(),
   /** 执行用文本模型；channelId=0 表示取「模型设置」文本槽位（无人值守会失败） */
   channelId: z.number(),
   model: z.string(),
@@ -1634,7 +1822,8 @@ export const ContentEndpoints = {
     path: "/enterprise/content/models",
     params: z.object({}),
     query: z
-      .object({ channelId: z.coerce.number().int().nonnegative().default(0) })
+      // -1 = 本站 LocalAPI 虚拟渠道
+      .object({ channelId: z.coerce.number().int().min(-1).default(0) })
       .passthrough(),
     body: z.undefined(),
     response: envelope(contentModelsSchema),
@@ -1680,6 +1869,100 @@ export const ContentEndpoints = {
     body: passthroughBody,
     response: envelope(contentDigitalAssetSchema),
   },
+  /** 删除数字资产：台账立即删除，OSS 对象尽力删除；历史 AIPDD 资产只移除本地登记。 */
+  Content_deleteDigitalAsset: {
+    method: "delete" as const,
+    path: "/enterprise/content/digital-assets/:id",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(
+      z.object({
+        id: z.number(),
+        deleted: z.boolean(),
+        objectRemoved: z.boolean(),
+        upstreamRetained: z.boolean(),
+      }),
+    ),
+  },
+  /** AI 理解：图片走视觉模型、文档回已抽正文，产出可复用文本（内容创作/知识库直接吃）。 */
+  Content_extractDigitalAsset: {
+    method: "post" as const,
+    path: "/enterprise/content/digital-assets/:id/extract",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z
+      .object({ persist: z.boolean().default(true) })
+      .passthrough(),
+    response: envelope(contentAssetExtractSchema),
+  },
+  /** AI 自动打标：给中文候选标签（不裸枚举），用户确认后走打标接口写入。 */
+  Content_autoTagDigitalAsset: {
+    method: "post" as const,
+    path: "/enterprise/content/digital-assets/:id/auto-tag",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z
+      .object({ persist: z.boolean().default(false) })
+      .passthrough(),
+    response: envelope(contentAssetAutoTagSchema),
+  },
+  /** 找相似：以本条为种子，按向量余弦返回最相近的若干条资产。 */
+  Content_similarDigitalAssets: {
+    method: "get" as const,
+    path: "/enterprise/content/digital-assets/:id/similar",
+    params: z.object({ id: z.string().min(1) }),
+    query: z
+      .object({
+        limit: z.coerce.number().int().positive().max(50).default(12),
+      })
+      .passthrough(),
+    body: z.undefined(),
+    response: envelope(contentAssetSimilarSchema),
+  },
+  /** 内容安全检测（图同步 / 视频异步）：未配置审核时按 off 放行。 */
+  Content_moderateDigitalAsset: {
+    method: "post" as const,
+    path: "/enterprise/content/digital-assets/:id/moderate",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.object({}).passthrough(),
+    response: envelope(contentAssetModerateSchema),
+  },
+  /** 浏览器直传签名：返回表单 POST 目标与字段，前端直接传字节。 */
+  Content_presignDigitalAsset: {
+    method: "post" as const,
+    path: "/enterprise/content/digital-assets/presign",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z
+      .object({
+        filename: z.string().min(1).max(200),
+        type: z.string().max(16).optional(),
+        size: z.coerce.number().int().min(0).default(0),
+        name: z.string().max(200).optional(),
+        labels: z.array(z.string()).optional(),
+      })
+      .passthrough(),
+    response: envelope(contentAssetPresignSchema),
+  },
+  /** 直传完成后登记台账：服务端核对对象确实落桶（stat）再记账，不信前端给的 URL。 */
+  Content_registerDigitalAsset: {
+    method: "post" as const,
+    path: "/enterprise/content/digital-assets/register",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z
+      .object({
+        key: z.string().min(1).max(500),
+        filename: z.string().min(1).max(200),
+        name: z.string().max(200).optional(),
+        type: z.string().max(16).optional(),
+        labels: z.array(z.string()).optional(),
+      })
+      .passthrough(),
+    response: envelope(contentDigitalAssetSchema),
+  },
   Content_jobs: {
     method: "get" as const,
     path: "/enterprise/content/jobs",
@@ -1717,6 +2000,14 @@ export const ContentEndpoints = {
     query: emptyQuery,
     body: z.undefined(),
     response: envelope(contentJobSchema),
+  },
+  Content_agentTools: {
+    method: "get" as const,
+    path: "/enterprise/content/agent/tools",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(agentToolManifestSchema)),
   },
   Content_skills: {
     method: "get" as const,
@@ -1906,7 +2197,10 @@ export const ContentEndpoints = {
     method: "get" as const,
     path: "/enterprise/content/agent/memories",
     params: z.object({}),
-    query: emptyQuery,
+    query: z.object({
+      /** 0 / 缺省＝账号共用；>0＝叠加该数字分身的私有记忆 */
+      personaId: z.coerce.number().int().nonnegative().default(0),
+    }),
     body: z.undefined(),
     response: envelope(contentMemoriesSchema),
   },
@@ -1915,7 +2209,12 @@ export const ContentEndpoints = {
     path: "/enterprise/content/agent/memories",
     params: z.object({}),
     query: emptyQuery,
-    body: passthroughBody,
+    body: z.object({
+      /** 整段文本，逐行一条 */
+      content: z.string().default(""),
+      /** 0 / 缺省＝改账号共用；>0＝只改该分身的私有记忆 */
+      personaId: z.coerce.number().int().nonnegative().default(0),
+    }),
     response: envelope(contentMemoriesSchema),
   },
   Content_personas: {
@@ -1936,6 +2235,14 @@ export const ContentEndpoints = {
       style: z.string().max(32).default(""),
       /** 上限由服务端校验并给中文提示（超过 500 字） */
       persona: z.string().default(""),
+      /** 默认知识空间；0 / 缺省＝不限定 */
+      spaceId: z.number().int().nonnegative().default(0),
+      /** 默认资料库；缺省＝保持空 */
+      libraryIds: z.array(z.number().int().positive()).max(50).optional(),
+      /** 默认执行渠道；0 / 缺省＝跟随文本槽位 */
+      channelId: z.number().int().nonnegative().default(0),
+      /** 默认执行模型；空串＝跟随槽位默认 */
+      model: z.string().max(128).default(""),
     }),
     response: envelope(contentAgentPersonaSchema),
   },
@@ -1949,6 +2256,14 @@ export const ContentEndpoints = {
       style: z.string().max(32).default(""),
       /** 上限由服务端校验并给中文提示（超过 500 字） */
       persona: z.string().default(""),
+      /** 默认知识空间；0 / 缺省＝不限定 */
+      spaceId: z.number().int().nonnegative().default(0),
+      /** 默认资料库；缺省＝保持原值 */
+      libraryIds: z.array(z.number().int().positive()).max(50).optional(),
+      /** 默认执行渠道；0 / 缺省＝跟随文本槽位 */
+      channelId: z.number().int().nonnegative().default(0),
+      /** 默认执行模型；空串＝跟随槽位默认 */
+      model: z.string().max(128).default(""),
     }),
     response: envelope(contentAgentPersonaSchema),
   },

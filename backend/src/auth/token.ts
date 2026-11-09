@@ -45,7 +45,11 @@ export function tokenRemainingSeconds(token?: string): number {
     if (!token) return 0;
     const raw = normalizeToken(token.replace(/^Bearer\s+/i, ''));
     const decoded = jwt.decode(raw);
-    if (decoded && typeof decoded === 'object' && typeof decoded.exp === 'number') {
+    if (
+      decoded &&
+      typeof decoded === 'object' &&
+      typeof decoded.exp === 'number'
+    ) {
       return Math.max(0, Math.floor(decoded.exp - Date.now() / 1000));
     }
   } catch {
@@ -61,7 +65,11 @@ export function tokenRemainingSeconds(token?: string): number {
 export function ssoSessionTokenVersion(token: string): number {
   try {
     const decoded = jwt.decode(normalizeToken(token));
-    if (decoded && typeof decoded === 'object' && typeof decoded.tokenVersion === 'number') {
+    if (
+      decoded &&
+      typeof decoded === 'object' &&
+      typeof decoded.tokenVersion === 'number'
+    ) {
       return decoded.tokenVersion;
     }
   } catch {

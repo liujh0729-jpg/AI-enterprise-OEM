@@ -3,11 +3,17 @@ import { parseId } from '../common/parse-id';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
+import { DataTableAiService } from './data-table-ai.service';
+import { DataTableViewService } from './data-table-view.service';
 import { DataTableService } from './data-table.service';
 
 /** 多维表格（按账号归属，切身份看到同一份）：界面侧走这里，机器通道走 data-table-open.controller。 */
 export class DataTableController {
-  constructor(private readonly table: DataTableService) {}
+  constructor(
+    private readonly table: DataTableService,
+    private readonly ai: DataTableAiService,
+    private readonly views: DataTableViewService,
+  ) {}
 
   async list(user: CurrentUser) {
     return ok(await this.table.list(user));
@@ -174,5 +180,51 @@ export class DataTableController {
   /** 导出整张表为 CSV（UTF-8 + BOM，Excel 直接打开不乱码）。 */
   async exportCsv(user: CurrentUser, id: string) {
     return this.table.exportCsv(user, parseId(id, '表格 ID'));
+  }
+
+  /** AI 列：按提示词 + 取材列批量生成某列的值并写回（缺 Key 回落规则拼接）。 */
+  async aiFillColumn(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.ai.fillColumn(user, parseId(id, '表格 ID'), body));
+  }
+
+  /** AI 问数：服务端先聚合全表再喂模型，返回结论与聚合口径。 */
+  async aiAsk(user: CurrentUser, id: string, body: Record<string, unknown>) {
+    return ok(await this.ai.ask(user, parseId(id, '表格 ID'), body));
+  }
+
+  /** 一句话建表：返回列结构草稿（不落库），确认后另走新建表与批量建列。 */
+  async aiPlanTable(user: CurrentUser, body: Record<string, unknown>) {
+    return ok(await this.ai.planTable(user, body));
+  }
+
+  /** AI 生成视图：按一句话给出网格 / 看板 / 汇总视图草稿。 */
+  async aiPlanView(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.ai.planView(user, parseId(id, '表格 ID'), body));
+  }
+
+  async listViews(user: CurrentUser, id: string) {
+    return ok(await this.views.list(user, parseId(id, '表格 ID')));
+  }
+
+  async saveView(user: CurrentUser, id: string, body: Record<string, unknown>) {
+    return ok(await this.views.save(user, parseId(id, '表格 ID'), body));
+  }
+
+  async removeView(user: CurrentUser, id: string, viewId: string) {
+    return ok(
+      await this.views.remove(
+        user,
+        parseId(id, '表格 ID'),
+        parseId(viewId, '视图 ID'),
+      ),
+    );
   }
 }

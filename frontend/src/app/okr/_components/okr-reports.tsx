@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Button, Input, Modal, Space, Table } from "antd";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   OKR_REPORT_KIND_LABELS,
   type OkrReportView,
@@ -59,7 +59,7 @@ export function OkrReportsTab({ ctx }: { ctx: OkrContextData }) {
   const [commentTarget, setCommentTarget] = useState<OkrReportView | null>(null);
   const [comment, setComment] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const rows = await okrApi.reports({
@@ -75,12 +75,11 @@ export function OkrReportsTab({ ctx }: { ctx: OkrContextData }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [kind, scope, canManage]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, scope]);
+  }, [load]);
 
   const isMine = (row: OkrReportView) =>
     row.memberUserId === selfKey || (!ctx.isOwner && row.memberUserId === ctx.me?.memberUserId);

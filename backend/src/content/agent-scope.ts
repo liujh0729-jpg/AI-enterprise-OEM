@@ -9,6 +9,10 @@ export type AgentRunScope = {
   mailboxIds: number[];
   /** 本轮勾选的插件 id；空＝全部启用中的插件（不传同样当不收窄）。 */
   pluginIds?: number[];
+  /** 本轮生效的数字分身；用于 save_memory 写入该分身的私有记忆。 */
+  personaId?: number;
+  /** 分身挂载的默认知识空间；kb_retrieve 没另传 space_ids 时只查这一个。 */
+  spaceId?: number;
   /** 触发来源：对话＝chat；定时任务 / 助理等无人值守＝schedule，MCP 写动作按它收紧。 */
   trigger: 'chat' | 'schedule';
   /**

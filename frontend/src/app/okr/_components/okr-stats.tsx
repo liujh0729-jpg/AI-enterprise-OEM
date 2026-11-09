@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Button, Input, InputNumber, Modal, Select, Space, Table, Tag } from "antd";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { OkrScoreView } from "@enterprise/contracts";
 import { okrApi } from "@/api/okr";
 import { Panel, StatCard, StatGrid } from "@/components/ui/panel";
@@ -34,7 +34,7 @@ export function OkrStatsTab({ ctx }: { ctx: OkrContextData }) {
   const [scoreComment, setScoreComment] = useState("");
   const [scoreBusy, setScoreBusy] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const query = { cycleId: cycleId || undefined };
@@ -50,12 +50,11 @@ export function OkrStatsTab({ ctx }: { ctx: OkrContextData }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [cycleId]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cycleId]);
+  }, [load]);
 
   const download = async () => {
     setExporting(true);

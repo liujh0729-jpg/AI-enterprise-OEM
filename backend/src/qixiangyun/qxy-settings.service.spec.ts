@@ -6,6 +6,9 @@ import {
   QXY_ACCOUNT_TAX_LIMIT,
   QxySettingsService,
 } from './qxy-settings.service';
+import { stub } from '../../test/doubles';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityService } from '../identity/identity.service';
 
 describe('QxySettingsService', () => {
   const admin = new CurrentUser('admin', '管理员', 'admin');
@@ -59,7 +62,10 @@ describe('QxySettingsService', () => {
     process.env.EXTERNAL_CRED_KEY = 'unit-encryption-key';
     process.env.QXY_APPKEY = 'legacy-key';
     process.env.QXY_SECRET = 'legacy-secret';
-    settings = new QxySettingsService(prisma as never, identity as never);
+    settings = new QxySettingsService(
+      stub<PrismaService>(prisma),
+      stub<IdentityService>(identity),
+    );
   });
 
   afterAll(() => {

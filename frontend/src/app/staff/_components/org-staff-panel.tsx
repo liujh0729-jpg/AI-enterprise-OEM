@@ -11,7 +11,7 @@ import {
   Tag,
   Tooltip,
 } from "antd";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   MEMBER_KINDS,
   MEMBER_KIND_LABELS,
@@ -119,18 +119,17 @@ export function OrgStaffPanel() {
   const [editCapabilities, setEditCapabilities] = useState("");
   const [detail, setDetail] = useState<OrgStaffRow | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setData(await orgStaffApi.workspace());
     } catch (error) {
       message.error((error as Error).message || "加载失败");
     }
-  };
+  }, [message]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
   const search = async (value: string) => {
     setKeyword(value);

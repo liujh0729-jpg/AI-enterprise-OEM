@@ -1,8 +1,21 @@
 # 积分体系与 OSS 存储底座设计方案
 
-> 版本：v1.0（评审文案，未实施）
+> 版本：v1.1（2026-11-07，M2/M6 存储底座已落地并校准 §8.4）
 > 范围：① 全系统存储底座统一切换为阿里云 OSS（含数字资产管理）；② 站内积分体系（可小数）；③ 积分充值（微信支付的后台配置 + 前台自助）；④ 账号间积分赠送；⑤ 绑定 AIPDD APIKey 后 AWcoin 与站内积分双币展示；⑥ 行为奖励与功能消耗的计费设计（CRM / BI / OA / AI 客服 / 数字资产）。
 > 口径声明：本方案推翻《开源版整体设计方案》中「开源版不涉币、awcoin 奖励整段删除」的旧口径——改为 **AWcoin 仍归 AIPDD 上游（只展示不结算），本站自建积分钱包（涉充值与扣费）**。实施后需同步修订旧文档对应段落。
+
+### 实施状态速览（2026-11-07）
+
+| 阶段 | 状态 | 落地位置 |
+|---|---|---|
+| M1 积分账户/流水/后台调整 | ✅ 已交付 | `backend/src/points/`、`frontend/src/app/points/` |
+| M2 OSS 底座（数字资产直传 + 删除联动） | ✅ 已交付（本次） | `backend/src/storage/storage.service.ts`、`backend/src/content/digital-asset.service.ts` |
+| M3 微信充值/回调/查单 | ✅ 已交付 | `backend/src/points/recharge.service.ts`、`wechat-pay.client.ts` |
+| M4 赠送 + 注册/邀请奖励 | ✅ 已交付 | `points.service.ts`、`points-settings.service.ts` |
+| M5 模块定价 + 按天存储出账 + 欠费 | ✅ 已交付 | `pricing.service.ts`、`points-daily.scheduler.ts` |
+| M6 存量迁移 + 后台容量台账 | ✅ 已交付（本次） | `backend/src/storage/storage-migration.service.ts`、`frontend/src/app/admin/_components/storage-ledger-panel.tsx` |
+| §8.4 AI 科目种子 | ✅ 已对齐（本次） | `backend/src/points/billing-rule.service.ts` |
+| 外联流量计费 / 私有读签名 URL | ⏳ 预留未启用 | 单价字段与 `OssService` 签名能力已具备，按方案暂不启用 |
 
 ---
 
@@ -57,6 +70,35 @@
   - 存储量 = 台账 `SUM(fileSize)`，每日 00:30 任务写入 `storage_daily_snapshots`（userId、bytes、快照时间）——按天计费的账单源；
   - 外联流量本期**只观测不计费**（从 OSS 计量/云监控接口拉数展示），单价字段预留，三个月后按成本情况决定是否启用（行业惯例：小流量包进存储费，避免账单噪声）。
 
+### 2.3 落地实现（2026-11-07）
+
+| 能力 | 实现位置 | 落地口径 |
+|---|---|---|
+| 统一存储出口 | `backend/src/storage/storage.service.ts` | `put / remove / urlOf / stat` 薄封装，业务模块只依赖 `StorageService`，不再各自持有 `OssService` |
+| OSS 对象能力 | `backend/src/oss/oss.service.ts` | PUT / DELETE / HEAD 共用 V4 签名；`remove()` 404 视为成功（幂等）；`stat()` 返回存在性、大小与 contentType |
+| 可公开对象类型 | `backend/src/oss/attachment-files.ts` | 附件白名单（jpg/jpeg/png/pdf/doc/docx/xls/xlsx）与通用对象类型分离；HTML / SVG / XML / JS 等可执行内容拒绝公开存储 |
+| 数字资产直传 | `backend/src/content/digital-asset.service.ts` | 字节直传本站 OSS，对象键 `enterprise/{userId}/library/...` 或 `enterprise/{userId}/agent/...`（OSS 服务统一加配置目录前缀，默认 `asset/`）；台账写 `ossKey`，本地行以负数 `aipddAssetId = -id` 占位 |
+| 删除联动 | `digital-asset.service.ts` + `Content_deleteDigitalAsset` | 删台账后尽力删 OSS；OSS 删除失败只写告警日志、不回滚台账；历史 AIPDD 托管行不调上游删除，响应标记 `upstreamRetained` |
+| 容量台账 | `Storage_overview` | 总数 / 已在本站 OSS / 历史待迁移 / 已迁移、`SUM(fileSize)`、最近一次按天快照、存储定价 |
+| 存量迁移 | `Storage_migrate` | 按台账 `id` 游标分批，`limit` 1–100（默认 20）；失败行**不改写台账**，下次从头重跑会自然重试；每批写审计日志 |
+| 后台入口 | `frontend/src/app/admin/_components/storage-ledger-panel.tsx` | 「系统设置 → 文件存储」展示容量、定价、迁移按钮、逐条成功/失败原因 |
+| 用户删除入口 | `frontend/src/app/assets/page.tsx` | 资产卡逐条删除（带确认），删除后同步列表与总数 |
+
+存量迁移的安全与健壮性约束：
+
+1. 下载前必须过 `assertOutboundUrl`（拒绝内网 / 回环 / 非 HTTP(S) 地址），`redirect: 'error'` 防跳转绕过；
+2. 单文件上限沿用 `AIPDD_MEDIA_MAX_BYTES`，下载超时 300 秒；
+3. 新对象键 `enterprise/{userId}/migrated/{timestamp}-{random}-{safeName}.{ext}`，与直传资产同桶同目录；
+4. 成功后回填 `ossKey / url / previewUrl / fileSize`，并标记 `migratedFrom = aipdd`；
+5. **判定口径**：`ossKey` 非空 = 字节已在本站 OSS；`ossKey` 为空 = 仍托管在 AIPDD（迁移候选）。
+
+验证证据（本次）：
+
+- `backend/src/oss/oss.service.spec.ts`：DELETE 签名与 404 幂等、HEAD 存在/不存在；
+- `backend/src/oss/attachment-files.spec.ts`：通用对象类型与危险扩展名拒绝；
+- `backend/src/storage/storage-migration.service.spec.ts`：容量汇总、成功迁移回填、失败行不动可重试；
+- `backend/src/points/billing-rule.service.spec.ts`：§8.4 全部科目种子值与旧科目清理。
+
 ---
 
 ## 三、积分体系：账户与流水
@@ -77,7 +119,7 @@
 | `point_transactions` | `userId`、`type`(RECHARGE/RECHARGE_BONUS/EARN/SPEND/TRANSFER_OUT/TRANSFER_IN/ADMIN_ADJUST)、`scene`(invite/register/asset_storage/crm/bi/oa/ai_service/gift/…)、`amount`(**有符号** Decimal)、`balanceAmount`(事后余额)、`refType/refId`、`operator`、`remark`、`createdAt` | **只追加不可改删**的总账；每条消费一行一账单 |
 | `recharge_orders` | `orderNo`(复用单据号体系 recharge 前缀 RP)、`userId`、`amountCents`(微信整数分)、`rateAmount`(成交汇率)、`pointsAmount`、`bonusPointsAmount`、`channel`(WECHAT)、`status`(CREATED/PAID/CLOSED/FAILED)、`transactionId`(微信回调，**唯一索引=幂等键**)、`codeUrl`、`paidAt`、`notifyPayload` | 建单锁定汇率与赠送 |
 | `point_settings` | `key/value` 键值（`points_rate`、`recharge_min_cents`、`recharge_tiers`(JSON 档位+赠送)、`signup_bonus`、`invite_reward_signup`、`invite_reward_recharge_rate`、`transfer_enabled`、`transfer_min`、`transfer_daily_limit`、`arrears_grace_days`、微信配置等） | 敏感键（商户私钥/APIv3 key）AES-256-GCM 密文入库，复用 `AliyunMailCrypto` 同款派生密钥模式，接口永不回显 |
-| `module_pricing` | `code`(asset_storage/crm/bi/oa/ai_service/…)、`mode`(FREE/METERED)、`unit`(如 gb_day/query/session/seat_month)、`unitPriceAmount` Decimal、`freeQuotaMonthly`、`minChargeAmount`(最低起扣)、`enabled` | 单价=0 即该模块免费；管理员随时改 |
+| `module_pricing` | `code`(asset_storage/crm/bi/oa/ai_service/…)、`mode`(FREE/METERED)、`unit`(如 gb_day/query/session/seat_month)、`unitPriceAmount` Decimal、`freeQuotaMonthly`、`minChargeAmount`(最低起扣)、`enabled` | 单价=0 即该模块免费；管理员随时改。一体化模块 AI 科目（insight_report/kb_ingest/kb_query/kb_lint/mkt_skill_run/mkt_skill_eval/recruit_job_eval/recruit_resume_tailor/skill_review/hrm_resume_score/jd_generate）见 §8.4 |
 | `usage_events` | `userId`、`code`、`quantityAmount`、`occurredAt`、`billed`、`billTxId` | 实时扣费类可跳过此表直记流水；此表主要服务按天聚合出账 |
 | `storage_daily_snapshots` | `userId`、`bytesAmount`(BigInt→Decimal 计费)、`snapshotAt` | 存储按天计费源 |
 
@@ -186,6 +228,56 @@
 - 按日出账类（存储）：余额不足当日仍出账但账户置 ARREARS，进**宽限期（默认 7 天）**——期间资产只读不可新增；宽限期后按后台策略处理（默认"继续保留并每日催缴"，可配"超 30 天冻结下载"；**永不自动删除用户数据**，避免客诉与法律风险）。
 - 单日单用户消费熔断阈值（默认 1000 积分，超出暂停计费并通知），防盗刷/脚本失控。
 
+### 8.4 一体化模块 AI 科目定价（HRM / 知识库 / 营销 / 招聘 / 技能审查 / 洞察）
+
+> 承接《借鉴Gauzy一体化升级方案》全部新增 AI 能力，统一走 `ai-eval` 链路与「成本加成」三层定价，全部计量制（METERED），逐科目独立开关 + 受组织级 AI 主开关（§5.7）约束。**审查/评估类 fail-closed：调用失败或未产出结果不扣费**（只在成功出结果时计费）。默认单价如下（1 元=10 积分，管理员可改，设 0 即免费）：
+
+| 科目 code | 场景（章节） | 计费单元 | 默认单价 | 折合 RMB | 月免费额 |
+|---|---|---|---|---|---|
+| `insight_report` | AI 洞察报告/九宫格/离职风险/赢率/现金流（§5.7） | 每次生成 | 2 积分 | 0.2 元 | 100 次 |
+| `hrm_resume_score` | 简历/JD 智能评分（§5.1） | 每次评分 | 1 积分 | 0.1 元 | 200 次 |
+| `jd_generate` | AI 生成招聘 JD（§6/§2） | 每次生成 | 1 积分 | 0.1 元 | 50 次 |
+| `kb_ingest` | 知识库投料生成实体/概念页（§10） | 每源页 | 0.5 积分 | 0.05 元 | 500 页 |
+| `kb_query` | 知识库带引用问答（§10） | 每次问答 | 1 积分 | 0.1 元 | 200 次 |
+| `kb_lint` | 知识图谱体检（§10） | 每次体检 | 2 积分 | 0.2 元 | 50 次 |
+| `mkt_skill_run` | 营销技能执行（§11，重数据聚合按 3 倍计） | 每次执行 | 3 积分 | 0.3 元 | 100 次 |
+| `mkt_skill_eval` | 营销技能回归评测（§11） | 每次评测 | 1 积分 | 0.1 元 | 50 次 |
+| `recruit_job_eval` | 职位评估（§12）：triage / match / deep | 每次 | 0.2 / 1 / 3 积分 | 0.02/0.1/0.3 元 | 200 次 |
+| `recruit_resume_tailor` | 简历定制（§12） | 每份 | 2 积分 | 0.2 元 | 100 份 |
+| `skill_review` | 技能包/插件 LLM 安全审查（§5.9） | 每包 | 1 积分 | 0.1 元 | 20 包 |
+
+- **落地对齐（2026-11-07）**：`billing-rule.service.ts` 的 `AI_SUBJECT_SEEDS` 已按本表写入 12 个科目（另含内部科目 `kb_consolidate`），默认值与本表一致；`hrm_resume_score`、`jd_generate` 已分别接入人才评分与 JD 生成链路，其余科目在对应模块落地时按同一 `chargeByUsage(code, …)` 口径接入。
+- 与 §8.2 现有 `ai_service`/`bi` 口径一致，均为成本加成；token 实际消耗大的科目（kb_ingest / deep 评估 / mkt_skill_run）按上游真实 token 成本加成、上限封顶，避免账单倒挂。
+- 计费埋点：各模块经 `ai-eval` 出结果后写 `usage_events`（或直记 `point_transactions` SPEND，scene=对应科目 code），复用 `minChargeAmount` 0.01 起扣与 §8.3 消费熔断；未配 APIKey/LLM 超时的 fail-closed 路径**不产生扣费**。
+- 存储联动：`skill_review`/`recruit_*`/`kb_*`/`insight_report` 的成功产物落数字资产时按 §8.2 存储口径另计（按天、与调用费分道）。
+
+### 8.5 Agent 调用按用量计费规则（BillingRule，平台管理员后台可配）
+
+> 承接《借鉴Gauzy一体化升级方案》§5.12：将 §3.2 `module_pricing`（静态单价行）升级为**可配、多维度、可分层覆盖**的 `BillingRule`，使 Agent/AI 调用能按**实际用量**（尤其 token）动态扣分，参数由平台管理员在后台调整、**不改代码即可调价**。
+
+- **计费公式**：`扣分 = baseFee（科目基础费） + Σ(用量维度 × unitPrice × multiplier)`，受 `minCharge`/`maxCharge` 与 `budgetCap` 约束；沿用 §8.1「先预检余额→成功即用→按单位扣→流水一单一结」。
+- **数据模型 `billing_rule`**（字段命名遵项目 xxxAmount DECIMAL 规范）：
+
+| 字段 | 含义 |
+|---|---|
+| `code` | 科目（与 §8.4 对齐：insight_report/kb_query/mkt_skill_run/skill_review/…） |
+| `scope` | PLATFORM（默认）/ ORG / PLAN；行优先级 PLAN>ORG>PLATFORM，支持局部覆盖 |
+| `metric` | 计费维度：`token_in`/`token_out`/`token_total`/`call`/`byte`/`page`（一个科目可多行复合，如 input/output 分别单价） |
+| `unitPriceAmount` | 每单位积分单价（ Decimal；0 即免费/仅过上游成本校验） |
+| `baseFeeAmount` | 每次调用固定基础费（与用量叠加） |
+| `multiplier` | 倍率（如重数据聚合技能×3） |
+| `minChargeAmount` / `maxChargeAmount` | 单次最低/最高扣分（默认为 0.01 起扣，防微账单与异常天价） |
+| `budgetCapMonthly` | 月预算帽（按 org/科目；超出熔断暂停并通知，接 §8.3） |
+| `freeQuotaMonthly` | 月免费额（Freetier 留存钩子） |
+| `enabled` / `version` / `updatedBy` / `updatedAt` | 开关与审计；改价留版本可回滚 |
+
+- **计量来源**：LLM 返回的 `usage`（input/output token）、工具/连接器调用计数、附件字节——统一由 ai-eval 链路出结果后写 `usage_events`（或直记 `point_transactions` SPEND，scene=科目 code，detail 存 `token×unitPrice` 明细），与 §8.4 埋点同链路。
+- **管理员后台**（§九 平台管理新 tab「计费规则」）：按科目选 metric、填单价/倍率/预算帽/最低最高扣；支持 PLAN/ORG 级覆盖行；改价即时生效、留审计、可回滚。
+- **计费口径**：失败不计费（429/5xx 只记流水不扣分）、只计实际 usage、预算帽熔断；**fail-closed**：无活动额度/上游成本不达标→402/502 不执行不计费（与 §8.4、方案 §5.12 一致）。租户自担上游费科目（translate/image/embedding）`unitPriceAmount=0`，只走上游成本校验。
+- **用户侧透明**：调用前按公式**预估**“约 X 分”、调用后按实际 usage **多退少补**（基于 §8.1 先预检后扣）；账单明细逐行展示 `token × 单价`。
+- **防滥用**：按用户/org 的 Agent 调用速率与 `budgetCapMonthly`（方案 §5.11.2 限流）、异常用量告警。
+- **与现有价目表关系**：§8.2/§8.4 的静态单价作为 BillingRule 的 **PLATFORM 默认行种子**；BillingRule 是在其上叠加“token 维度 + 分层覆盖 + 可调”的可配底座，二者不重复计费。
+
 ---
 
 ## 九、后台与前端界面改动
@@ -237,7 +329,7 @@ GET  /api/backend/enterprise/aipdd/balance   AWcoin 实时/缓存余额
 
 ## 十一、数据库变更与实施约束（双库兼容）
 
-- 新迁移 `0007_points_oss`：§3.2 七张新表 + `DigitalAssetEntry` 加 `ossKey/migratedFrom` 列。
+- 新迁移 `0007_points_oss`：§3.2 七张新表 + `DigitalAssetEntry` 加 `ossKey/migratedFrom` 列（迁移已入库，MySQL 主 schema 与 PostgreSQL 派生 schema 同步包含两列）。
 - 遵循站内既定规范：
   - MySQL 为准，`prisma migrate deploy` 应用（**不用 db push**），新增列先 NULL→回填→MODIFY 收敛；
   - `node scripts/gen-prisma-schema.mjs` 派生 PG schema，双库冒烟；
@@ -267,6 +359,8 @@ GET  /api/backend/enterprise/aipdd/balance   AWcoin 实时/缓存余额
 | M4 | 赠送 transfer + 注册/邀请奖励 + 防刷 | 双向流水配对；同设备限领 |
 | M5 | 模块定价 + usage_events + 每日存储出账 + 欠费宽限 | 50GB 快照出账=5 积分/天；宽限期状态机正确 |
 | M6 | AWcoin 展示 + 价目说明页 + 存量迁移任务 + 七语 | 迁移可断点续跑；AWcoin 失败不阻塞 |
+
+> 截至 2026-11-07：M1–M6 均已交付。M2/M6 本次补齐「数字资产直传自有 OSS + 台账删除联动 + 后台容量台账 + 分批断点迁移」；外联流量计费与桶私有读签名 URL 仍按原方案保持预留、未启用。
 
 ---
 

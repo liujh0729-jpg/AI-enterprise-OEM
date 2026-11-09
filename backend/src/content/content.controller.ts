@@ -13,6 +13,10 @@ import type {
   AssistantRequest,
 } from './agent-assistant.channel';
 import { ContentAgentLibraryService } from './agent-library.service';
+import { ContentAgentConnectorService } from './agent-connectors.service';
+import { ContentAgentSkillService } from './agent-skills.service';
+import { ContentAgentPluginService } from './agent-plugins.service';
+import { buildAgentToolManifest } from './agent-tool-manifest';
 import { ContentJobService } from './content-job.service';
 import { DigitalAssetService } from './digital-asset.service';
 import { AssetShareService } from './asset-share.service';
@@ -49,6 +53,9 @@ export class ContentController {
     private readonly schedules: ContentAgentScheduleService,
     private readonly assistants: ContentAgentAssistantService,
     private readonly assetShares: AssetShareService,
+    private readonly agentConnectors: ContentAgentConnectorService,
+    private readonly agentSkills: ContentAgentSkillService,
+    private readonly agentPlugins: ContentAgentPluginService,
   ) {}
 
   async getSettings(user: CurrentUser, token?: string) {
@@ -119,6 +126,27 @@ export class ContentController {
   }
 
   // ---------- Agent 技能 ----------
+
+  /**
+   * 统一工具 manifest（AI 底座 §4.3）：内置/业务/连接器/硬件/技能/插件一张表，
+   * 权限人话与红线从契约词表派生；某一类读不到时只跳过那一类，不拖垮整张清单。
+   */
+  async agentTools(user: CurrentUser) {
+    const [connectorTools, skills, plugins, hardwareTools] = await Promise.all([
+      this.agentConnectors.toolSpecs(user).catch(() => []),
+      this.agentSkills.list(user).catch(() => []),
+      this.agentPlugins.list(user).catch(() => []),
+      this.agent.hardwareToolSpecs(user).catch(() => []),
+    ]);
+    return ok(
+      buildAgentToolManifest({
+        connectorTools,
+        skills,
+        plugins,
+        hardwareTools,
+      }),
+    );
+  }
 
   async listSkills(user: CurrentUser) {
     return ok(await this.agent.listSkills(user));
@@ -276,8 +304,8 @@ export class ContentController {
     return ok(await this.agent.messages(user, id));
   }
 
-  async memories(user: CurrentUser) {
-    return ok(await this.agent.memories(user));
+  async memories(user: CurrentUser, personaId?: number) {
+    return ok(await this.agent.memories(user, personaId));
   }
 
   async saveMemories(user: CurrentUser, body: Record<string, unknown>) {
@@ -447,11 +475,58 @@ export class ContentController {
 
   async uploadDigitalAsset(
     user: CurrentUser,
-    token: string | undefined,
     file: File,
     fields: Record<string, unknown>,
+    token?: string,
   ) {
-    return ok(await this.digitalAssets.upload(user, token, file, fields));
+    return ok(await this.digitalAssets.upload(user, file, fields, token));
+  }
+
+  async removeDigitalAsset(user: CurrentUser, id: string) {
+    return ok(await this.digitalAssets.remove(user, id));
+  }
+
+  async extractDigitalAsset(
+    user: CurrentUser,
+    token: string | undefined,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.digitalAssets.extract(user, id, body, token));
+  }
+
+  async autoTagDigitalAsset(
+    user: CurrentUser,
+    token: string | undefined,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.digitalAssets.autoTag(user, id, body, token));
+  }
+
+  async similarDigitalAssets(
+    user: CurrentUser,
+    token: string | undefined,
+    id: string,
+    query: Record<string, unknown>,
+  ) {
+    return ok(await this.digitalAssets.similar(user, id, token, query));
+  }
+
+  async moderateDigitalAsset(user: CurrentUser, id: string) {
+    return ok(await this.digitalAssets.moderate(user, id));
+  }
+
+  async presignDigitalAsset(user: CurrentUser, body: Record<string, unknown>) {
+    return ok(await this.digitalAssets.presign(user, body));
+  }
+
+  async registerDigitalAsset(
+    user: CurrentUser,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    return ok(await this.digitalAssets.registerUploaded(user, body, token));
   }
 
   async sharedAssets(user: CurrentUser) {
@@ -497,7 +572,7 @@ export class ContentController {
     if (!file.size) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '文件内容为空');
     }
-    const apiKey = await this.settings.aipddKey(user, token);
+    const apiKey = this.settings.aipddKey(user, token);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const uploaded = await this.client.upload({
       baseUrl: aipddBaseUrl(),

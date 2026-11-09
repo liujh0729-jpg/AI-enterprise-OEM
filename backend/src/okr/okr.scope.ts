@@ -3,6 +3,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { UserLookupService } from '../directory/user-lookup.service';
+import type { TenantScopeService } from '../tenant/tenant-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   OkrDimension,
@@ -40,6 +41,8 @@ export type OkrSettingsValue = {
 
 export type OkrContext = {
   ownerUserId: string;
+  /** 统一租户键的组织侧，与 ownerUserId 一起写入 okr_*。 */
+  orgType: string;
   actorId: string;
   isOwner: boolean;
   isManager: boolean;
@@ -69,17 +72,20 @@ export class OkrScopeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UserLookupService,
+    private readonly tenantScope: TenantScopeService,
   ) {}
 
   async context(user: CurrentUser): Promise<OkrContext> {
-    const ownerUserId = await this.ownerOf(user.userId);
+    const tenant = await this.tenantScope.resolve(user);
+    const ownerUserId = tenant.orgUserId;
     const settings = await this.settings(ownerUserId);
-    const isOwner = ownerUserId === user.userId;
+    const isOwner = tenant.isOwner || ownerUserId === user.userId;
     const isManager = !isOwner && settings.managers.includes(user.userId);
     const members = await this.members(ownerUserId);
     const row = members.find((item) => item.memberUserId === user.userId);
     return {
       ownerUserId,
+      orgType: tenant.orgType,
       actorId: user.userId,
       isOwner,
       isManager,
@@ -88,33 +94,6 @@ export class OkrScopeService {
       managerIds: settings.managers,
       settings,
     };
-  }
-
-  /** 有自己组织（企业或服务商）就用自己账号；否则看其所属组织。 */
-  private async ownerOf(userId: string) {
-    const [orgOwner, providerOwner, enterpriseOwner] = await Promise.all([
-      this.prisma.orgStaff.findFirst({
-        where: { orgUserId: userId, status: 'ACTIVE' },
-        select: { id: true },
-      }),
-      this.prisma.providerStaff.findFirst({
-        where: { providerUserId: userId, status: 'ACTIVE' },
-        select: { id: true },
-      }),
-      this.prisma.orgStaff.findFirst({
-        where: { memberUserId: userId, status: 'ACTIVE' },
-        orderBy: { id: 'asc' },
-        select: { orgUserId: true },
-      }),
-    ]);
-    if (orgOwner || providerOwner) return userId;
-    if (enterpriseOwner?.orgUserId) return enterpriseOwner.orgUserId;
-    const providerMember = await this.prisma.providerStaff.findFirst({
-      where: { staffUserId: userId, status: 'ACTIVE' },
-      orderBy: { id: 'asc' },
-      select: { providerUserId: true },
-    });
-    return providerMember?.providerUserId || userId;
   }
 
   async settings(ownerUserId: string): Promise<OkrSettingsValue> {

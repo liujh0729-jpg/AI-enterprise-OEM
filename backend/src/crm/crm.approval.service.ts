@@ -3,6 +3,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import {
   FORM_TYPE_LABELS,
@@ -13,6 +15,7 @@ import {
   statusLabel,
 } from './crm.helpers';
 import { CrmSettingsService } from './crm.settings.service';
+import type { MechanismService } from '../mechanisms/mechanism.service';
 
 type NodeConfig = {
   type?: string;
@@ -37,11 +40,18 @@ const OPERATORS: Record<string, (left: unknown, right: unknown) => boolean> = {
 };
 
 export class CrmApprovalService {
+  private mechanisms?: MechanismService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: CrmScopeService,
     private readonly settings: CrmSettingsService,
   ) {}
+
+  /** 审批域发出业务事件（订单通过等）；机制服务在装配期后注入，避免构造顺序耦合。 */
+  attachMechanisms(mechanisms: MechanismService) {
+    this.mechanisms = mechanisms;
+  }
 
   async flows(user: CurrentUser) {
     const ctx = await this.scope.requireMember(user);
@@ -149,7 +159,7 @@ export class CrmApprovalService {
         data: {
           flowId: id,
           version: updated.currentVersion,
-          nodes: nodes as never,
+          nodes: toJsonInput(nodes),
         },
       });
     } else {
@@ -164,7 +174,7 @@ export class CrmApprovalService {
       });
       flowId = created.id;
       await this.prisma.crmApprovalFlowVersion.create({
-        data: { flowId, version: 1, nodes: nodes as never },
+        data: { flowId, version: 1, nodes: toJsonInput(nodes) },
       });
     }
     return this.flow(user, String(flowId));
@@ -256,12 +266,12 @@ export class CrmApprovalService {
   }
 
   private async setTargetStatus(
-    ownerUserId: string,
+    ctx: CrmContext,
     formType: string,
     targetId: number,
     status: string,
   ) {
-    const where = { id: targetId, ownerUserId };
+    const where = { id: targetId, ownerUserId: ctx.ownerUserId };
     if (formType === 'LEAD') {
       await this.prisma.crmLead.updateMany({
         where,
@@ -297,7 +307,48 @@ export class CrmApprovalService {
         where,
         data: { approvalStatus: status },
       });
+      if (status === 'APPROVED') await this.emitOrderApproved(ctx, targetId);
     }
+  }
+
+  /** 订单审批通过：发领域事件，由增长联动（建项目）与自动化规则消费。 */
+  private async emitOrderApproved(ctx: CrmContext, orderId: number) {
+    if (!this.mechanisms) return;
+    const order = await this.prisma.crmOrder.findFirst({
+      where: { id: orderId, ownerUserId: ctx.ownerUserId },
+      select: {
+        id: true,
+        number: true,
+        name: true,
+        customerId: true,
+        contractId: true,
+        amount: true,
+      },
+    });
+    if (!order) return;
+    void this.mechanisms
+      .dispatch(
+        {
+          orgType: ctx.orgType,
+          orgUserId: ctx.ownerUserId,
+          actorId: ctx.actorId,
+          isOwner: ctx.isOwner,
+          isAdmin: ctx.isAdmin,
+          department: ctx.department,
+        },
+        'crm.order.approved',
+        {
+          orderId: order.id,
+          number: order.number,
+          name: order.name,
+          customerId: order.customerId,
+          contractId: order.contractId,
+          amount: Number(order.amount),
+          source: 'crm',
+          sourceId: String(order.id),
+        },
+      )
+      .catch(() => undefined);
   }
 
   async submit(user: CurrentUser, body: Record<string, unknown>) {
@@ -334,15 +385,10 @@ export class CrmApprovalService {
           submitter: ctx.actorId,
           submittedAt: new Date(),
           finishedAt: new Date(),
-          snapshot: { title: target.title, auto: true } as never,
+          snapshot: toJsonInput({ title: target.title, auto: true }),
         },
       });
-      await this.setTargetStatus(
-        ctx.ownerUserId,
-        formType,
-        targetId,
-        'APPROVED',
-      );
+      await this.setTargetStatus(ctx, formType, targetId, 'APPROVED');
       return this.instanceView(instance, target.title, new Map(), ctx);
     }
     const version = await this.prisma.crmApprovalFlowVersion.findFirst({
@@ -366,19 +412,14 @@ export class CrmApprovalService {
         submitter: ctx.actorId,
         currentNode: 0,
         submittedAt: new Date(),
-        snapshot: {
+        snapshot: toJsonInput({
           title: target.title,
           nodes,
           submittedBy: ctx.actorId,
-        } as never,
+        }),
       },
     });
-    await this.setTargetStatus(
-      ctx.ownerUserId,
-      formType,
-      targetId,
-      'APPROVING',
-    );
+    await this.setTargetStatus(ctx, formType, targetId, 'APPROVING');
     const values = await this.valuesOf(ctx.ownerUserId, formType, targetId);
     await this.activateNode(instance.id, 0, nodes, ctx, values);
     await this.settings.log(
@@ -601,7 +642,9 @@ export class CrmApprovalService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
     const view = text(query.view, 'all');
-    const where: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+    const where: Prisma.CrmApprovalInstanceWhereInput = {
+      ownerUserId: ctx.ownerUserId,
+    };
     if (query.status) where.status = text(query.status);
     if (view === 'submitted') where.submitter = ctx.actorId;
     if (view === 'mine' || view === 'cc') {
@@ -628,12 +671,12 @@ export class CrmApprovalService {
     }
     const [rows, total] = await Promise.all([
       this.prisma.crmApprovalInstance.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmApprovalInstance.count({ where: where as never }),
+      this.prisma.crmApprovalInstance.count({ where }),
     ]);
     const [names, titles] = await Promise.all([
       this.scope.names(rows.map((row) => row.submitter)),
@@ -890,7 +933,7 @@ export class CrmApprovalService {
     });
     if (current?.status === 'APPROVED') {
       await this.setTargetStatus(
-        ctx.ownerUserId,
+        ctx,
         current.formType,
         current.targetId,
         'APPROVED',
@@ -962,7 +1005,7 @@ export class CrmApprovalService {
       },
     });
     await this.setTargetStatus(
-      ctx.ownerUserId,
+      ctx,
       instance.formType,
       instance.targetId,
       'UNAPPROVED',
@@ -1140,7 +1183,7 @@ export class CrmApprovalService {
       data: { status: 'REVOKED', finishedAt: new Date() },
     });
     await this.setTargetStatus(
-      ctx.ownerUserId,
+      ctx,
       instance.formType,
       instance.targetId,
       'REVOKED',
@@ -1161,19 +1204,19 @@ export class CrmApprovalService {
     const ctx = await this.scope.requireMember(user);
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
-    const where: Record<string, unknown> = {
+    const where: Prisma.CrmApprovalTaskWhereInput = {
       ownerUserId: ctx.ownerUserId,
       approverId: ctx.actorId,
       status: 'PENDING',
     };
     const [tasks, total] = await Promise.all([
       this.prisma.crmApprovalTask.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmApprovalTask.count({ where: where as never }),
+      this.prisma.crmApprovalTask.count({ where }),
     ]);
     return this.taskRows(tasks, ctx, page, pageSize, total);
   }
@@ -1182,19 +1225,19 @@ export class CrmApprovalService {
     const ctx = await this.scope.requireMember(user);
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 20));
-    const where: Record<string, unknown> = {
+    const where: Prisma.CrmApprovalTaskWhereInput = {
       ownerUserId: ctx.ownerUserId,
       approverId: ctx.actorId,
       status: { in: ['APPROVED', 'REJECTED', 'SKIPPED'] },
     };
     const [tasks, total] = await Promise.all([
       this.prisma.crmApprovalTask.findMany({
-        where: where as never,
+        where,
         orderBy: { id: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      this.prisma.crmApprovalTask.count({ where: where as never }),
+      this.prisma.crmApprovalTask.count({ where }),
     ]);
     return this.taskRows(tasks, ctx, page, pageSize, total);
   }

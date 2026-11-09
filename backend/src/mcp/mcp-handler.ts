@@ -18,10 +18,8 @@ import { mcpToolDescriptors, McpService } from './mcp.service';
  * Codex / Claude Desktop / Cursor / 自研脚本都按这一套走。
  */
 
-export type McpReply = {
-  status: number;
-  payload?: Record<string, unknown>;
-};
+export type McpReply =
+  { status: 202 } | { status: 200; payload: Record<string, unknown> };
 
 const TOOL_DESCRIPTORS = mcpToolDescriptors();
 

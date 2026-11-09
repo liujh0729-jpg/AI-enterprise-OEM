@@ -24,13 +24,15 @@ import { canWorkOn } from "@/lib/can-work-on";
 import { ApiError } from "@enterprise/contracts";
 import { useTaxWorkspace, useTaxDeclaration } from "@/query/workspaces";
 import { useTaxSets,useTaxSet } from '@/query/tax';
+import { filterBoardTabs } from "@/lib/board-tabs";
 import { useSession } from "@/lib/session";
+import { useSiteBrand } from "@/lib/site-brand";
 import { isPersonalSubject } from "@/lib/subject";
 import { canPublishService } from "@/lib/provider-categories";
 import { MarketDemandTab } from "@/components/market-demand-tab";
 import {
-  SERVICE_PUBLISH_TAB,
   ServicePublishTab,
+  serviceMarketTab,
 } from "@/components/service-publish-tab";
 import { AccountSetDetail } from "./_components/account-set-detail";
 import { BoardTab } from "./_components/board-tab";
@@ -67,8 +69,9 @@ export default function TaxPage() {
   const taxpayerType = String(enterprise?.taxpayerType || "");
   /** 个人主体：整页照常浏览（财税工具、服务商名录、需求信息），但「签约 / 申报 / 账套 / 发布需求」四类办理动作锁住。 */
   const personalUser = isEnterprise && !me?.identities.includes("PLATFORM_ADMIN") && isPersonalSubject(enterprise?.subjectType);
-  /** 「服务发布」＝服务商资质门控：该板块类目备案通过才出现本栏目（财税走平台直连，零落库）。 */
+  /** 「财税服务市集」＝服务商资质门控：该板块类目备案通过才出现本栏目（读公开池 + 我发布的服务）。 */
   const canPublish = canPublishService(me, "TAX");
+  const { hiddenBoardTabs } = useSiteBrand();
 
   const toolsVisible = isEnterprise && tab === "tools" && declId === null && materialId === null && setId === null;
   const needsWorkspace = declId !== null || setId !== null ||
@@ -130,15 +133,26 @@ export default function TaxPage() {
     { key: "sets", label: <><FolderOpenOutlined aria-hidden /> 账套管理</>, count: setsQuery.data ? setTotal : undefined },
     { key: "auto", label: <><ThunderboltOutlined aria-hidden /> 自动化能力</> },
     { key: "requests", label: <><UnorderedListOutlined aria-hidden /> 需求信息</> },
-    ...(canPublish ? [SERVICE_PUBLISH_TAB] : []),
+    ...(canPublish ? [serviceMarketTab("财税服务市集")] : []),
   ];
+
+  // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染；当前页签被隐藏时兜回第一个可见页签
+  // （本页页签集随身份切换，故用 effect 把 state 收敛到可见页签，保证页头与正文始终一致）。
+  const visibleTabs = filterBoardTabs("tax", isEnterprise ? enterpriseTabs : manageTabs, hiddenBoardTabs);
+  const currentTab = isEnterprise ? tab : manageView;
+  useEffect(() => {
+    if (visibleTabs.some((item) => item.key === currentTab)) return;
+    const fallback = visibleTabs[0]?.key || "";
+    if (isEnterprise) setTab(fallback);
+    else setManageView(fallback);
+  }, [visibleTabs, currentTab, isEnterprise]);
 
   const desc = isEnterprise
     ? personalUser
       ? "财税工具：服务包参考价格与自助工具；财税服务商：资源库浏览、查看资质并申请加入服务商；报税工作台：查看报税流程；需求信息：查看财税需求与服务商回复（签约、申报、账套、发布需求需以企业或个体工商户主体办理）"
-      : "财税工具：服务包参考价格与自助工具；财税服务商：资源库浏览、查看资质并发起签约（一个企业只能与一家财税服务商签约）；报税工作台：提交材料，AI 分类分析后由服务商分税种提报；需求信息：把财税需求发布到平台供需匹配池并查看服务商回复"
+      : "财税工具：服务包参考价格与自助工具；财税服务商：资源库浏览、查看资质并发起签约（一个企业只能与一家财税服务商签约）；报税工作台：提交材料，AI 分类分析后由服务商分税种提报；需求信息：把财税需求发布到平台供需匹配池并查看服务商回复（发布同步落本地台账并记平台内容 ID，列表读该台账）"
     : isProviderSide
-      ? "报税材料 · 申报计划 · 账套管理（AI 分类分析 · 分税种提报）· 需求信息与服务发布（直连平台挂单）"
+      ? "报税材料 · 申报计划 · 账套管理（AI 分类分析 · 分税种提报）· 需求信息与财税服务市集（需求读本地台账；服务市集读公开池 + 我发布的服务）"
       : "全平台财税监管：报税材料、申报计划与账套";
 
   const activeDecl = declId
@@ -174,7 +188,7 @@ export default function TaxPage() {
       <PageHero
         title="财税服务"
         desc={desc}
-        tabs={isEnterprise ? enterpriseTabs : manageTabs}
+        tabs={visibleTabs}
         activeTab={isEnterprise ? tab : manageView}
         onTabChange={(key) => {
           setDeclId(null);

@@ -3,7 +3,7 @@
 import { Badge, Button, Dropdown, Empty, Spin } from "antd";
 import { BellOutlined } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { NotificationRow } from "@enterprise/contracts";
 import { notificationsApi } from "@/api/collab";
 import { useSession } from "@/lib/session";
@@ -27,7 +27,7 @@ export function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!me) return;
     try {
       setLoading(true);
@@ -39,14 +39,13 @@ export function NotificationBell() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [me]);
 
   useEffect(() => {
     void load();
     const timer = setInterval(() => void load(), 30_000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me?.userId]);
+  }, [load]);
 
   const go = async (row: NotificationRow) => {
     setOpen(false);

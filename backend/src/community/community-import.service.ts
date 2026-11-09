@@ -7,6 +7,7 @@ import { IdentityService } from '../identity/identity.service';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { OssService } from '../oss/oss.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 import {
   ComfyClient,
   MAX_DOWNLOAD_BYTES,
@@ -413,12 +414,12 @@ export class CommunityImportService {
           (prepared.reason ? `\n\n降级为仅浏览：${prepared.reason}` : ''),
         category: mediaType === 'video' ? 'video' : 'image',
         groupLabel: '',
-        tags: ['Comfy Cloud', '迁移'] as never,
+        tags: toJsonInput(['Comfy Cloud', '迁移']),
         mediaType,
         format: prepared.format,
-        workflowJson: prepared.graph as never,
-        slots: prepared.slots as never,
-        coverKeys: [] as never,
+        workflowJson: toJsonInput(prepared.graph),
+        slots: toJsonInput(prepared.slots),
+        coverKeys: toJsonInput([]),
         comfyUrl: source,
         status: 'APPROVED',
         auditNote: '平台管理员从 Comfy Cloud 迁移，作者挂在管理员账号名下',
@@ -506,12 +507,12 @@ export class CommunityImportService {
           '图片与视频已转存进本站存储渠道，第一张产物作为封面。',
         category: mediaType === 'video' ? 'video' : 'image',
         groupLabel: '',
-        tags: ['Comfy Cloud', '迁移'] as never,
+        tags: toJsonInput(['Comfy Cloud', '迁移']),
         mediaType,
         format: 'api',
-        workflowJson: prepared.graph as never,
-        slots: prepared.slots as never,
-        coverKeys: coverKeys.slice(0, 8) as never,
+        workflowJson: toJsonInput(prepared.graph),
+        slots: toJsonInput(prepared.slots),
+        coverKeys: toJsonInput(coverKeys.slice(0, 8)),
         comfyUrl: source,
         status: 'APPROVED',
         auditNote: '平台管理员从 Comfy Cloud 迁移，作者挂在管理员账号名下',

@@ -33,6 +33,9 @@ export const MCP_ERROR = {
  * 命中这些动作的请求仍可由用户本人在界面上手工发起，锁的只是「无人值守自动执行」。
  */
 export const MCP_FORBIDDEN_ACTIONS: Record<string, string> = {
+  // 招聘 AI：确认投递会以本人名义向外部招聘渠道提交简历，必须由本人在界面上确认。
+  Recruit_confirmApplication: "对外投递需要本人确认",
+  Recruit_updateApplicationStatus: "投递状态变更需要本人确认",
   Im_saveConnector: "IM 连接写操作只允许在站内完成",
   Im_deleteConnector: "IM 连接写操作只允许在站内完成",
   Im_syncNow: "IM 同步写操作只允许在站内完成",
@@ -110,6 +113,14 @@ export const MCP_FORBIDDEN_ACTIONS: Record<string, string> = {
   Tp_maDeleteShortLink: "删除短链会让已发出的链接失效，需要本人确认",
   Tp_maMassSend: "群发任务会产生费用并真实触达，需要本人确认",
   Tp_rtaUploadAudience: "广告人群上传需要本人确认",
+  // ERP 进销存：审批结论、资金收付、库存流水都会直接改动账面，只能由本人在界面上确认。
+  Erp_decideStockRequest: "库存申请审批结论需要本人确认",
+  Erp_decidePurchaseOrder: "采购订单审批结论需要本人确认",
+  Erp_decideReceipt: "入库单审批结论需要本人确认",
+  Erp_decideExpense: "费用报销审批结论需要本人确认",
+  Erp_receivePayment: "核销收款会改动应收账款，需要本人确认",
+  Erp_payPayable: "核销付款会改动应付账款，需要本人确认",
+  Erp_saveMove: "库存出入库流水会直接改动库存，需要本人确认",
   Tp_retryTask: "重试会重新执行原写动作，需要本人确认",
   Tp_saveMapping: "列映射配置需要本人确认",
 };

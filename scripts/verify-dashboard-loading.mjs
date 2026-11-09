@@ -40,7 +40,7 @@ function account(currentIdentity, extra = {}) {
 function fixture(overrides = {}) {
   const calls = [];
   const dependencies = {};
-  for (const name of ["contracts", "tax", "overseas", "logistics", "smart-service", "marketing", "supply", "asset", "legal", "ip", "flex", "identity", "admin", "aiworkin"]) {
+  for (const name of ["contracts", "tax", "overseas", "logistics", "smart-service", "marketing", "supply", "asset", "legal", "ip", "flex", "identity", "admin"]) {
     const api = new Proxy({}, {
       get(_, method) {
         return async (input, options) => {
@@ -146,24 +146,14 @@ test("服务商只取服务企业；职员复用挂靠快照中的待确认邀�
   assert(calls.every((call) => call.signal === signal));
 });
 
-test("团队与平台请求未完成时，概览可独立返回", async () => {
+test("团队请求未完成时，概览可独立返回", async () => {
   let release;
   const waiting = new Promise((resolve) => { release = resolve; });
-  const { dashboardApi: api, signal } = fixture({ "./contracts.enterprises": () => waiting, "./aiworkin.myDemands": () => waiting });
+  const { dashboardApi: api, signal } = fixture({ "./contracts.enterprises": () => waiting });
   const team = api.team("SERVICE_PROVIDER", signal);
-  const platform = api.platformSummary(signal);
   assert.equal((await api.overview("SERVICE_PROVIDER", signal)).contractStats.active, 2);
   release([]);
-  await Promise.all([team, platform]);
-});
-
-test("平台失败保持错误可见，关闭通道时不查询挂单", async () => {
-  const failed = fixture({ "./aiworkin.myDemands": () => { throw new Error("平台暂不可用"); } });
-  await assert.rejects(failed.dashboardApi.platformSummary(failed.signal), /平台暂不可用/);
-  assert.equal((await failed.dashboardApi.overview("PLATFORM_ADMIN", failed.signal)).stats.total, 4);
-  const disabled = fixture({ "./aiworkin.status": () => ({ enabled: false }) });
-  assert.equal((await disabled.dashboardApi.platformSummary(disabled.signal)).services, null);
-  assert.deepEqual(disabled.calls.map((row) => row.operation), ["./aiworkin.status"]);
+  await team;
 });
 
 function queryFixture(me, resources) {

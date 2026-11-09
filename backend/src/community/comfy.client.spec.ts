@@ -7,6 +7,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { TransportError, httpRequest } from '../http/transport';
 import { assertOutboundUrl } from '../http/outbound-guard';
+import { stub } from '../../test/doubles';
 
 /**
  * Comfy Cloud 客户端的单测：把「上游错误码 → 中文可执行提示」「下载主机白名单」「字节上限」
@@ -23,8 +24,8 @@ jest.mock('../http/outbound-guard', () => ({
   assertOutboundUrlSync: (value: string) => new URL(value),
 }));
 
-const mockedHttp = httpRequest as unknown as jest.Mock;
-const mockedGuard = assertOutboundUrl as unknown as jest.Mock;
+const mockedHttp = stub<jest.Mock>(httpRequest);
+const mockedGuard = stub<jest.Mock>(assertOutboundUrl);
 
 /** 每个用例都要干净的出站调用记录：httpRequest 复位实现，守卫只清调用历史（保留放行实现）。 */
 function resetUpstream() {
@@ -97,7 +98,7 @@ describe('ComfyClient 上游错误映射', () => {
       }),
     );
     await expect(
-      client.submitJob(API_KEY, { nodes: [] as never }),
+      client.submitJob(API_KEY, stub<Record<string, unknown>>({ nodes: [] })),
     ).rejects.toMatchObject({
       message: expect.stringContaining('Export (API)'),
     });

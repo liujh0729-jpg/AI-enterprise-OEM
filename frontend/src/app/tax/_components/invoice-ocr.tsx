@@ -4,7 +4,10 @@ import { CameraOutlined, PlayCircleOutlined } from "@ant-design/icons";
 import { App, Button, Modal, Upload } from "antd";
 import { useEffect, useState } from "react";
 import { Notice } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import { taxApi } from '@/api/tax';
+import { aiApi, type AiInvoiceExtract } from '@/api/ai';
+import { AiList, AiModeTag } from '@/components/ai-result';
 import { useBusinessMutation, useBusinessQuery } from '@/query/business';
 import { compressInvoiceImage, validateInvoiceImage } from "@/lib/invoice-image";
 import type { EditorRow } from "@/components/row-list-editor";
@@ -41,6 +44,8 @@ export function InvoiceOcrButton({
   const statusError = statusQuery.error?.message;
   const recognition = useBusinessMutation((body:{image_base64:string;mime:string}) => taxApi.ocrInvoice({params:{id:String(packId)},body}), []);
   const [result, setResult] = useState<OcrResult | null>(null);
+  const [aiCheck, setAiCheck] = useState<AiInvoiceExtract | null>(null);
+  const [aiChecking, setAiChecking] = useState(false);
 
   useEffect(() => () => {
     if (preview) URL.revokeObjectURL(preview);
@@ -52,11 +57,13 @@ export function InvoiceOcrButton({
     setFile(null);
     setPreview("");
     setResult(null);
+    setAiCheck(null);
   };
 
   const openModal = () => {
     setOpen(true);
     setResult(null);
+    setAiCheck(null);
   };
 
   const pick = (next: File) => {
@@ -65,6 +72,7 @@ export function InvoiceOcrButton({
       validateInvoiceImage(next);
       setFile(next);
       setResult(null);
+      setAiCheck(null);
       setPreview(URL.createObjectURL(next));
     } catch (error) {
       message.error(error instanceof Error ? error.message : "无法选择发票图片");
@@ -78,6 +86,7 @@ export function InvoiceOcrButton({
       return;
     }
     setResult(null);
+    setAiCheck(null);
     setBusy(true);
     try {
       const image = await compressInvoiceImage(file).catch(error => {
@@ -96,6 +105,27 @@ export function InvoiceOcrButton({
     }
   };
 
+  const runAiCheck = async () => {
+    if (!result || aiChecking) return;
+    const text = [
+      `发票号码：${result.invoiceNo || ""}`,
+      `开票日期：${result.date || ""}`,
+      `购销方：${result.counterparty || ""}`,
+      `金额：${result.amount ?? ""}`,
+      `税额：${result.tax ?? ""}`,
+      `票种：${result.kind || ""}`,
+    ].join("\n");
+    setAiChecking(true);
+    setAiCheck(null);
+    try {
+      setAiCheck(await aiApi.invoiceExtract({ body: { text } }));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "AI 发票校验失败");
+    } finally {
+      setAiChecking(false);
+    }
+  };
+
   const useResult = () => {
     if (!result) return;
     onRecognized({
@@ -110,6 +140,7 @@ export function InvoiceOcrButton({
     setFile(null);
     setPreview("");
     setResult(null);
+    setAiCheck(null);
     message.success("已按识别结果预填，请核对后点击「添加」保存该条");
   };
 
@@ -127,7 +158,7 @@ export function InvoiceOcrButton({
         okButtonProps={{ disabled: !result || busy }}
         cancelButtonProps={{ disabled: busy }}
         closable={!busy}
-        maskClosable={!busy}
+        mask={{ closable: !busy }}
         keyboard={!busy}
         confirmLoading={busy}
         onOk={useResult}
@@ -164,8 +195,7 @@ export function InvoiceOcrButton({
               }}
             >
               {preview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <RawImg
                   src={preview}
                   alt="发票"
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -178,28 +208,50 @@ export function InvoiceOcrButton({
               )}
             </Upload>
             {result ? (
-              <div className="ext-meta" style={{ marginTop: 12 }}>
-                <span>
-                  发票号码 <b className="mono">{result.invoiceNo || "—"}</b>
-                </span>
-                <span>
-                  开票日期 <b>{result.date || "—"}</b>
-                </span>
-                <span>
-                  销方/购方 <b>{result.counterparty || "—"}</b>
-                </span>
-                <span>
-                  金额 <b>{result.amount || 0}</b> · 税额 <b>{result.tax || 0}</b>
-                </span>
-                <span>
-                  判定 <b>{result.kind || "待人工选择"}</b>
-                </span>
-                <span>
-                  通道 <b>企享云 OCR</b>
-                </span>
-              </div>
+              <>
+                <div className="ext-meta" style={{ marginTop: 12 }}>
+                  <span>
+                    发票号码 <b className="mono">{result.invoiceNo || "—"}</b>
+                  </span>
+                  <span>
+                    开票日期 <b>{result.date || "—"}</b>
+                  </span>
+                  <span>
+                    销方/购方 <b>{result.counterparty || "—"}</b>
+                  </span>
+                  <span>
+                    金额 <b>{result.amount || 0}</b> · 税额 <b>{result.tax || 0}</b>
+                  </span>
+                  <span>
+                    判定 <b>{result.kind || "待人工选择"}</b>
+                  </span>
+                  <span>
+                    通道 <b>企享云 OCR</b>
+                  </span>
+                </div>
+                {aiCheck ? (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <b>AI 发票校验</b>
+                      <AiModeTag mode={aiCheck.mode} model={aiCheck.model} />
+                    </div>
+                    <div className="text-12 muted" style={{ marginTop: 4 }}>
+                      发票号码 {aiCheck.values.invoiceNo || "—"} · 开票日期{" "}
+                      {aiCheck.values.invoiceDate || "—"} · 价税合计{" "}
+                      {aiCheck.values.total || "—"}
+                    </div>
+                    {aiCheck.warnings.length ? (
+                      <AiList title="需要核对" items={aiCheck.warnings} empty="未发现不一致" />
+                    ) : (
+                      <div className="text-12 muted" style={{ marginTop: 4 }}>
+                        未发现金额/税额不一致。
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </>
             ) : null}
-            <div style={{ marginTop: 12 }}>
+            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
               <Button
                 type="primary"
                 loading={busy}
@@ -208,6 +260,11 @@ export function InvoiceOcrButton({
               >
                 <PlayCircleOutlined aria-hidden /> 开始识别
               </Button>
+              {result ? (
+                <Button loading={aiChecking} onClick={() => void runAiCheck()}>
+                  AI 发票校验
+                </Button>
+              ) : null}
             </div>
           </>
         )}

@@ -13,6 +13,7 @@ import { IdentityService } from '../identity/identity.service';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 
 const ROLE_LABELS: Record<string, string> = {
   TAX: '财税服务',
@@ -763,10 +764,7 @@ export class OrgStaffService {
     if (!q) return [];
     const rows = await this.prisma.staffProfile.findMany({
       where: {
-        OR: [
-          { realName: { contains: q } },
-          { phone: { contains: q } },
-        ],
+        OR: [{ realName: { contains: q } }, { phone: { contains: q } }],
       },
       take: 20,
     });
@@ -903,8 +901,12 @@ export class OrgStaffService {
         ...(typeof body.memberKind === 'string'
           ? { memberKind: body.memberKind === 'AGENT' ? 'AGENT' : 'STAFF' }
           : {}),
-        ...(Array.isArray(body.roles) ? { roles: body.roles as never } : {}),
-        ...(Array.isArray(body.scope) ? { scope: body.scope as never } : {}),
+        ...(Array.isArray(body.roles)
+          ? { roles: toJsonInput(body.roles) }
+          : {}),
+        ...(Array.isArray(body.scope)
+          ? { scope: toJsonInput(body.scope) }
+          : {}),
         ...(typeof body.department === 'string'
           ? { department: body.department.slice(0, 64) }
           : {}),
@@ -917,7 +919,7 @@ export class OrgStaffService {
         ...(body.status === 'ACTIVE' || body.status === 'REMOVED'
           ? { status: body.status }
           : {}),
-      } as never,
+      },
     });
     const { dir, prof } = await this.names([updated.memberUserId]);
     return this.staffView(updated, { dir, prof });
@@ -997,24 +999,24 @@ export class OrgStaffService {
             orgUserId: row.orgUserId,
             memberUserId: row.memberUserId,
             memberKind: row.memberKind,
-            roles: row.roles as never,
-            scope: row.scope as never,
+            roles: toJsonInput(row.roles),
+            scope: toJsonInput(row.scope),
             department: row.department,
-            positions: row.positions as never,
+            positions: toJsonInput(row.positions),
             capabilities: row.capabilities,
             status: 'ACTIVE',
             invitedBy: row.createdBy,
             confirmedAt: new Date(),
-          } as never,
+          },
           update: {
             status: 'ACTIVE',
-            roles: row.roles as never,
-            scope: row.scope as never,
+            roles: toJsonInput(row.roles),
+            scope: toJsonInput(row.scope),
             department: row.department,
-            positions: row.positions as never,
+            positions: toJsonInput(row.positions),
             capabilities: row.capabilities,
             confirmedAt: new Date(),
-          } as never,
+          },
         });
       }
     });

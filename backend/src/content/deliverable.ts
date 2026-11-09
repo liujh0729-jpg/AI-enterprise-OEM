@@ -3,6 +3,8 @@
  * 任务类工具（大数据查询/潜客挖掘等）在后台执行、无请求上下文，产物归档统一走这里；
  * services.ts 装配时把 DigitalAssetService.registerDeliverable 接进来。
  */
+import { text } from '../common/api';
+
 export type DeliverableSink = (
   userId: string,
   input: {
@@ -25,13 +27,15 @@ export function buildDeliverableCsv(
         ? ''
         : typeof value === 'object'
           ? JSON.stringify(value)
-          : String(value);
+          : text(value);
     const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
     return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
   const lines = [
     columns.map((column) => escape(column.label)).join(','),
-    ...rows.map((row) => columns.map((column) => escape(row[column.key])).join(',')),
+    ...rows.map((row) =>
+      columns.map((column) => escape(row[column.key])).join(','),
+    ),
   ];
   return Buffer.from(`\uFEFF${lines.join('\r\n')}`, 'utf-8');
 }

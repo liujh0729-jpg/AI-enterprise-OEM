@@ -25,13 +25,12 @@ import {
   Space,
   Spin,
   Switch,
-  Tabs,
   Tag,
   Upload,
 } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { uploadContentMedia } from "@/api/content";
-import { Notice, EmptyState, Panel } from "@/components/ui/panel";
+import { Notice, EmptyState, Panel, PanelTabs } from "@/components/ui/panel";
 import { fmtTime } from "@/lib/datetime";
 import {
   ASSET_STATUS_COLOR,
@@ -305,6 +304,7 @@ export function EcomPdpTab() {
   const [activeId, setActiveId] = useState(0);
   const [detail, setDetail] = useState<EcomPdpPackDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [assetTab, setAssetTab] = useState("hero");
   const [planning, setPlanning] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createFormKey, setCreateFormKey] = useState(0);
@@ -318,8 +318,10 @@ export function EcomPdpTab() {
       setDetailLoading(true);
       const result = await ecomPdpApi.detail(id);
       setDetailLoading(false);
-      if (result.data) setDetail(result.data);
-      else {
+      if (result.data) {
+        setDetail(result.data);
+        setAssetTab("hero");
+      } else {
         setDetail(null);
         message.error(result.message);
       }
@@ -390,6 +392,7 @@ export function EcomPdpTab() {
       });
       setCreateOpen(false);
       setDetail(created);
+      setAssetTab("hero");
       setActiveId(created.id);
       await reloadList();
       message.success("已创建。点「生成规划」让文本模型出诊断、风格锁与逐张提示词。");
@@ -605,8 +608,9 @@ export function EcomPdpTab() {
                 ) : null}
 
                 <div style={{ marginTop: 16 }}>
-                  <Tabs
-                    defaultActiveKey="hero"
+                  <PanelTabs
+                    value={assetTab}
+                    onChange={setAssetTab}
                     items={[
                       {
                         key: "hero",

@@ -7,6 +7,7 @@ import {
 } from 'node:crypto';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { text } from '../common/api';
 import { httpRequest } from '../http/transport';
 
 const HOST = 'https://api.mch.weixin.qq.com';
@@ -70,10 +71,16 @@ export function decryptApiV3(
   const data = Buffer.from(ciphertext, 'base64');
   const authTag = data.subarray(data.length - 16);
   const body = data.subarray(0, data.length - 16);
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(nonce, 'utf8'));
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(nonce, 'utf8'),
+  );
   decipher.setAuthTag(authTag);
   if (associatedData) decipher.setAAD(Buffer.from(associatedData, 'utf8'));
-  return Buffer.concat([decipher.update(body), decipher.final()]).toString('utf8');
+  return Buffer.concat([decipher.update(body), decipher.final()]).toString(
+    'utf8',
+  );
 }
 
 /**
@@ -108,7 +115,10 @@ export class WechatPayClient {
     if (!response.ok) {
       let detail = '';
       try {
-        detail = String(JSON.parse(response.data)?.message || '').slice(0, 200);
+        const parsed = JSON.parse(response.data || '{}') as {
+          message?: unknown;
+        };
+        detail = text(parsed.message).slice(0, 200);
       } catch {
         // 非 JSON 错误体按状态码提示
       }
@@ -121,30 +131,60 @@ export class WechatPayClient {
   }
 
   /** Native 下单：返回 code_url（转二维码给 PC 端扫码）。 */
-  async native(credentials: WechatCredentials, order: { outTradeNo: string; description: string; amountCents: number; notifyUrl: string }) {
-    const data = await this.call(credentials, 'POST', '/v3/pay/transactions/native', {
-      appid: credentials.appId,
-      mchid: credentials.mchId,
-      description: order.description.slice(0, 120),
-      out_trade_no: order.outTradeNo,
-      notify_url: order.notifyUrl,
-      amount: { total: order.amountCents, currency: 'CNY' },
-    });
-    return String(data.code_url || '');
+  async native(
+    credentials: WechatCredentials,
+    order: {
+      outTradeNo: string;
+      description: string;
+      amountCents: number;
+      notifyUrl: string;
+    },
+  ) {
+    const data = await this.call(
+      credentials,
+      'POST',
+      '/v3/pay/transactions/native',
+      {
+        appid: credentials.appId,
+        mchid: credentials.mchId,
+        description: order.description.slice(0, 120),
+        out_trade_no: order.outTradeNo,
+        notify_url: order.notifyUrl,
+        amount: { total: order.amountCents, currency: 'CNY' },
+      },
+    );
+    return text(data.code_url);
   }
 
   /** H5 下单：返回 h5_url（移动端浏览器跳转）。 */
-  async h5(credentials: WechatCredentials, order: { outTradeNo: string; description: string; amountCents: number; notifyUrl: string; clientIp: string }) {
-    const data = await this.call(credentials, 'POST', '/v3/pay/transactions/h5', {
-      appid: credentials.appId,
-      mchid: credentials.mchId,
-      description: order.description.slice(0, 120),
-      out_trade_no: order.outTradeNo,
-      notify_url: order.notifyUrl,
-      amount: { total: order.amountCents, currency: 'CNY' },
-      scene_info: { payer_client_ip: order.clientIp, h5_info: { type: 'Wap' } },
-    });
-    return String(data.h5_url || '');
+  async h5(
+    credentials: WechatCredentials,
+    order: {
+      outTradeNo: string;
+      description: string;
+      amountCents: number;
+      notifyUrl: string;
+      clientIp: string;
+    },
+  ) {
+    const data = await this.call(
+      credentials,
+      'POST',
+      '/v3/pay/transactions/h5',
+      {
+        appid: credentials.appId,
+        mchid: credentials.mchId,
+        description: order.description.slice(0, 120),
+        out_trade_no: order.outTradeNo,
+        notify_url: order.notifyUrl,
+        amount: { total: order.amountCents, currency: 'CNY' },
+        scene_info: {
+          payer_client_ip: order.clientIp,
+          h5_info: { type: 'Wap' },
+        },
+      },
+    );
+    return text(data.h5_url);
   }
 
   /** 商户订单号查单（前端轮询与回调丢失兜底）。 */
@@ -172,24 +212,32 @@ export class WechatPayClient {
 
   /** 平台证书列表：下载 + APIv3 解密 + 按序列号缓存，供回调验签。 */
   private async loadCertificates(credentials: WechatCredentials) {
-    if (
-      this.certCache.size &&
-      Date.now() - this.certFetchedAt < CERT_TTL_MS
-    ) {
+    if (this.certCache.size && Date.now() - this.certFetchedAt < CERT_TTL_MS) {
       return this.certCache;
     }
-    const data = await this.call(credentials, 'GET', '/v3/certificates', undefined, 'wechat:certs');
-    const list = Array.isArray(data?.list) ? (data.list as Record<string, unknown>[]) : [];
+    const data = await this.call(
+      credentials,
+      'GET',
+      '/v3/certificates',
+      undefined,
+      'wechat:certs',
+    );
+    const list = Array.isArray(data?.list)
+      ? (data.list as Record<string, unknown>[])
+      : [];
     const next = new Map<string, X509Certificate>();
     for (const item of list) {
-      const encrypt = (item?.encrypt_certificate || {}) as Record<string, unknown>;
+      const encrypt = (item?.encrypt_certificate || {}) as Record<
+        string,
+        unknown
+      >;
       const pem = decryptApiV3(
         credentials.apiv3Key,
-        String(encrypt.associated_data || ''),
-        String(encrypt.nonce || ''),
-        String(encrypt.ciphertext || ''),
+        text(encrypt.associated_data),
+        text(encrypt.nonce),
+        text(encrypt.ciphertext),
       );
-      const serial = String(item?.serial_no || '');
+      const serial = text(item?.serial_no);
       if (serial && pem.includes('BEGIN CERTIFICATE')) {
         next.set(serial, new X509Certificate(pem));
       }
@@ -228,20 +276,26 @@ export class WechatPayClient {
       Buffer.from(signature, 'base64'),
     );
     if (!verified) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED, '微信支付回调验签失败');
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '微信支付回调验签失败',
+      );
     }
     // 时间戳容差 5 分钟，防重放
     const skew = Math.abs(Date.now() / 1000 - Number(timestamp));
     if (!Number.isFinite(skew) || skew > 300) {
-      throw new BusinessException(ErrorCode.UNAUTHORIZED, '微信支付回调时间戳异常');
+      throw new BusinessException(
+        ErrorCode.UNAUTHORIZED,
+        '微信支付回调时间戳异常',
+      );
     }
     const payload = JSON.parse(rawBody || '{}') as Record<string, unknown>;
     const resource = (payload?.resource || {}) as Record<string, unknown>;
     const plain = decryptApiV3(
       credentials.apiv3Key,
-      String(resource.associated_data || ''),
-      String(resource.nonce || ''),
-      String(resource.ciphertext || ''),
+      text(resource.associated_data),
+      text(resource.nonce),
+      text(resource.ciphertext),
     );
     return JSON.parse(plain) as WechatTransaction;
   }

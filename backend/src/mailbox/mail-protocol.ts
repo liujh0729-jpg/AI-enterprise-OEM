@@ -358,7 +358,7 @@ function openBox(client: Imap, folder: string): Promise<void> {
 
 function searchUids(client: Imap, criteria: unknown[]): Promise<number[]> {
   return new Promise((resolve, reject) => {
-    client.search(criteria as never, (error, uids) => {
+    client.search(criteria, (error, uids) => {
       if (error) reject(wrapError(error, '检索邮件'));
       else resolve((uids ?? []).map((item) => Number(item)));
     });
@@ -383,11 +383,10 @@ function fetchMessages(
       let seqno = 0;
       let attributes: FetchAttributes = {};
       const chunks: Buffer[] = [];
-      message.on('attributes', (attrs) => {
+      message.on('attributes', (attrs: FetchAttributes) => {
         // node-imap 实际会带 envelope（类型声明里漏了），按自己的形状读
-        const parsed = attrs as unknown as FetchAttributes;
-        attributes = parsed;
-        seqno = Number(parsed.uid ?? 0);
+        attributes = attrs;
+        seqno = Number(attrs.uid ?? 0);
       });
       message.on('body', (stream: NodeJS.ReadableStream, info?: FetchBody) => {
         void info;

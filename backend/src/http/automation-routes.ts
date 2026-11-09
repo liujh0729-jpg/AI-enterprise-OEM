@@ -11,8 +11,9 @@ import { streamSSE } from 'hono/streaming';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { withoutRequestAbort } from '../common/request-context';
-import { upstreamToken } from '../common/upstream-token';
+import { upstreamToken, upstreamTokenOrNull } from '../common/upstream-token';
 import { toCsv } from '../crm/crm.helpers';
+import type { GenerateSkillInput } from '../content/skill-generator.service';
 
 /** SSE 保活间隔：必须小于反向代理的空闲超时（Next dev 30 秒 / Nginx 60 秒）。 */
 const SSE_HEARTBEAT_MS = 10_000;
@@ -36,9 +37,57 @@ type Input = {
   query: Record<string, unknown>;
   json: Record<string, unknown>;
   token: string;
+  /** 条款留痕 / 埋点需要；由请求头取，缺省空串。 */
+  ip: string;
+  userAgent: string;
 };
 
 type Handler = (input: Input) => Promise<unknown>;
+
+type RouteInputs = {
+  param: Record<string, string>;
+  query: Record<string, unknown>;
+  json: Record<string, unknown>;
+};
+
+/**
+ * 动态注册时按 operationId 索引端点定义。endpoints 是数百条端点组成的联合类型，
+ * 直接索引会超出 TS 的比较复杂度上限；这里按 OpenAPI 路由所需的最小形状取一个视图，
+ * 校验与匹配行为仍由 createRoute 的 zod schema 在运行期完成。
+ */
+type EndpointDef = {
+  method: 'get' | 'post' | 'put' | 'patch' | 'delete';
+  path: string;
+  params: z.ZodObject<z.ZodRawShape>;
+  query: z.ZodObject<z.ZodRawShape>;
+  body: z.ZodTypeAny;
+  response: z.ZodTypeAny;
+};
+
+const endpointDefs = endpoints as unknown as Record<string, EndpointDef>;
+
+/**
+ * 自动化路由由端点契约在循环里动态注册，`req.valid` 的静态 input 类型不可见；
+ * 校验本身仍由 createRoute 的 zod schema 在运行期完成，这里只补类型形状。
+ */
+function validated<K extends keyof RouteInputs>(
+  context: Context<ApiEnv>,
+  target: K,
+): RouteInputs[K] {
+  const valid = context.req.valid.bind(context.req) as (
+    key: K,
+  ) => RouteInputs[K];
+  return valid(target);
+}
+
+/**
+ * 契约层已由 createRoute 的 zod schema 校验过 query / body；
+ * 动态注册拿不到逐端点的静态类型，这里把校验后的记录收窄到处理器声明的形状，
+ * 与 validated 同属一处类型补充，避免散落的强制断言。
+ */
+function readValidated<T>(value: Record<string, unknown>): T {
+  return value as T;
+}
 
 /**
  * 需要 AIPDD 上游凭证（用户绑定的 API Key）的端点白名单：只有这些 handler 会读取 input.token。
@@ -83,12 +132,19 @@ const UPSTREAM_TOKEN_OPERATIONS = new Set<string>([
   'Content_digitalAssets',
   'Content_digitalAssetLabels',
   'Content_tagDigitalAsset',
+  // 资产 AI 理解 / 打标 / 找相似要取用户绑定的上游模型凭证
+  'Content_extractDigitalAsset',
+  'Content_autoTagDigitalAsset',
+  'Content_similarDigitalAssets',
   'Content_registerAsset',
   'Content_createJob',
   'Content_createExpert',
   'Content_librarySearch',
   'Content_libraryPublish',
   'Content_runScheduleNow',
+  // 视频模版：复刻生成走内容作业通道，需要用户绑定的上游凭证
+  // （后台同步是平台级动作，用 AIWORKIN_VIDEO_TEMPLATE_TOKEN，不走用户 Key，故不在此列）
+  'VideoTemplate_generate',
   // 多维表格 AI 与附件、OA 预审
   'LowCode_aiFill',
   'LowCode_aiAsk',
@@ -98,6 +154,9 @@ const UPSTREAM_TOKEN_OPERATIONS = new Set<string>([
   'LowCode_assets',
   'LowCode_uploadAsset',
   'Oa_preReview',
+  // AI 获客：线索评分与接待质检走用户绑定的上游模型凭证
+  'Acquisition_scoreLead',
+  'Acquisition_runQc',
 ]);
 
 /**
@@ -162,6 +221,28 @@ export function registerAutomationRoutes(
       ),
     DataTable_removeRow: async (i) =>
       c.dataTableController.deleteRow(i.user, i.param['id'], i.param['rowId']),
+
+    // ---------- 多维表格 AI：AI 列 / 问数 / 一句话建表 / AI 视图 ----------
+    DataTable_aiFillColumn: async (i) =>
+      c.dataTableController.aiFillColumn(i.user, i.param['id'], i.json),
+    DataTable_aiAsk: async (i) =>
+      c.dataTableController.aiAsk(i.user, i.param['id'], i.json),
+    DataTable_aiPlanTable: async (i) =>
+      c.dataTableController.aiPlanTable(i.user, i.json),
+    DataTable_aiPlanView: async (i) =>
+      c.dataTableController.aiPlanView(i.user, i.param['id'], i.json),
+
+    // ---------- 多维表格视图（网格 / 看板 / 汇总） ----------
+    DataTable_views: async (i) =>
+      c.dataTableController.listViews(i.user, i.param['id']),
+    DataTable_saveView: async (i) =>
+      c.dataTableController.saveView(i.user, i.param['id'], i.json),
+    DataTable_removeView: async (i) =>
+      c.dataTableController.removeView(
+        i.user,
+        i.param['id'],
+        i.param['viewId'],
+      ),
 
     // ---------- 多维表格 ↔ 飞书多维表格同步 ----------
     DataTable_feishuSyncs: async (i) =>
@@ -366,12 +447,17 @@ export function registerAutomationRoutes(
     AiCall_removeAccount: async (i) =>
       c.aiCallController.remove(i.user, i.param['id']),
     OpenApi_aiCallAccounts: async (i) =>
-      c.aiCallOpenController.list(i.user, i.query as never),
+      c.aiCallOpenController.list(
+        i.user,
+        readValidated<{ workbuddyAccountId: number; platform?: string }>(
+          i.query,
+        ),
+      ),
     OpenApi_aiCallCredentials: async (i) =>
       c.aiCallOpenController.credentials(
         i.user,
         i.param['id'],
-        i.query as never,
+        readValidated<{ workbuddyAccountId: number }>(i.query),
       ),
 
     // ---------- Google 潜客线索挖掘 ----------
@@ -461,7 +547,7 @@ export function registerAutomationRoutes(
       c.domesticPdpController.remove(i.user, i.param['id']),
 
     // ---------- 多平台内容分发（营销工具：AIPDD Enterprise 插件本地发布） ----------
-    Distribution_meta: async (i) => c.distributionController.meta(i.user),
+    Distribution_meta: () => Promise.resolve(c.distributionController.meta()),
     Distribution_page: async (i) =>
       c.distributionController.list(i.user, i.query),
     Distribution_detail: async (i) =>
@@ -477,10 +563,10 @@ export function registerAutomationRoutes(
     Distribution_reportLogs: async (i) =>
       c.distributionController.reportLogs(i.user, i.param['id'], i.json),
 
-    // ---------- 帮助中心（章节知识库：前端 /help 与 MCP 读同一份） ----------
-    Help_chapters: async (i) => c.helpController.chapters(i.user),
-    Help_topic: async (i) => c.helpController.topic(i.user, i.param['code']),
-    Help_search: async (i) => c.helpController.search(i.user, i.query),
+    // ---------- 帮助中心（章节知识库：前端 /help 与 MCP 读同一份；静态内容，与身份无关） ----------
+    Help_chapters: () => Promise.resolve(c.helpController.chapters()),
+    Help_topic: (i) => Promise.resolve(c.helpController.topic(i.param['code'])),
+    Help_search: (i) => Promise.resolve(c.helpController.search(i.query)),
 
     // ---------- 大数据查询（营销工具：五个独立数据集） ----------
     Bigdata_settings: async (i) =>
@@ -618,8 +704,92 @@ export function registerAutomationRoutes(
         i.param['id'],
         i.json,
       ),
+    Content_deleteDigitalAsset: async (i) =>
+      c.contentController.removeDigitalAsset(i.user, i.param['id']),
+    Content_extractDigitalAsset: async (i) =>
+      c.contentController.extractDigitalAsset(
+        i.user,
+        i.token,
+        i.param['id'],
+        i.json,
+      ),
+    Content_autoTagDigitalAsset: async (i) =>
+      c.contentController.autoTagDigitalAsset(
+        i.user,
+        i.token,
+        i.param['id'],
+        i.json,
+      ),
+    Content_similarDigitalAssets: async (i) =>
+      c.contentController.similarDigitalAssets(
+        i.user,
+        i.token,
+        i.param['id'],
+        i.query,
+      ),
+    Content_moderateDigitalAsset: async (i) =>
+      c.contentController.moderateDigitalAsset(i.user, i.param['id']),
+    Content_presignDigitalAsset: async (i) =>
+      c.contentController.presignDigitalAsset(i.user, i.json),
+    Content_registerDigitalAsset: async (i) =>
+      c.contentController.registerDigitalAsset(i.user, i.json, i.token),
     Content_registerAsset: async (i) =>
       c.contentController.registerAsset(i.user, i.param['id'], i.token),
+    // ---------- 视频模版社区（内容创作板块）：显式注册，复刻要透传 token ----------
+    VideoTemplate_list: async (i) =>
+      ok(await c.videoTemplateController.list(i.user, i.query)),
+    VideoTemplate_detail: async (i) =>
+      ok(await c.videoTemplateController.detail(i.user, i.param['id'])),
+    VideoTemplate_view: async (i) =>
+      ok(await c.videoTemplateController.view(i.user, i.param['id'])),
+    VideoTemplate_publish: async (i) =>
+      ok(await c.videoTemplateController.publish(i.user, i.json)),
+    VideoTemplate_remove: async (i) =>
+      ok(await c.videoTemplateController.remove(i.user, i.param['id'])),
+    VideoTemplate_favorite: async (i) =>
+      ok(await c.videoTemplateController.favorite(i.user, i.param['id'])),
+    VideoTemplate_unfavorite: async (i) =>
+      ok(await c.videoTemplateController.unfavorite(i.user, i.param['id'])),
+    VideoTemplate_rate: async (i) =>
+      ok(await c.videoTemplateController.rate(i.user, i.param['id'], i.json)),
+    VideoTemplate_generate: async (i) =>
+      ok(
+        await c.videoTemplateController.generate(
+          i.user,
+          i.token,
+          i.param['id'],
+          i.json,
+        ),
+      ),
+    // 平台后台：AIworkin 平台模版展示开关与同步
+    VideoTemplateAdmin_settings: async (i) => {
+      services.identity.requireAdmin(i.user);
+      return ok(await c.videoTemplateController.adminSettings());
+    },
+    VideoTemplateAdmin_saveSettings: async (i) => {
+      services.identity.requireAdmin(i.user);
+      return ok(
+        await c.videoTemplateController.adminSaveSettings(i.token, i.json),
+      );
+    },
+    VideoTemplateAdmin_sync: async (i) => {
+      services.identity.requireAdmin(i.user);
+      return ok(await c.videoTemplateController.adminSync(i.token));
+    },
+    // ---------- 存储底座（积分/OSS 方案 §2）：台账概览与存量迁移，平台管理员专属 ----------
+    Storage_overview: async (i) => {
+      services.identity.requireAdmin(i.user);
+      return ok(await services.storage.migration.overview());
+    },
+    Storage_migrate: async (i) => {
+      services.identity.requireAdmin(i.user);
+      return ok(
+        await services.storage.migration.migrateBatch(i.user.userId, {
+          limit: Number(i.json.limit),
+          cursor: Number(i.json.cursor),
+        }),
+      );
+    },
     // ---------- 共享资料（数字资产按账号共享给企业内用户） ----------
     Content_sharedAssets: async (i) => c.contentController.sharedAssets(i.user),
     Content_shareTargets: async (i) => c.contentController.shareTargets(i.user),
@@ -633,6 +803,7 @@ export function registerAutomationRoutes(
     Content_job: async (i) => c.contentController.job(i.user, i.param['id']),
     Content_cancelJob: async (i) =>
       c.contentController.cancelJob(i.user, i.param['id']),
+    Content_agentTools: async (i) => c.contentController.agentTools(i.user),
     Content_skills: async (i) => c.contentController.listSkills(i.user),
     Content_toggleSkill: async (i) =>
       c.contentController.toggleSkill(i.user, i.param['id'], i.json),
@@ -675,7 +846,8 @@ export function registerAutomationRoutes(
       c.contentController.removeConversation(i.user, i.param['id']),
     Content_messages: async (i) =>
       c.contentController.messages(i.user, i.param['id']),
-    Content_memories: async (i) => c.contentController.memories(i.user),
+    Content_memories: async (i) =>
+      c.contentController.memories(i.user, Number(i.query.personaId) || 0),
     Content_saveMemories: async (i) =>
       c.contentController.saveMemories(i.user, i.json),
 
@@ -838,6 +1010,8 @@ export function registerAutomationRoutes(
       c.serviceDeskController.conversations(i.user, i.query),
     ServiceDesk_conversation: async (i) =>
       c.serviceDeskController.conversation(i.user, i.param['id']),
+    ServiceDesk_convertToCrm: async (i) =>
+      c.serviceDeskController.convertToCrm(i.user, i.param['id'], i.json),
     ServiceDesk_send: async (i) =>
       c.serviceDeskController.send(i.user, i.param['id'], i.json),
     ServiceDesk_claim: async (i) =>
@@ -906,28 +1080,52 @@ export function registerAutomationRoutes(
       c.livecodeController.adminList(i.user, i.query),
     AdminMarketingQr_disable: async (i) =>
       c.livecodeController.adminDisable(i.user, i.param['id'], i.json),
+
+    // ---------- 营销问卷与调研（营销工具：回收数据写入多维表格） ----------
+    Survey_page: async (i) =>
+      ok(await c.surveyController.page(i.user, i.query)),
+    Survey_detail: async (i) =>
+      ok(await c.surveyController.detail(i.user, i.param['id'])),
+    Survey_create: async (i) =>
+      ok(await c.surveyController.create(i.user, i.json)),
+    Survey_update: async (i) =>
+      ok(await c.surveyController.update(i.user, i.param['id'], i.json)),
+    Survey_publish: async (i) =>
+      ok(await c.surveyController.publish(i.user, i.param['id'])),
+    Survey_close: async (i) =>
+      ok(await c.surveyController.close(i.user, i.param['id'])),
+    Survey_reopen: async (i) =>
+      ok(await c.surveyController.reopen(i.user, i.param['id'])),
+    Survey_remove: async (i) =>
+      ok(await c.surveyController.remove(i.user, i.param['id'])),
+    Survey_results: async (i) =>
+      ok(await c.surveyController.results(i.user, i.param['id'], i.query)),
+
+    // ---------- 平台管理员：生成 Skill ----------
+    Admin_skillGeneratorCatalog: async (i) =>
+      ok(await services.skillGenerator.catalog(i.user)),
+    Admin_generateSkill: async (i) =>
+      ok(
+        await services.skillGenerator.generate(
+          i.user,
+          readValidated<GenerateSkillInput>(i.json),
+        ),
+      ),
+    /** 开放集成 → API-MCP-Skill → Skill：任意登录账号可读平台生成的技能包清单。 */
+    GeneratedSkill_list: async () => ok(await services.skillGenerator.list()),
   };
 
   /** CRM / BI 的处理器按 operationId 后缀直接对应控制器方法，参数顺序＝用户、路径参数、查询、请求体。 */
   const moduleHandlers = (
     prefix: string,
-    controller: Record<string, unknown>,
+    controller: object,
   ): Record<string, Handler> => {
     const out: Record<string, Handler> = {};
     for (const operationId of Object.keys(endpoints)) {
       if (!operationId.startsWith(prefix)) continue;
       const suffix = operationId.slice(prefix.length);
       const methodName = suffix.charAt(0).toLowerCase() + suffix.slice(1);
-      const definition = (
-        endpoints as unknown as Record<
-          string,
-          {
-            path: string;
-            query: z.ZodObject<z.ZodRawShape>;
-            body: z.ZodTypeAny;
-          }
-        >
-      )[operationId];
+      const definition = endpointDefs[operationId];
       const paramNames = definition.path
         .split('/')
         .filter((segment) => segment.startsWith(':'))
@@ -958,40 +1156,93 @@ export function registerAutomationRoutes(
   };
   Object.assign(
     handlers,
-    moduleHandlers(
-      'Crm_',
-      c.crmController as unknown as Record<string, unknown>,
-    ),
-    moduleHandlers('Bi_', c.biController as unknown as Record<string, unknown>),
-    moduleHandlers(
-      'LowCode_',
-      c.lowcodeController as unknown as Record<string, unknown>,
-    ),
-    moduleHandlers(
-      'Okr_',
-      c.okrController as unknown as Record<string, unknown>,
-    ),
-    moduleHandlers('Oa_', c.oaController as unknown as Record<string, unknown>),
-    moduleHandlers('Tp_', c.tpController as unknown as Record<string, unknown>),
-    moduleHandlers(
-      'QuestionHall_',
-      c.questionHallController as unknown as Record<string, unknown>,
-    ),
-    moduleHandlers('Im_', c.imController as unknown as Record<string, unknown>),
-    moduleHandlers(
-      'SkillHub_',
-      c.skillHubController as unknown as Record<string, unknown>,
-    ),
+    moduleHandlers('Crm_', c.crmController),
+    moduleHandlers('Bi_', c.biController),
+    moduleHandlers('LowCode_', c.lowcodeController),
+    moduleHandlers('Okr_', c.okrController),
+    moduleHandlers('Oa_', c.oaController),
+    moduleHandlers('Tp_', c.tpController),
+    moduleHandlers('QuestionHall_', c.questionHallController),
+    moduleHandlers('Im_', c.imController),
+    moduleHandlers('SkillHub_', c.skillHubController),
     // 创意社区：面向用户的目录/运行/发布，与平台后台的审核、积分规则两组端点
-    moduleHandlers(
-      'Community_',
-      c.communityController as unknown as Record<string, unknown>,
-    ),
-    moduleHandlers(
-      'CommunityAdmin_',
-      c.communityController as unknown as Record<string, unknown>,
-    ),
+    moduleHandlers('Community_', c.communityController),
+    moduleHandlers('CommunityAdmin_', c.communityController),
+    moduleHandlers('Hrm_', c.hrmController),
+    // L2 项目 / 任务 / 工时（§5.2）
+    moduleHandlers('Pj_', c.projectController),
+    // 增长驾驶舱：OKR / 销售 / 交付 / 获客 / 客服 快照
+    moduleHandlers('Growth_', c.growthController),
+    // L2 ERP 进销存 + 应收应付（§5.4）
+    moduleHandlers('Erp_', c.erpController),
+    // L3 营销技能库（§5.5）
+    moduleHandlers('Mkt_', c.mktController),
+    // SEO 工作台（营销工具）：契约 Seo_* 一一对应控制器方法
+    moduleHandlers('Seo_', c.seoController),
+    // L3 AI 简历代投（§5.6）
+    moduleHandlers('Recruit_', c.recruitController),
+    // AI 获客（营销工具）：线索雷达/触达/档案/剧本/跟进/质检/看板
+    moduleHandlers('Acquisition_', c.acquisitionController),
+    // 企业微信原生 SCRM（营销工具）：客户/群/活码/群发/继承/SOP/合规/统计/侧边栏
+    moduleHandlers('Scrm_', c.scrmController),
+    // 通用协作底座（§5.2）：评论/@/标签/收藏/资源链接
+    moduleHandlers('Collab_', c.collabController),
+    // §5.8 横切机制：各组都有 list/save/remove，因此按契约前缀分组注册。
+    moduleHandlers('Webhook_', c.mechanismController.webhook),
+    moduleHandlers('Import_', c.mechanismController.importer),
+    moduleHandlers('Export_', c.mechanismController.exporter),
+    moduleHandlers('Report_', c.mechanismController.report),
+    moduleHandlers('Rule_', c.mechanismController.rule),
+    moduleHandlers('Share_', c.mechanismController.share),
+    moduleHandlers('Oidc_', c.mechanismController.oidc),
+    moduleHandlers('AssetPolicy_', c.mechanismController.assetPolicy),
+    moduleHandlers('Sync_', c.mechanismController.sync),
+    moduleHandlers('Mechanism_', c.mechanismController.mechanism),
+    moduleHandlers('Party_', c.partyController),
+    moduleHandlers('Kb_', c.kbController),
+    // 点状 AI（§10 P2-B）：通用能力 + 各模块点共用一个控制器，按 Ai_* 契约注册。
+    moduleHandlers('Ai_', c.aiController),
+    moduleHandlers('Platform_', c.platformController),
+    // 模型广场：用户侧目录/试用/用量，平台侧上游与目录维护共用同一个控制器。
+    moduleHandlers('Mp_', c.modelPlazaController),
+    moduleHandlers('AdminMp_', c.modelPlazaController),
+    // 智能硬件：用户侧 Hw_（广场/设备/工具/授权）与平台管理端 AdminHw_ 共用一个控制器。
+    moduleHandlers('Hw_', c.hardwareController),
+    moduleHandlers('AdminHw_', c.hardwareController),
+    moduleHandlers('Points_', c.pointsBillingController),
+    // 附录 B 补齐项：权益配额 / 预约忙闲 / 邮件模板 / 页面助手 / 语音转写 / 报价 PDF /
+    // 工时审计 / 促销码 / 售后状态机 / 服务评价 / 三方任务同步 / 条款留痕 /
+    // 入职引导 / 更新日志 / 主体切换 / 使用埋点。
+    moduleHandlers('Plan_', c.entitlementController),
+    moduleHandlers('Apt_', c.appointmentController),
+    moduleHandlers('MailTpl_', c.mailTemplateController),
+    moduleHandlers('Assistant_', c.assistantController),
+    moduleHandlers('Transcribe_', c.transcriptionController),
+    moduleHandlers('Quote_', c.quotationDocumentController),
+    moduleHandlers('TimeAudit_', c.timeAuditController),
+    moduleHandlers('Promo_', c.promoController),
+    moduleHandlers('AfterSales_', c.afterSalesController),
+    moduleHandlers('Review_', c.reviewController),
+    moduleHandlers('TaskSync_', c.taskSyncController),
+    moduleHandlers('Terms_', c.termsController),
+    moduleHandlers('Onboard_', c.onboardingController),
+    moduleHandlers('Changelog_', c.changelogController),
+    moduleHandlers('OrgCtx_', c.orgContextController),
+    moduleHandlers('Usage_', c.usageController),
   );
+
+  // 条款接受与埋点需要请求来源（IP / UA）：覆盖 moduleHandlers 的默认签名。
+  Object.assign(handlers, {
+    Terms_accept: async (i: Input) =>
+      ok(
+        await c.termsController.accept(i.user, i.json, {
+          ip: i.ip,
+          userAgent: i.userAgent,
+        }),
+      ),
+    Usage_track: async (i: Input) =>
+      ok(await c.usageController.track(i.user, i.json, { ip: i.ip })),
+  });
 
   // 内建应用里需要登录令牌的端点（AI 走模型设置、附件走 AIPDD 数字资产）：
   // moduleHandlers 不传 token，这里覆盖成显式处理器，参数顺序＝用户、路径参数、令牌、查询/请求体。
@@ -1003,7 +1254,7 @@ export function registerAutomationRoutes(
           i.user,
           i.param['id'],
           i.token,
-          i.json as unknown as { entityId: number; text: string },
+          readValidated<{ entityId: number; text: string }>(i.json),
         ),
       ),
     LowCode_aiAsk: async (i) =>
@@ -1012,7 +1263,7 @@ export function registerAutomationRoutes(
           i.user,
           i.param['id'],
           i.token,
-          i.json as unknown as { entityId: number; question: string },
+          readValidated<{ entityId: number; question: string }>(i.json),
         ),
       ),
     LowCode_aiSettings: async (i) =>
@@ -1025,7 +1276,7 @@ export function registerAutomationRoutes(
           i.user,
           i.param['id'],
           i.token,
-          i.query as unknown as { channelId: number },
+          readValidated<{ channelId: number }>(i.query),
         ),
       ),
     LowCode_assets: async (i) =>
@@ -1043,38 +1294,52 @@ export function registerAutomationRoutes(
           i.user,
           i.param['id'],
           i.token,
-          i.json as unknown as {
+          readValidated<{
             name: string;
             contentType: string;
             contentBase64: string;
             fieldKey: string;
-          },
+          }>(i.json),
         ),
       ),
     // AI 预审要用审批人本人的登录令牌取模型渠道，moduleHandlers 不传 token，这里显式覆盖。
     Oa_preReview: async (i) =>
       ok(await c.oaController.preReview(i.user, i.param['id'], i.token)),
+    // 获客：线索评分与质检要取用户绑定的上游模型凭证
+    Acquisition_scoreLead: async (i) =>
+      ok(
+        await c.acquisitionController.scoreLead(
+          i.user,
+          i.param['id'],
+          i.json,
+          i.token,
+        ),
+      ),
+    Acquisition_runQc: async (i) =>
+      ok(await c.acquisitionController.runQc(i.user, i.json, i.token)),
+    // 插件通道不带会话，只认 body 里的 5 分钟令牌（moduleHandlers 会把 user 当第一个参数）
+    Acquisition_pluginPull: async (i) =>
+      ok(await c.acquisitionController.pluginPull(i.json)),
+    Acquisition_pluginReport: async (i) =>
+      ok(await c.acquisitionController.pluginReport(i.json)),
   } satisfies Record<string, Handler>);
 
   registerCrmExportDownload(app, services);
   registerBiChatStream(app, services);
 
-  for (const [operationId, handler] of Object.entries(handlers)) {
-    // endpoints 已有数百条，直接索引联合类型会超过 TS 的比较复杂度上限；
-    // 这里按 OpenAPI 路由所需的最小形状取值（契约本身仍由 definition 的类型校验）。
-    const definition = (
-      endpoints as unknown as Record<
-        string,
-        {
-          method: 'get' | 'post' | 'put' | 'patch' | 'delete';
-          path: string;
-          params: z.ZodObject<z.ZodRawShape>;
-          query: z.ZodObject<z.ZodRawShape>;
-          body: z.ZodTypeAny;
-          response: z.ZodTypeAny;
-        }
-      >
-    )[operationId];
+  // 路由匹配按注册顺序生效（Hono 不会让静态段自动压过 :param）：
+  // 必须先注册静态路径，再注册带 :param 的兄弟路径，否则 `/customers/merge-preview`
+  // 会被先注册的 `/customers/:id` 吃掉，参数退化成 "merge-preview"。
+  const dynamicCount = (operationId: string) =>
+    (endpointDefs[operationId]?.path ?? '')
+      .split('/')
+      .filter((seg) => seg.startsWith(':')).length;
+  const orderedHandlers = Object.entries(handlers).sort(
+    ([a], [b]) => dynamicCount(a) - dynamicCount(b),
+  );
+
+  for (const [operationId, handler] of orderedHandlers) {
+    const definition = endpointDefs[operationId];
     const hasBody = !definition.body.safeParse(undefined).success;
     app.openapi(
       createRoute({
@@ -1117,19 +1382,26 @@ export function registerAutomationRoutes(
       async (context) => {
         const input: Input = {
           user: context.get('user')!,
-          param: context.req.valid('param' as never) as Record<string, string>,
-          query: context.req.valid('query' as never) as Record<string, unknown>,
-          json: hasBody
-            ? (context.req.valid('json' as never) as Record<string, unknown>)
-            : {},
+          param: validated(context, 'param'),
+          query: validated(context, 'query'),
+          json: hasBody ? validated(context, 'json') : {},
           // 只有真正用上游 Key 的端点才解析凭证：未绑定时其余端点照常可用（管理端本地查询不 403）
           token: UPSTREAM_TOKEN_OPERATIONS.has(operationId)
             ? await upstreamToken(context)
             : '',
+          ip: String(
+            context.req.header('x-forwarded-for') ||
+              context.req.header('x-real-ip') ||
+              '',
+          )
+            .split(',')[0]
+            .trim()
+            .slice(0, 64),
+          userAgent: (context.req.header('user-agent') || '').slice(0, 300),
         };
         const result = await handler(input);
         return context.json(
-          serializeResponse(definition.response, result) as never,
+          serializeResponse(definition.response, result),
           200,
         );
       },
@@ -1138,8 +1410,11 @@ export function registerAutomationRoutes(
 
   registerCsvExport(app, services);
   registerSkillHubDownload(app, services);
+  registerGeneratedSkillDownload(app, services);
   registerContentUploads(app, services);
+  registerKbSourceUpload(app, services);
   registerCommunityInputUpload(app, services);
+  registerHardwareKitUpload(app, services);
   registerContentDigitalAssetUpload(app, services);
   registerContentAgentStream(app, services);
   registerContentSkillImport(app, services);
@@ -1171,16 +1446,18 @@ function registerContentDigitalAssetUpload(
           labels = rawLabels.split(',');
         }
       }
+      // 上传即打标要经模型网关取用户绑定凭证；没绑定也要能上传，取不到就按平台口径兜底。
+      const token = await upstreamTokenOrNull(context).catch(() => '');
       const result =
         await services.controllers.contentController.uploadDigitalAsset(
           context.get('user')!,
-          await upstreamToken(context),
           file,
           {
             type: form.get('type'),
             name: form.get('name'),
             labels,
           },
+          token,
         );
       return context.json(result);
     },
@@ -1326,6 +1603,56 @@ function registerContentUploads(app: OpenAPIHono<ApiEnv>, services: Services) {
   });
 }
 
+/** 知识库投料：文件上传走 multipart（字节进本站 OSS 桶），不进 JSON 契约。 */
+function registerKbSourceUpload(app: OpenAPIHono<ApiEnv>, services: Services) {
+  app.post(
+    '/enterprise/kb/sources/upload',
+    async (context: Context<ApiEnv>) => {
+      const form = await context.req.formData();
+      const file = form.get('file');
+      if (!(file instanceof File)) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          '请选择要上传的文件',
+        );
+      }
+      const result = await services.controllers.kbController.uploadSource(
+        context.get('user')!,
+        file,
+        {
+          spaceId: form.get('spaceId'),
+          kind: form.get('kind'),
+          title: form.get('title'),
+        },
+      );
+      return context.json({ code: 0, message: 'ok', data: result });
+    },
+  );
+}
+
+/** 智能硬件开发包上传：multipart 不进 JSON 契约，字节进本站 OSS，返回元数据由 AdminHw_kitSave 落库。 */
+function registerHardwareKitUpload(
+  app: OpenAPIHono<ApiEnv>,
+  services: Services,
+) {
+  app.post(
+    '/enterprise/hardware/admin/kits/upload',
+    async (context: Context<ApiEnv>) => {
+      services.identity.requireAdmin(context.get('user')!);
+      const form = await context.req.formData();
+      const file = form.get('file');
+      if (!(file instanceof File)) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          '请选择要上传的开发包文件',
+        );
+      }
+      const result = await services.hardware.adminKitUpload(file);
+      return context.json({ code: 0, message: 'ok', data: result });
+    },
+  );
+}
+
 /**
  * 创意社区运行表单的图片输入：multipart 不进 JSON 契约，单独登记。
  * 与内容创作的素材上传不同——这里必须落**本站自己的桶**：
@@ -1378,6 +1705,29 @@ function registerSkillHubDownload(
         result.bytes.byteOffset + result.bytes.byteLength,
       ) as ArrayBuffer;
       return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${filename}"; filename*=UTF-8''${filename}`,
+        },
+      });
+    },
+  );
+}
+
+/** 平台生成的 Skill 包下载：返回 zip，不进 JSON 契约，单独登记。 */
+function registerGeneratedSkillDownload(
+  app: OpenAPIHono<ApiEnv>,
+  services: Services,
+) {
+  app.get(
+    '/enterprise/generated-skills/:id/download',
+    async (context: Context<ApiEnv>) => {
+      const result = await services.skillGenerator.download(
+        context.req.param('id')!,
+      );
+      const filename = encodeURIComponent(result.filename || 'skill.zip');
+      return new Response(new Uint8Array(result.bytes), {
         status: 200,
         headers: {
           'Content-Type': 'application/zip',

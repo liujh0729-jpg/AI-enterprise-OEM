@@ -163,7 +163,7 @@ function CustomersPanel({ tabs }: { tabs: ReactNode }) {
             </div>
           }
           submit={async (body) =>
-            taskText(await tpApi.cdpImportCustomers({ body: body as never }))
+            taskText(await tpApi.cdpImportCustomers({ body }))
           }
         />
 
@@ -209,7 +209,7 @@ function CustomersPanel({ tabs }: { tabs: ReactNode }) {
             </div>
           }
           submit={async (body) =>
-            taskText(await tpApi.cdpApplyTags({ body: body as never }))
+            taskText(await tpApi.cdpApplyTags({ body }))
           }
         />
 
@@ -219,7 +219,7 @@ function CustomersPanel({ tabs }: { tabs: ReactNode }) {
           actionLabel="创建标签"
           accountId={accountId}
           submit={async (payload) => {
-            await tpApi.cdpCreateTag({ body: payload as never });
+            await tpApi.cdpCreateTag({ body: payload });
             return "标签已创建";
           }}
           hint="字段名以企点「外部标签创建」接口为准，例如标签名称、标签值。"
@@ -317,7 +317,7 @@ function SegmentsPanel({ tabs }: { tabs: ReactNode }) {
           mapping,
           exportSaKey: identityId.trim() || "oneid",
           confirmCost: false,
-        } as never,
+        },
       });
       setTaskTip(taskText(task));
     } catch (caught) {
@@ -450,7 +450,7 @@ function SegmentsPanel({ tabs }: { tabs: ReactNode }) {
             params={{ crowdName, identityId }}
             paramsReady={Boolean(crowdName.trim())}
             submit={async (body) =>
-              taskText(await tpApi.cdpCreateSegment({ body: body as never }))
+              taskText(await tpApi.cdpCreateSegment({ body }))
             }
           />
         </section>
@@ -639,7 +639,7 @@ function CrmImportPanel({ tabs }: { tabs: ReactNode }) {
           crowdId: source === "cdp_segment" ? crowdId.trim() : "",
           mapping,
           confirmCost,
-        } as never,
+        },
       });
       if (!data) throw new Error("写入没有返回结果");
       setResult(data);

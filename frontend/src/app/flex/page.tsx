@@ -8,7 +8,9 @@ import {
   serviceMarketTab,
 } from "@/components/service-publish-tab";
 import { ColumnSwitch, Notice, PageHero, type HeroTab } from "@/components/ui/panel";
+import { filterBoardTabs } from "@/lib/board-tabs";
 import { useSession } from "@/lib/session";
+import { useSiteBrand } from "@/lib/site-brand";
 import { useFlexWorkspace } from "@/query/workspaces";
 import { OnboardingTab } from "./_components/onboarding-tab";
 import { PayrollTab } from "./_components/payroll-tab";
@@ -49,11 +51,14 @@ export default function FlexPage() {
   const isProvider =
     roles.includes("SERVICE_PROVIDER") || (me?.staffOf || []).length > 0;
   const payrollEnabled = me?.platformFlags?.flexPayrollEnabled === true;
+  const { hiddenBoardTabs } = useSiteBrand();
   const tabs: HeroTab[] = [
     ...BASE_TABS,
     ...(payrollEnabled ? [PAYROLL_TAB] : []),
     ...DIRECTORY_TABS,
   ];
+  // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染，命中当前页签则回退到第一个可见页签。
+  const visibleTabs = filterBoardTabs("flex", tabs, hiddenBoardTabs);
 
   /** 用工需求列表（含省市筛选）由 WorkOrderTab 的共享看板自行加载，本页只管其余三份数据。 */
   const workspace = useFlexWorkspace();
@@ -61,10 +66,10 @@ export default function FlexPage() {
   const {refetch: refetchWorkspace} = workspace;
   const load = useCallback(async () => { await refetchWorkspace(); }, [refetchWorkspace]);
 
-  // 板块被停用（或身份不可见该页签）时，state 里残留的 tab 兜回默认页签（即第一个页签）
-  const activeTab = tabs.some((item) => item.key === tab)
+  // 板块被停用（或身份不可见 / 站点隐藏该页签）时，state 里残留的 tab 兜回默认页签（即第一个页签）
+  const activeTab = visibleTabs.some((item) => item.key === tab)
     ? tab
-    : tabs[0]?.key || "";
+    : visibleTabs[0]?.key || "";
 
 
 
@@ -78,7 +83,7 @@ export default function FlexPage() {
             ? "· 灵工发薪（新建发薪 → 代理人审核 → 进入台账）"
             : ""
         }`}
-        tabs={tabs}
+        tabs={visibleTabs}
         activeTab={activeTab}
         onTabChange={setTab}
       />

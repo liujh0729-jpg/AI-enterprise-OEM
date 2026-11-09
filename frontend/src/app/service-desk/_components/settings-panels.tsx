@@ -17,13 +17,21 @@ import {
   message,
 } from "antd";
 import { useEffect, useState } from "react";
-import type { ServiceDeskSite, ServiceDeskStats } from "@enterprise/contracts";
+import type {
+  ServiceDeskSettings,
+  ServiceDeskSite,
+  ServiceDeskStats,
+} from "@enterprise/contracts";
 import { serviceDeskApi } from "@/api/collab";
 import { Panel } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import { useSiteBase } from "@/lib/site-brand";
 
+/** 表单口径＝接待设置去掉只读的中文标签列；保存接口按同一形状收字段。 */
+type SettingsForm = Omit<ServiceDeskSettings, "aiModeLabel">;
+
 export function SettingsPanel() {
-  const [form, setForm] = useState<Record<string, unknown>>({});
+  const [form, setForm] = useState<Partial<SettingsForm>>({});
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -31,20 +39,17 @@ export function SettingsPanel() {
     void serviceDeskApi
       .settings()
       .then((data) => {
-        setForm((data || {}) as Record<string, unknown>);
+        setForm(data || {});
         setLoaded(true);
       })
       .catch((error) => message.error((error as Error).message || "加载失败"));
   }, []);
 
-  const field = (key: string, fallback: unknown = "") =>
-    (form[key] ?? fallback) as never;
-
   const save = async () => {
     try {
       setSaving(true);
-      const payload = {
-        businessHours: (form.businessHours || {}) as never,
+      const payload: Partial<SettingsForm> = {
+        businessHours: form.businessHours || {},
         welcomeText: String(form.welcomeText || ""),
         queueText: String(form.queueText || ""),
         offlineText: String(form.offlineText || ""),
@@ -64,7 +69,7 @@ export function SettingsPanel() {
         retentionDays: Number(form.retentionDays || 180),
       };
       const data = await serviceDeskApi.saveSettings({ body: payload });
-      setForm((data || {}) as Record<string, unknown>);
+      setForm(data || {});
       message.success("设置已保存");
     } catch (error) {
       message.error((error as Error).message || "保存失败");
@@ -83,7 +88,7 @@ export function SettingsPanel() {
           欢迎语
           <Input.TextArea
             rows={2}
-            value={field("welcomeText")}
+            value={form.welcomeText}
             onChange={(event) => setForm({ ...form, welcomeText: event.target.value })}
           />
         </label>
@@ -91,7 +96,7 @@ export function SettingsPanel() {
           排队提示
           <Input.TextArea
             rows={2}
-            value={field("queueText")}
+            value={form.queueText}
             onChange={(event) => setForm({ ...form, queueText: event.target.value })}
           />
         </label>
@@ -99,7 +104,7 @@ export function SettingsPanel() {
           离线留言提示
           <Input.TextArea
             rows={2}
-            value={field("offlineText")}
+            value={form.offlineText}
             onChange={(event) => setForm({ ...form, offlineText: event.target.value })}
           />
         </label>
@@ -108,8 +113,8 @@ export function SettingsPanel() {
           <InputNumber
             min={1}
             max={50}
-            value={field("maxConcurrent", 5) as number}
-            onChange={(value) => setForm({ ...form, maxConcurrent: value })}
+            value={form.maxConcurrent ?? 5}
+            onChange={(value) => setForm({ ...form, maxConcurrent: value ?? undefined })}
           />
         </label>
         <label className="sd-switch-row">
@@ -138,8 +143,8 @@ export function SettingsPanel() {
           <InputNumber
             min={7}
             max={3650}
-            value={field("retentionDays", 180) as number}
-            onChange={(value) => setForm({ ...form, retentionDays: value })}
+            value={form.retentionDays ?? 180}
+            onChange={(value) => setForm({ ...form, retentionDays: value ?? undefined })}
           />
         </label>
         <label>
@@ -147,7 +152,7 @@ export function SettingsPanel() {
           <Input
             value={
               Array.isArray(form.libraryIds)
-                ? (form.libraryIds as number[]).join(",")
+                ? form.libraryIds.join(",")
                 : String(form.libraryIds || "")
             }
             onChange={(event) =>
@@ -183,7 +188,7 @@ export function SettingsPanel() {
           <Input
             value={
               Array.isArray(form.aiHandoffKeywords)
-                ? (form.aiHandoffKeywords as string[]).join(",")
+                ? form.aiHandoffKeywords.join(",")
                 : String(form.aiHandoffKeywords || "")
             }
             onChange={(event) =>
@@ -231,8 +236,8 @@ export function KnowledgePanel() {
   const load = async () => {
     try {
       const [a, b] = await Promise.all([serviceDeskApi.canned(), serviceDeskApi.faqs()]);
-      setCanned((a || []) as never);
-      setFaqs((b || []) as never);
+      setCanned(a || []);
+      setFaqs(b || []);
     } catch (error) {
       message.error((error as Error).message || "加载失败");
     }
@@ -522,8 +527,7 @@ export function SitesPanel() {
           <div className="sd-site-head">
             <span className="sd-site-icon">
               {typeof site.appearance?.avatar === "string" && site.appearance.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element -- 站点头像是外部直链，不走图片优化
-                <img src={site.appearance.avatar} alt="" />
+                <RawImg src={site.appearance.avatar} alt="" />
               ) : (
                 "默认"
               )}
@@ -586,8 +590,7 @@ export function SitesPanel() {
           />
           <div className="sd-icon-row">
             <span className="sd-site-icon">
-              {/* eslint-disable-next-line @next/next/no-img-element -- 上传图标是 OSS 直链，不走图片优化 */}
-              {iconUrl ? <img src={iconUrl} alt="" /> : "默认"}
+              {iconUrl ? <RawImg src={iconUrl} alt="" /> : "默认"}
             </span>
             <Upload
               accept="image/png,image/jpeg,image/webp,image/gif"

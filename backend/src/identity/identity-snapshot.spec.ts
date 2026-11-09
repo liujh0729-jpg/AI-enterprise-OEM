@@ -5,6 +5,8 @@ import {
   isIdentityWrite,
 } from '../common/request-context';
 import { FLEX_PAYROLL_ENABLED_KEY } from '../common/constants';
+import type { PrismaService } from '../prisma/prisma.service';
+import { stub } from '../../test/doubles';
 
 /** 按当前实现（Prisma 委托）构造最小桩：七个身份依据读取各一条。 */
 function setup() {
@@ -24,10 +26,12 @@ function setup() {
     },
   ];
   const staffProfile = { id: 3, userId: 'snapshot-unit' };
-  const staffOf = [
-    { id: 4, staffUserId: 'snapshot-unit', status: 'ACTIVE' },
-  ];
-  const pref = { id: 5, userId: 'snapshot-unit', currentIdentity: 'SERVICE_PROVIDER' };
+  const staffOf = [{ id: 4, staffUserId: 'snapshot-unit', status: 'ACTIVE' }];
+  const pref = {
+    id: 5,
+    userId: 'snapshot-unit',
+    currentIdentity: 'SERVICE_PROVIDER',
+  };
   const directory = {
     id: 6,
     userId: 'snapshot-unit',
@@ -73,7 +77,7 @@ describe('identity snapshot', () => {
   it('assembles every identity basis and defaults the payroll flag to enabled', async () => {
     const { prisma, rows } = setup();
     const snapshot = await runInRequestContext(() =>
-      readIdentitySnapshot(prisma as never, 'snapshot-unit'),
+      readIdentitySnapshot(stub<PrismaService>(prisma), 'snapshot-unit'),
     );
     expect(snapshot).toEqual({
       ...rows,
@@ -94,7 +98,7 @@ describe('identity snapshot', () => {
     const { prisma } = setup();
     prisma.systemSetting.findUnique.mockResolvedValue({ value: 'false' });
     const snapshot = await runInRequestContext(() =>
-      readIdentitySnapshot(prisma as never, 'snapshot-unit'),
+      readIdentitySnapshot(stub<PrismaService>(prisma), 'snapshot-unit'),
     );
     expect(snapshot.flexPayrollEnabled).toBe(false);
   });
@@ -102,16 +106,19 @@ describe('identity snapshot', () => {
   it('shares the snapshot only within one request and reloads after an identity write', async () => {
     const { prisma } = setup();
     await runInRequestContext(async () => {
-      const first = readIdentitySnapshot(prisma as never, 'snapshot-unit');
-      expect(readIdentitySnapshot(prisma as never, 'snapshot-unit')).toBe(
-        first,
+      const first = readIdentitySnapshot(
+        stub<PrismaService>(prisma),
+        'snapshot-unit',
       );
+      expect(
+        readIdentitySnapshot(stub<PrismaService>(prisma), 'snapshot-unit'),
+      ).toBe(first);
       await first;
       clearRequestMemo();
-      await readIdentitySnapshot(prisma as never, 'snapshot-unit');
+      await readIdentitySnapshot(stub<PrismaService>(prisma), 'snapshot-unit');
     });
     await runInRequestContext(() =>
-      readIdentitySnapshot(prisma as never, 'snapshot-unit'),
+      readIdentitySnapshot(stub<PrismaService>(prisma), 'snapshot-unit'),
     );
     expect(prisma.enterpriseProfile.findFirst).toHaveBeenCalledTimes(3);
   });
@@ -123,10 +130,10 @@ describe('identity snapshot', () => {
     );
     await runInRequestContext(async () => {
       await expect(
-        readIdentitySnapshot(prisma as never, 'snapshot-unit'),
+        readIdentitySnapshot(stub<PrismaService>(prisma), 'snapshot-unit'),
       ).rejects.toThrow('database unavailable');
       await expect(
-        readIdentitySnapshot(prisma as never, 'snapshot-unit'),
+        readIdentitySnapshot(stub<PrismaService>(prisma), 'snapshot-unit'),
       ).resolves.toMatchObject({ flexPayrollEnabled: true });
     });
     expect(prisma.enterpriseProfile.findFirst).toHaveBeenCalledTimes(2);

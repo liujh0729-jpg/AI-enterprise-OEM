@@ -116,6 +116,82 @@ const dataTableRowPageSchema = z.object({
   pageSize: z.number(),
 });
 
+/** AI 列填充结果：写回行数、跳过数、真实用量口径的模型名与本次是否走了模型。 */
+export const dataTableAiFillResultSchema = z.object({
+  fieldKey: z.string(),
+  updated: z.number(),
+  skipped: z.number(),
+  model: z.string(),
+  mode: z.enum(["llm", "rule"]),
+});
+
+/**
+ * AI 问数：服务端先把全表聚合成结构化摘要再喂模型（省钱、防幻觉），
+ * 答案与聚合口径、抽样行一起回，前端可只读聚合也看得懂。
+ */
+export const dataTableAskResultSchema = z.object({
+  answer: z.string(),
+  mode: z.enum(["llm", "aggregate"]),
+  model: z.string(),
+  columns: z.array(
+    z.object({ key: z.string(), name: z.string(), type: z.string() }),
+  ),
+  aggregates: jsonObject,
+  rows: z.array(jsonObject),
+  total: z.number(),
+  sampleSize: z.number(),
+});
+
+/** AI 列配置：提示词 + 取材列（由这几列的值生成目标列的值）。 */
+export const dataTableFieldAiSchema = z.object({
+  prompt: z.string(),
+  source_keys: z.array(z.string()),
+});
+
+/** 一句话建表的列草稿。 */
+export const dataTablePlanFieldSchema = z.object({
+  name: z.string(),
+  field_key: z.string(),
+  field_type: z.string(),
+  choices: z.array(z.string()),
+  required: z.boolean(),
+  ai: dataTableFieldAiSchema.nullable(),
+});
+
+/** 一句话建表草稿：不落库，用户确认后再走新建表 + 批量建列两条既有接口。 */
+export const dataTablePlanSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  fields: z.array(dataTablePlanFieldSchema),
+  model: z.string(),
+  mode: z.enum(["llm", "rule"]),
+});
+
+/** AI 视图草稿：结构比保存的视图少 id，用户确认后再走 saveView 落库。 */
+export const dataTablePlanViewSchema = z.object({
+  name: z.string(),
+  type: z.enum(["GRID", "KANBAN", "DASHBOARD"]),
+  config: jsonObject,
+  model: z.string(),
+});
+
+/** 保存的表格视图：GRID 网格 / KANBAN 看板 / DASHBOARD 汇总。 */
+export const dataTableViewSchema = z.object({
+  id: z.number(),
+  tableId: z.number(),
+  createdBy: z.string(),
+  name: z.string(),
+  type: z.string(),
+  config: jsonObject,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const dataTableViewParams = z.object({
+  id: z.string(),
+  viewId: z.string(),
+});
+
 /** 飞书同步：一个绑定的字段映射（本地列键 ↔ 飞书字段名）。 */
 export const dataTableFeishuMappingSchema = z.object({
   localKey: z.string(),
@@ -2058,6 +2134,66 @@ export const automationEndpoints = {
     method: "delete" as const,
     path: "/enterprise/data-tables/:id/rows/:rowId",
     params: dataTableRowParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(dataTableRemovedSchema),
+  },
+  /** AI 列：按提示词 + 取材列，批量为某列生成值并写回（缺 Key 回落规则拼接）。 */
+  DataTable_aiFillColumn: {
+    method: "post" as const,
+    path: "/enterprise/data-tables/:id/ai/fill-column",
+    params: dataTableParams,
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(dataTableAiFillResultSchema),
+  },
+  /** AI 问数：服务端先聚合全表再喂模型，返回结论 + 聚合口径。 */
+  DataTable_aiAsk: {
+    method: "post" as const,
+    path: "/enterprise/data-tables/:id/ai/ask",
+    params: dataTableParams,
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(dataTableAskResultSchema),
+  },
+  /** 一句话建表：返回列结构草稿（不落库），确认后另走新建表与批量建列。 */
+  DataTable_aiPlanTable: {
+    method: "post" as const,
+    path: "/enterprise/data-tables/ai/plan",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(dataTablePlanSchema),
+  },
+  /** AI 生成视图：按一句话给出网格 / 看板 / 汇总视图草稿。 */
+  DataTable_aiPlanView: {
+    method: "post" as const,
+    path: "/enterprise/data-tables/:id/ai/view",
+    params: dataTableParams,
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(dataTablePlanViewSchema),
+  },
+  DataTable_views: {
+    method: "get" as const,
+    path: "/enterprise/data-tables/:id/views",
+    params: dataTableParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(dataTableViewSchema)),
+  },
+  DataTable_saveView: {
+    method: "post" as const,
+    path: "/enterprise/data-tables/:id/views",
+    params: dataTableParams,
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(dataTableViewSchema),
+  },
+  DataTable_removeView: {
+    method: "delete" as const,
+    path: "/enterprise/data-tables/:id/views/:viewId",
+    params: dataTableViewParams,
     query: emptyQuery,
     body: z.undefined(),
     response: envelope(dataTableRemovedSchema),

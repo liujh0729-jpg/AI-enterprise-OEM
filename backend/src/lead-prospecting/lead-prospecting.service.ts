@@ -1,19 +1,24 @@
 import { pageOf, pageParam, text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { toJsonInput } from '../common/json-input';
 import { currentRequest, runInRequestContext } from '../common/request-context';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../generated/prisma';
 import { jsonText } from '../common/sql-json';
-import { geoChatMulti, type ChatMessage } from '../geo/geo-llm.client';
+import { aiChat } from '../ai/ai-gateway';
+import { messageText, type ChatMessage } from '../geo/geo-llm.client';
 import { httpRequest } from '../http/transport';
 import { ModelKeyService } from '../aiworkin/model-key.service';
 import { DataTableService } from '../data-table/data-table.service';
 import { RpaCrypto, maskKey } from '../rpa/rpa-crypto';
 import { RpaLlmService } from '../rpa/rpa-llm.service';
-import { buildDeliverableCsv, type DeliverableSink } from '../content/deliverable';
+import {
+  buildDeliverableCsv,
+  type DeliverableSink,
+} from '../content/deliverable';
 import {
   SUPPORTED_COUNTRIES,
   serperSearch,
@@ -100,7 +105,7 @@ export class LeadProspectingService {
           select: { id: true, name: true },
         })
       : null;
-    const key = await this.keyStatus(token);
+    const key = this.keyStatus(token);
     return {
       serperConfigured: Boolean(serperMasked),
       serperMasked,
@@ -153,9 +158,9 @@ export class LeadProspectingService {
    * 降级为「未确认配置」（keyConfigured=false + 原样带出错误），设置页其余本地项
    * （Serper Key / 线索表 / 模型）照常可看可存——辅助通道故障不许打断整页读取。
    */
-  private async keyStatus(token?: string) {
+  private keyStatus(token?: string) {
     try {
-      const key = await this.modelKeys.status(token);
+      const key = this.modelKeys.status(token);
       return {
         configured: key.configured,
         keyMasked: key.keyMasked,
@@ -355,22 +360,21 @@ export class LeadProspectingService {
     if (!messages.length) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请至少发送一条消息');
     }
-    const apiKey = await this.modelKeys.requireKey(token);
     const setting = await this.prisma.leadProspectingSetting.findUnique({
       where: { userId: user.userId },
     });
-    const model = text(setting?.model).trim();
-    const reply = await geoChatMulti({
-      baseUrl: this.llm.baseUrl(),
-      apiKey,
-      model,
+    const reply = await aiChat(this.prisma, {
+      userId: user.userId,
+      token,
+      moduleModel: text(setting?.model).trim(),
+      module: 'lead_prospecting',
+      operation: 'intent',
       messages: [
         { role: 'system', content: buildIntentSystemPrompt() },
         ...messages,
       ],
       maxTokens: CHAT_MAX_TOKENS,
       timeoutMs: CHAT_TIMEOUT_MS,
-      userId: user.userId,
       purpose: 'chat',
     });
     const spec = parseTaskJson(reply.reply);
@@ -381,7 +385,7 @@ export class LeadProspectingService {
           userId: user.userId,
           taskId: 0,
           role: 'user',
-          content: lastUser.content,
+          content: messageText(lastUser.content),
         },
       });
     }
@@ -440,7 +444,7 @@ export class LeadProspectingService {
     const row = await this.prisma.leadProspectingTask.create({
       data: {
         userId: user.userId,
-        spec: spec as never,
+        spec: toJsonInput(spec),
         rawIntent: text(body.rawIntent).trim().slice(0, 4000),
         dataTableId,
       },
@@ -569,7 +573,7 @@ export class LeadProspectingService {
       '线索表',
     );
     const serperKey = this.crypto.decrypt(setting.serperKeyCipher);
-    const apiKey = await this.modelKeys.requireKey(token);
+    const modelToken = this.modelKeys.requireKey(token);
     const spec = normalizeSpec(row.spec);
     if (!spec) {
       throw new BusinessException(
@@ -603,7 +607,7 @@ export class LeadProspectingService {
       () =>
         this.run(user, started.id, spec, {
           serperKey,
-          apiKey,
+          token: modelToken,
           model: setting.model,
           dataTableId,
         }),
@@ -643,7 +647,7 @@ export class LeadProspectingService {
     spec: LeadSpec,
     creds: {
       serperKey: string;
-      apiKey: string;
+      token: string;
       model: string;
       dataTableId: number;
     },
@@ -759,7 +763,10 @@ export class LeadProspectingService {
       if (this.deliverableSink && deliverableRows.length) {
         await this.deliverableSink(user.userId, {
           bytes: buildDeliverableCsv(
-            LEAD_TABLE_FIELDS.map((field) => ({ key: field.fieldKey, label: field.name })),
+            LEAD_TABLE_FIELDS.map((field) => ({
+              key: field.fieldKey,
+              label: field.name,
+            })),
             deliverableRows,
           ),
           filename: `潜客挖掘-任务${taskId}.csv`,
@@ -784,13 +791,15 @@ export class LeadProspectingService {
     spec: LeadSpec,
     item: SerperOrganicResult,
     pageText: string,
-    creds: { apiKey: string; model: string },
+    creds: { token: string; model: string },
     userId: string,
   ): Promise<Record<string, string> | null> {
-    const reply = await geoChatMulti({
-      baseUrl: this.llm.baseUrl(),
-      apiKey: creds.apiKey,
-      model: creds.model,
+    const reply = await aiChat(this.prisma, {
+      userId,
+      token: creds.token,
+      moduleModel: creds.model,
+      module: 'lead_prospecting',
+      operation: 'analyze_site',
       messages: [
         { role: 'system', content: buildAnalyzeSystemPrompt(spec) },
         {
@@ -800,7 +809,6 @@ export class LeadProspectingService {
       ],
       maxTokens: ANALYZE_MAX_TOKENS,
       timeoutMs: ANALYZE_TIMEOUT_MS,
-      userId,
       purpose: 'batch',
     });
     const match = /LEAD_JSON\s*:\s*(\{[\s\S]*?\})\s*(?=\n|$)/.exec(reply.reply);

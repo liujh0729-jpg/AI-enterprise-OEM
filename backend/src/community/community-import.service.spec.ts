@@ -1,8 +1,17 @@
 import { CurrentUser } from '../auth/current-user';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
-import type { ComfyCloudFile, ComfyCloudJob } from './comfy.client';
+import type {
+  ComfyClient,
+  ComfyCloudFile,
+  ComfyCloudJob,
+} from './comfy.client';
 import { CommunityImportService } from './community-import.service';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityService } from '../identity/identity.service';
+import type { UserLookupService } from '../directory/user-lookup.service';
+import type { OssService } from '../oss/oss.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 迁移服务的口径单测：钉住「先验证、后落地」这条底线。
@@ -113,11 +122,11 @@ function setup() {
     })),
   };
   const service = new CommunityImportService(
-    prisma as never,
-    identity as never,
-    users as never,
-    oss as never,
-    comfy as never,
+    stub<PrismaService>(prisma),
+    stub<IdentityService>(identity),
+    stub<UserLookupService>(users),
+    stub<OssService>(oss),
+    stub<ComfyClient>(comfy),
   );
   return { service, prisma, identity, users, oss, comfy, create };
 }

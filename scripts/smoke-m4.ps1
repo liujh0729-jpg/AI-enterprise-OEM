@@ -21,22 +21,7 @@ if ($pub.data.siteName -eq 'OEM Workbench' -and $pub.data.icpRecord -eq 'ICP-000
   Write-Host 'PASS: site rename/logo/ICP took effect immediately'
 } else { Write-Host 'FAIL: site config not reflected'; J $pub }
 
-Write-Host '== M4.5 provider sync status default =='
-J (Invoke-RestMethod "$B/enterprise/admin/providers/sync-status" -WebSession $admin)
-
-Write-Host '== M4.6 switch sync-mode SCHEDULED then back MANUAL =='
-J (Invoke-RestMethod -Method Put -Uri "$B/enterprise/admin/providers/sync-mode" -ContentType 'application/json' -Headers $H -Body '{"mode":"SCHEDULED"}' -WebSession $admin)
-$after = Invoke-RestMethod "$B/enterprise/admin/providers/sync-status" -WebSession $admin
-if ($after.data.mode -eq 'SCHEDULED') { Write-Host 'PASS: sync strategy switched to SCHEDULED' } else { Write-Host 'FAIL: mode not switched' }
-J (Invoke-RestMethod -Method Put -Uri "$B/enterprise/admin/providers/sync-mode" -ContentType 'application/json' -Headers $H -Body '{"mode":"MANUAL"}' -WebSession $admin)
-
-Write-Host '== M4.7 sync-now (admin unbound -> graceful SKIPPED) =='
-J (Invoke-RestMethod -Method Post -Uri "$B/enterprise/admin/providers/sync-now" -Headers $H -WebSession $admin)
-
-Write-Host '== M4.8 admin providers display list (may be empty) =='
-J (Invoke-RestMethod "$B/enterprise/admin/providers/display" -WebSession $admin)
-
-Write-Host '== M4.9 non-admin blocked (403) =='
+Write-Host '== M4.5 non-admin blocked (403) =='
 try {
   Invoke-RestMethod -Method Post -Uri "$base/api/auth/local/register" -ContentType 'application/json' -Headers $H -Body '{"mode":"USERNAME","username":"m4user","password":"M4-Test-1234"}' | Out-Null
 } catch {}

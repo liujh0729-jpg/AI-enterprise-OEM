@@ -1,10 +1,26 @@
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { RateWindow } from '../common/rate-window';
+import { toJsonInput } from '../common/json-input';
 import { stripInvisible, toSingleLine } from '../common/text-safety';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  describeFindings,
+  describePermissions,
+  formatSecurityFailure,
+  hasDeclaredPermissions,
+  parseSkillSecurityMeta,
+  runUploadSecurityGate,
+  scanRuntimeContent,
+  type SkillPermissions,
+} from '../feature/skill-security';
+import type { BlacklistEntryLite } from '../feature/skill-review.rules';
+import type {
+  PackageReviewInput,
+  PackageReviewResult,
+} from '../feature/skill-review.runner';
 import {
   parseSkillMarkdown,
   readZipTextFiles,
@@ -95,6 +111,19 @@ export function expandPluginCommandBody(body: string, args: string) {
  */
 export class ContentAgentPluginService {
   private readonly importLimiter = new RateWindow(IMPORT_MAX, IMPORT_WINDOW_MS);
+  /** 审查挂钩（§5.9 先审后用）：装配时由 services.ts 属性注入 SkillReviewRunner.enqueue。 */
+  reviewHook?: (
+    kind: 'skill' | 'plugin',
+    itemId: number,
+    userId: string,
+  ) => void;
+  /** 上传前同步审查（用户配置的 LLM 判定安全/不安全）：装配时由 services.ts 注入。 */
+  uploadReview?: (
+    userId: string,
+    pkg: PackageReviewInput,
+  ) => Promise<PackageReviewResult>;
+  /** 运行期复扫用的平台出口黑名单：装配时由 services.ts 注入。 */
+  blacklistProvider?: () => Promise<BlacklistEntryLite[]>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -132,9 +161,30 @@ export class ContentAgentPluginService {
     source: string;
     sourceSlug: string;
     enabled: boolean;
+    reviewStatus: string;
+    reviewVerdict?: unknown;
     updatedAt: Date;
   }) {
     const files = ContentAgentPluginService.fileList(row.files);
+    const verdict =
+      row.reviewVerdict && typeof row.reviewVerdict === 'object'
+        ? (row.reviewVerdict as {
+            summary?: unknown;
+            permissionAcknowledgedAt?: unknown;
+            category?: unknown;
+            permissions?: unknown;
+            permissionsDeclared?: unknown;
+          })
+        : {};
+    const meta = parseSkillSecurityMeta(stripInvisible(row.content));
+    const permissions =
+      verdict.permissions && typeof verdict.permissions === 'object'
+        ? (verdict.permissions as SkillPermissions)
+        : meta.permissions;
+    const category =
+      typeof verdict.category === 'string' && verdict.category
+        ? verdict.category
+        : meta.category;
     return {
       id: row.id,
       // 展示口径同一套清洗：不可见字符既不进系统提示，也不该在界面上藏字
@@ -147,6 +197,18 @@ export class ContentAgentPluginService {
       source: row.source,
       sourceSlug: row.sourceSlug,
       enabled: row.enabled,
+      // 审查状态回传安装人（§5.9.3 反馈闭环）
+      reviewStatus: row.reviewStatus,
+      reviewMessage: String(
+        typeof verdict.summary === 'string' ? verdict.summary : '',
+      ).slice(0, 500),
+      category,
+      permissions,
+      permissionsDeclared:
+        typeof verdict.permissionsDeclared === 'boolean'
+          ? verdict.permissionsDeclared
+          : hasDeclaredPermissions(permissions),
+      permissionsAcknowledged: Boolean(verdict.permissionAcknowledgedAt),
       updatedAt: row.updatedAt.toISOString(),
     };
   }
@@ -171,6 +233,8 @@ export class ContentAgentPluginService {
       where: {
         userId,
         enabled: true,
+        // 先审后用：未过审的插件不进系统提示（§5.9.6 启用约束）
+        reviewStatus: 'passed',
         ...(scoped.length ? { id: { in: scoped } } : {}),
       },
       orderBy: { id: 'asc' },
@@ -213,6 +277,8 @@ export class ContentAgentPluginService {
       where: {
         userId,
         enabled: true,
+        // load_plugin/命令执行同样只认过审插件
+        reviewStatus: 'passed',
         ...(scoped.length ? { id: { in: scoped } } : {}),
       },
       orderBy: { id: 'asc' },
@@ -248,10 +314,12 @@ export class ContentAgentPluginService {
     }
     const wanted = String(file || '').trim();
     if (!wanted) {
+      const content = stripInvisible(row.content).slice(0, 20000);
+      await this.assertRuntimeSafe(userId, row.name, 'README.md', content);
       return {
         found: true as const,
         name: row.name,
-        content: stripInvisible(row.content).slice(0, 20000),
+        content,
         file: '',
       };
     }
@@ -268,12 +336,41 @@ export class ContentAgentPluginService {
           .join('、')}`,
       };
     }
+    const content = stripInvisible(hit.content).slice(0, 20000);
+    await this.assertRuntimeSafe(userId, row.name, hit.path, content);
     return {
       found: true as const,
       name: row.name,
-      content: stripInvisible(hit.content).slice(0, 20000),
+      content,
       file: hit.path,
     };
+  }
+
+  /** 运行期复扫：读取前再查一遍，命中即中止本轮（存量包也覆盖）。 */
+  private async assertRuntimeSafe(
+    userId: string,
+    name: string,
+    file: string,
+    content: string,
+  ) {
+    const blacklist = this.blacklistProvider
+      ? await this.blacklistProvider()
+      : [];
+    const findings = scanRuntimeContent(
+      [{ path: file || 'PLUGIN.md', content }],
+      blacklist,
+    );
+    if (!findings.length) return;
+    const detail = describeFindings(findings);
+    await this.identity.audit(
+      userId,
+      'Agent插件运行期拦截',
+      `「${name}」${detail}`.slice(0, 1200),
+    );
+    throw new BusinessException(
+      ErrorCode.AGENT_SECURITY_BLOCKED,
+      `插件「${name}」命中运行期安全规则：${detail}。本次运行已中止。`,
+    );
   }
 
   /**
@@ -332,6 +429,8 @@ export class ContentAgentPluginService {
       stripInvisible(hit.content).slice(0, 20000),
       stripInvisible(String(input.args || '')),
     );
+    // 命令正文来自第三方包：展开后再复扫一次，参数也能带出高危指令
+    await this.assertRuntimeSafe(userId, row.name, hit.path, content);
     return {
       found: true as const,
       plugin: row.name,
@@ -339,6 +438,66 @@ export class ContentAgentPluginService {
       path: hit.path,
       content,
       hint: '',
+    };
+  }
+
+  /**
+   * 上传/安装前审查：用户配置的 LLM 分析决定放行/拒绝；确定性四组结果一并写入台账。
+   * 未装配审查引擎（单测/离线）时退回静态检查，放行后仍走异步重审。
+   */
+  private async reviewBeforeStore(
+    user: CurrentUser,
+    input: {
+      name: string;
+      mainPath: string;
+      content: string;
+      files: { path: string; content: string }[];
+      manifest?: Record<string, unknown>;
+    },
+  ): Promise<PackageReviewResult> {
+    if (this.uploadReview) {
+      return this.uploadReview(user.userId, {
+        kind: 'plugin',
+        ...input,
+      });
+    }
+    const gate = runUploadSecurityGate({
+      mainPath: input.mainPath,
+      content: input.content,
+      files: input.files,
+      manifest: input.manifest,
+    });
+    return {
+      passed: gate.passed,
+      status: gate.passed ? 'pending' : 'rejected',
+      decision: gate.passed ? 'unreviewed' : 'reject',
+      riskLevel: gate.passed ? 'unknown' : 'high',
+      summary: gate.passed
+        ? '已通过静态检查，待 AI 复核'
+        : formatSecurityFailure(gate),
+      violations: gate.firstFailure?.findings || [],
+      groups: gate.groups,
+      deterministic: gate.groups.flatMap((group) => group.findings),
+      category: gate.category,
+      permissions: gate.permissions,
+      metaDeclared: gate.metaDeclared,
+      model: '',
+      tokens: 0,
+    };
+  }
+
+  private verdictOf(review: PackageReviewResult) {
+    return {
+      decision: review.decision,
+      riskLevel: review.riskLevel,
+      violations: review.violations,
+      summary: review.summary,
+      model: review.model,
+      source: 'upload',
+      category: review.category,
+      permissions: review.permissions,
+      permissionsDeclared:
+        review.metaDeclared || hasDeclaredPermissions(review.permissions),
     };
   }
 
@@ -371,6 +530,7 @@ export class ContentAgentPluginService {
         .pop() || '插件';
     let name = '';
     let description = '';
+    let manifestRecord: Record<string, unknown> | undefined;
     if (manifestFile) {
       let manifest: unknown;
       try {
@@ -383,6 +543,7 @@ export class ContentAgentPluginService {
       }
       if (manifest && typeof manifest === 'object') {
         const row = manifest as Record<string, unknown>;
+        manifestRecord = row;
         name = typeof row.name === 'string' ? row.name : '';
         description =
           typeof row.description === 'string' ? row.description : '';
@@ -415,6 +576,34 @@ export class ContentAgentPluginService {
       }));
     const finalName = toSingleLine(name || fallback, 60);
     const finalDescription = toSingleLine(description, 200);
+    const review = await this.reviewBeforeStore(user, {
+      name: finalName,
+      mainPath:
+        markdownFile?.path ||
+        readmeFile?.path ||
+        manifestFile?.path ||
+        'PLUGIN.md',
+      content: body,
+      files: attached,
+      manifest: manifestRecord,
+    });
+    // 用户配置的 LLM 判定不安全（或无法完成分析）→ 直接失败，不落库
+    if (!review.passed) {
+      await this.identity.audit(
+        user.userId,
+        '插件包上传安全拦截',
+        `「${finalName}」来自 ${originalName.slice(0, 80)}：${review.summary}`.slice(
+          0,
+          1500,
+        ),
+      );
+      throw new BusinessException(
+        ErrorCode.SKILL_SECURITY_REJECTED,
+        review.summary || '插件包未通过上传安全审查，未入库',
+      );
+    }
+    const reviewVerdict = toJsonInput(this.verdictOf(review));
+    const pendingReview = review.status === 'pending';
     const existing = await this.prisma.contentAgentPlugin.findFirst({
       where: { userId: user.userId, name: finalName },
     });
@@ -425,15 +614,20 @@ export class ContentAgentPluginService {
         data: {
           description: finalDescription,
           content: body,
-          files: attached as never,
+          files: toJsonInput(attached),
           source: PLUGIN_SOURCE_UPLOAD,
           sourceSlug: '',
+          // 同名覆盖即重审：旧版结论与权限确认不继承
+          enabled: false,
+          reviewStatus: review.status,
+          reviewVerdict,
         },
       });
+      if (pendingReview) this.reviewHook?.('plugin', row.id, user.userId);
       await this.identity.audit(
         user.userId,
         'Agent插件覆盖更新',
-        `「${row.name}」由插件包 ${originalName.slice(0, 80)} 重新导入`,
+        `「${row.name}」由插件包 ${originalName.slice(0, 80)} 重新导入，上传安全审查已通过`,
       );
       return this.shape(row);
     }
@@ -444,19 +638,24 @@ export class ContentAgentPluginService {
         name: finalName,
         description: finalDescription,
         content: body,
-        files: attached as never,
+        files: toJsonInput(attached),
         source: PLUGIN_SOURCE_UPLOAD,
+        // 上传即审：通过才入库；仍需用户启用后才可被模型调用
+        enabled: false,
+        reviewStatus: review.status,
+        reviewVerdict,
       },
     });
+    if (pendingReview) this.reviewHook?.('plugin', row.id, user.userId);
     await this.identity.audit(
       user.userId,
       'Agent插件新增',
-      `「${row.name}」来自插件包 ${originalName.slice(0, 80)}`,
+      `「${row.name}」来自插件包 ${originalName.slice(0, 80)}，上传安全审查已通过`,
     );
     return this.shape(row);
   }
 
-  /** 从 SkillHub 插件目录安装：README 存成正文，同名插件覆盖并直接启用。 */
+  /** 从 SkillHub 插件目录安装：README 存成正文；同名覆盖同样先停用重审（先审后用）。 */
   async installFromDirectory(
     user: CurrentUser,
     input: {
@@ -475,6 +674,29 @@ export class ContentAgentPluginService {
     const description = toSingleLine(input.description, 200);
     const content = stripInvisible(input.content).slice(0, 20000);
     const sourceSlug = toSingleLine(input.sourceSlug, 120);
+    const review = await this.reviewBeforeStore(user, {
+      name,
+      mainPath: 'README.md',
+      content,
+      files: [],
+    });
+    // 目录安装同样是不可信内容：AI 判定不安全即不落库
+    if (!review.passed) {
+      await this.identity.audit(
+        user.userId,
+        '插件安装安全拦截',
+        `「${name}」来自 SkillHub ${sourceSlug || '插件目录'}：${review.summary}`.slice(
+          0,
+          1500,
+        ),
+      );
+      throw new BusinessException(
+        ErrorCode.SKILL_SECURITY_REJECTED,
+        review.summary || '插件未通过安装安全审查，未入库',
+      );
+    }
+    const reviewVerdict = toJsonInput(this.verdictOf(review));
+    const pendingReview = review.status === 'pending';
     const existing = await this.prisma.contentAgentPlugin.findFirst({
       where: { userId: user.userId, name },
     });
@@ -485,16 +707,20 @@ export class ContentAgentPluginService {
         data: {
           description,
           content,
-          files: [] as never,
+          files: toJsonInput([]),
           source: PLUGIN_SOURCE_SKILLHUB,
           sourceSlug,
-          enabled: true,
+          // 上游内容也是不可信输入：覆盖安装不再直接启用，结论不继承
+          enabled: false,
+          reviewStatus: review.status,
+          reviewVerdict,
         },
       });
+      if (pendingReview) this.reviewHook?.('plugin', row.id, user.userId);
       await this.identity.audit(
         user.userId,
         'Agent插件覆盖更新',
-        `「${row.name}」被 SkillHub ${sourceSlug || '插件'} 重新安装覆盖`,
+        `「${row.name}」被 SkillHub ${sourceSlug || '插件'} 重新安装覆盖，安装安全审查已通过`,
       );
       return this.shape(row);
     }
@@ -505,15 +731,19 @@ export class ContentAgentPluginService {
         name,
         description,
         content,
-        files: [] as never,
+        files: toJsonInput([]),
         source: PLUGIN_SOURCE_SKILLHUB,
         sourceSlug,
+        enabled: false,
+        reviewStatus: review.status,
+        reviewVerdict,
       },
     });
+    if (pendingReview) this.reviewHook?.('plugin', row.id, user.userId);
     await this.identity.audit(
       user.userId,
       'Agent插件安装',
-      `「${row.name}」来自 SkillHub ${sourceSlug || '插件目录'}`,
+      `「${row.name}」来自 SkillHub ${sourceSlug || '插件目录'}，安装安全审查已通过`,
     );
     return this.shape(row);
   }
@@ -573,14 +803,64 @@ export class ContentAgentPluginService {
     if (!existing) {
       throw new BusinessException(ErrorCode.NOT_FOUND, '插件不存在');
     }
+    // 启用前置：未过审的插件不允许启用（绝对安全门，§5.9.1 ③）
+    if (body.enabled && existing.reviewStatus !== 'passed') {
+      throw new BusinessException(
+        ErrorCode.SKILL_NOT_PASSED,
+        existing.reviewStatus === 'rejected'
+          ? '插件未通过安全审查，不能启用：请整改后重新安装'
+          : '插件尚未通过安全审查，不能启用：审查进行中或需到治理台人工放行',
+      );
+    }
+    const verdict =
+      existing.reviewVerdict && typeof existing.reviewVerdict === 'object'
+        ? (existing.reviewVerdict as Record<string, unknown>)
+        : {};
+    let verdictUpdate: Record<string, unknown> | null = null;
+    if (body.enabled) {
+      const meta = parseSkillSecurityMeta(stripInvisible(existing.content));
+      const permissions =
+        verdict.permissions && typeof verdict.permissions === 'object'
+          ? (verdict.permissions as SkillPermissions)
+          : meta.permissions;
+      const category =
+        typeof verdict.category === 'string' && verdict.category
+          ? verdict.category
+          : meta.category;
+      if (
+        hasDeclaredPermissions(permissions) &&
+        !verdict.permissionAcknowledgedAt
+      ) {
+        if (body.confirmPermissions !== true) {
+          throw new BusinessException(
+            ErrorCode.SKILL_PERMISSIONS_UNCONFIRMED,
+            `插件「${existing.name}」声明了以下权限，启用前请确认：${describePermissions(
+              permissions,
+            ).join('；')}`,
+          );
+        }
+        verdictUpdate = {
+          ...verdict,
+          category,
+          permissions,
+          permissionsDeclared: true,
+          permissionAcknowledgedAt: new Date().toISOString(),
+        };
+      }
+    }
     const row = await this.prisma.contentAgentPlugin.update({
       where: { id: pluginId },
-      data: { enabled: Boolean(body.enabled) },
+      data: {
+        enabled: Boolean(body.enabled),
+        ...(verdictUpdate ? { reviewVerdict: toJsonInput(verdictUpdate) } : {}),
+      },
     });
     await this.identity.audit(
       user.userId,
       'Agent插件启停',
-      `「${row.name}」${row.enabled ? '启用' : '停用'}`,
+      `「${row.name}」${row.enabled ? '启用' : '停用'}${
+        row.enabled && verdictUpdate ? '（已确认声明权限）' : ''
+      }`,
     );
     return this.shape(row);
   }
@@ -655,13 +935,19 @@ export class ContentAgentPluginService {
       data: {
         description: revision.description,
         content: revision.content,
-        files: revision.files as never,
+        files: toJsonInput(revision.files),
+        // 回滚即内容变更：同样重审（旧版 passed 不自动继承，§5.9.6）
+        enabled: false,
+        reviewStatus: 'pending',
+        // 审查结论与权限确认都属于旧版本，不能带到回滚后的内容上
+        reviewVerdict: {},
       },
     });
+    this.reviewHook?.('plugin', row.id, user.userId);
     await this.identity.audit(
       user.userId,
       'Agent插件回滚',
-      `「${row.name}」回到历史版本 #${revision.id}`,
+      `「${row.name}」回到历史版本 #${revision.id}，已重新提交安全审查`,
     );
     return this.shape(row);
   }

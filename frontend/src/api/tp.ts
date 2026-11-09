@@ -2,6 +2,20 @@ import { endpoints } from "@enterprise/contracts";
 import { endpoint } from "./endpoint";
 
 /**
+ * 企点写动作的动态载荷：字段名由企点控制台/接口文档决定，契约以 passthrough 收。
+ * 页面（TpObjectWriter / TpBatchForm）只能给动态对象，故把「动态对象 → 契约入参」的
+ * 收口放在 api 这一处，运行期仍由契约 zod 解析校验，页面不再各自写断言。
+ */
+function dynamicWrite<Arg, R>(
+  call: (input: Arg) => R,
+): (input: {
+  params?: Record<string, unknown>;
+  body: Record<string, unknown>;
+}) => R {
+  return (input) => call(input as Arg);
+}
+
+/**
  * 腾讯企点营销云（营销工具）。
  * 凭据按登录账号配置、一个产品一套；读接口只做一次外呼，写接口按是否花钱走「同步返回」或「任务台账」。
  * 路径前缀 /api/backend 由 endpoint() 统一加，SSE 之外的全部动作都在契约里。
@@ -22,25 +36,37 @@ export const tpApi = {
     timeoutMs: 60000,
   }),
   cdpCustomerTags: endpoint(endpoints.Tp_cdpCustomerTags, { timeoutMs: 60000 }),
-  cdpImportCustomers: endpoint(endpoints.Tp_cdpImportCustomers, {
-    timeoutMs: 120000,
-  }),
-  cdpCreateTag: endpoint(endpoints.Tp_cdpCreateTag, { timeoutMs: 60000 }),
-  cdpApplyTags: endpoint(endpoints.Tp_cdpApplyTags, { timeoutMs: 120000 }),
+  cdpImportCustomers: dynamicWrite(
+    endpoint(endpoints.Tp_cdpImportCustomers, {
+      timeoutMs: 120000,
+    }),
+  ),
+  cdpCreateTag: dynamicWrite(
+    endpoint(endpoints.Tp_cdpCreateTag, { timeoutMs: 60000 }),
+  ),
+  cdpApplyTags: dynamicWrite(
+    endpoint(endpoints.Tp_cdpApplyTags, { timeoutMs: 120000 }),
+  ),
   cdpSegments: endpoint(endpoints.Tp_cdpSegments),
   cdpSegmentDetail: endpoint(endpoints.Tp_cdpSegmentDetail, {
     timeoutMs: 60000,
   }),
-  cdpExportSegment: endpoint(endpoints.Tp_cdpExportSegment, {
-    timeoutMs: 120000,
-  }),
-  cdpCreateSegment: endpoint(endpoints.Tp_cdpCreateSegment, {
-    timeoutMs: 120000,
-  }),
+  cdpExportSegment: dynamicWrite(
+    endpoint(endpoints.Tp_cdpExportSegment, {
+      timeoutMs: 120000,
+    }),
+  ),
+  cdpCreateSegment: dynamicWrite(
+    endpoint(endpoints.Tp_cdpCreateSegment, {
+      timeoutMs: 120000,
+    }),
+  ),
   cdpTaskRecord: endpoint(endpoints.Tp_cdpTaskRecord, { timeoutMs: 60000 }),
 
   // ---------- 写入本系统 CRM（不出网，整表读取 + 分批校验建档） ----------
-  crmImport: endpoint(endpoints.Tp_crmImport, { timeoutMs: 300000 }),
+  crmImport: dynamicWrite(
+    endpoint(endpoints.Tp_crmImport, { timeoutMs: 300000 }),
+  ),
 
   // ---------- 融合分析 FA（看板取数，只读） ----------
   faBoards: endpoint(endpoints.Tp_faBoards),
@@ -50,9 +76,15 @@ export const tpApi = {
 
   // ---------- 企微互动 SCRM ----------
   scrmCodes: endpoint(endpoints.Tp_scrmCodes),
-  scrmSaveCode: endpoint(endpoints.Tp_scrmSaveCode, { timeoutMs: 60000 }),
-  scrmDeleteCode: endpoint(endpoints.Tp_scrmDeleteCode, { timeoutMs: 60000 }),
-  scrmWelcome: endpoint(endpoints.Tp_scrmWelcome, { timeoutMs: 60000 }),
+  scrmSaveCode: dynamicWrite(
+    endpoint(endpoints.Tp_scrmSaveCode, { timeoutMs: 60000 }),
+  ),
+  scrmDeleteCode: dynamicWrite(
+    endpoint(endpoints.Tp_scrmDeleteCode, { timeoutMs: 60000 }),
+  ),
+  scrmWelcome: dynamicWrite(
+    endpoint(endpoints.Tp_scrmWelcome, { timeoutMs: 60000 }),
+  ),
   scrmOrgs: endpoint(endpoints.Tp_scrmOrgs, { timeoutMs: 60000 }),
   scrmMassTasks: endpoint(endpoints.Tp_scrmMassTasks),
   scrmMassTaskStats: endpoint(endpoints.Tp_scrmMassTaskStats, {
@@ -61,19 +93,25 @@ export const tpApi = {
   scrmMassTaskExecution: endpoint(endpoints.Tp_scrmMassTaskExecution, {
     timeoutMs: 60000,
   }),
-  scrmSaveMassTask: endpoint(endpoints.Tp_scrmSaveMassTask, {
-    timeoutMs: 60000,
-  }),
-  scrmControlMassTask: endpoint(endpoints.Tp_scrmControlMassTask, {
-    timeoutMs: 60000,
-  }),
+  scrmSaveMassTask: dynamicWrite(
+    endpoint(endpoints.Tp_scrmSaveMassTask, {
+      timeoutMs: 60000,
+    }),
+  ),
+  scrmControlMassTask: dynamicWrite(
+    endpoint(endpoints.Tp_scrmControlMassTask, {
+      timeoutMs: 60000,
+    }),
+  ),
   scrmFollowups: endpoint(endpoints.Tp_scrmFollowups),
   scrmFollowupCustomers: endpoint(endpoints.Tp_scrmFollowupCustomers, {
     timeoutMs: 60000,
   }),
-  scrmFollowupDone: endpoint(endpoints.Tp_scrmFollowupDone, {
-    timeoutMs: 60000,
-  }),
+  scrmFollowupDone: dynamicWrite(
+    endpoint(endpoints.Tp_scrmFollowupDone, {
+      timeoutMs: 60000,
+    }),
+  ),
 
   // ---------- 会话分析 CA ----------
   caMessages: endpoint(endpoints.Tp_caMessages, { timeoutMs: 60000 }),
@@ -84,31 +122,49 @@ export const tpApi = {
   // ---------- 会员忠诚度 LM ----------
   lmPrograms: endpoint(endpoints.Tp_lmPrograms),
   lmMembers: endpoint(endpoints.Tp_lmMembers, { timeoutMs: 60000 }),
-  lmSaveMember: endpoint(endpoints.Tp_lmSaveMember, { timeoutMs: 60000 }),
-  lmMemberStatus: endpoint(endpoints.Tp_lmMemberStatus, { timeoutMs: 60000 }),
+  lmSaveMember: dynamicWrite(
+    endpoint(endpoints.Tp_lmSaveMember, { timeoutMs: 60000 }),
+  ),
+  lmMemberStatus: dynamicWrite(
+    endpoint(endpoints.Tp_lmMemberStatus, { timeoutMs: 60000 }),
+  ),
   lmPoints: endpoint(endpoints.Tp_lmPoints, { timeoutMs: 60000 }),
-  lmIssuePoints: endpoint(endpoints.Tp_lmIssuePoints, { timeoutMs: 120000 }),
+  lmIssuePoints: dynamicWrite(
+    endpoint(endpoints.Tp_lmIssuePoints, { timeoutMs: 120000 }),
+  ),
   lmCoupons: endpoint(endpoints.Tp_lmCoupons),
-  lmCouponIssue: endpoint(endpoints.Tp_lmCouponIssue, { timeoutMs: 120000 }),
+  lmCouponIssue: dynamicWrite(
+    endpoint(endpoints.Tp_lmCouponIssue, { timeoutMs: 120000 }),
+  ),
 
   // ---------- 营销自动化 MA ----------
   maChannels: endpoint(endpoints.Tp_maChannels),
   maSenders: endpoint(endpoints.Tp_maSenders),
   maTemplates: endpoint(endpoints.Tp_maTemplates),
-  maCreateTemplate: endpoint(endpoints.Tp_maCreateTemplate, {
-    timeoutMs: 60000,
-  }),
+  maCreateTemplate: dynamicWrite(
+    endpoint(endpoints.Tp_maCreateTemplate, {
+      timeoutMs: 60000,
+    }),
+  ),
   maShortLinks: endpoint(endpoints.Tp_maShortLinks),
-  maSaveShortLink: endpoint(endpoints.Tp_maSaveShortLink, { timeoutMs: 60000 }),
-  maDeleteShortLink: endpoint(endpoints.Tp_maDeleteShortLink, {
-    timeoutMs: 60000,
-  }),
-  maMassSend: endpoint(endpoints.Tp_maMassSend, { timeoutMs: 120000 }),
+  maSaveShortLink: dynamicWrite(
+    endpoint(endpoints.Tp_maSaveShortLink, { timeoutMs: 60000 }),
+  ),
+  maDeleteShortLink: dynamicWrite(
+    endpoint(endpoints.Tp_maDeleteShortLink, {
+      timeoutMs: 60000,
+    }),
+  ),
+  maMassSend: dynamicWrite(
+    endpoint(endpoints.Tp_maMassSend, { timeoutMs: 120000 }),
+  ),
 
   // ---------- 广告分析 RTA ----------
-  rtaUploadAudience: endpoint(endpoints.Tp_rtaUploadAudience, {
-    timeoutMs: 120000,
-  }),
+  rtaUploadAudience: dynamicWrite(
+    endpoint(endpoints.Tp_rtaUploadAudience, {
+      timeoutMs: 120000,
+    }),
+  ),
 
   // ---------- 任务台账与列映射 ----------
   tasks: endpoint(endpoints.Tp_tasks),

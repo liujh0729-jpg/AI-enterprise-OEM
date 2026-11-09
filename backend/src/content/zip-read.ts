@@ -19,6 +19,22 @@ export type ZipReadOptions = {
 };
 
 /**
+ * 解包文件名净化：绝对路径、盘符、`..` 穿越、空段一律丢弃。
+ * 返回空串＝这个条目不安全，调用方直接跳过（不解压、不入库）。
+ */
+function safeEntryName(raw: string): string {
+  const name = raw.replaceAll('\\', '/').replaceAll('\u0000', '');
+  if (!name || name.startsWith('/') || /^[A-Za-z]:/.test(name)) return '';
+  const segments = name.split('/');
+  if (
+    segments.some((segment) => !segment || segment === '.' || segment === '..')
+  )
+    return '';
+  if (segments.some((segment) => segment.length > 200)) return '';
+  return segments.join('/');
+}
+
+/**
  * 极简 ZIP 读取（只支持 stored / deflate 两种压缩方式）。
  * 不引第三方依赖、不调系统命令：技能包与 office 文档都是标准 zip，够用即可。
  */
@@ -66,13 +82,15 @@ export function readZipEntries(
     const extraLength = buffer.readUInt16LE(cursor + 30);
     const commentLength = buffer.readUInt16LE(cursor + 32);
     const localOffset = buffer.readUInt32LE(cursor + 42);
-    const name = buffer
+    const rawName = buffer
       .subarray(cursor + 46, cursor + 46 + nameLength)
-      .toString('utf8')
-      .replace(/\\/g, '/');
+      .toString('utf8');
     cursor += 46 + nameLength + extraLength + commentLength;
 
-    if (!name || name.endsWith('/')) continue;
+    if (!rawName || rawName.endsWith('/')) continue;
+    const name = safeEntryName(rawName);
+    // 路径穿越/绝对路径条目直接丢弃，绝不落进技能包文件清单
+    if (!name) continue;
     if (name.startsWith('__MACOSX/') || name.includes('/__MACOSX/')) continue;
     if (/(^|\/)(\.DS_Store|Thumbs\.db)$/i.test(name)) continue;
     if (extensions) {

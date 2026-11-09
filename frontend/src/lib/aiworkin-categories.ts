@@ -57,3 +57,10 @@ export async function fetchModuleCategory(domain: string, signal: AbortSignal) {
   if (!payload) throw new Error('平台类目响应为空');
   return normalize(key, payload);
 }
+
+/** 供需市场（跨板块）：取全部业务板块的类目树，发布时不按单一板块收窄。 */
+export async function fetchAllModuleCategories(signal: AbortSignal) {
+  const payload = await aiworkinApi.categories({ query: {} }, { signal });
+  if (!payload) throw new Error('平台类目响应为空');
+  return (payload.modules || []).map((item) => normalize(item.domain, payload));
+}

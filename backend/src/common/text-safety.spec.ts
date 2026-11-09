@@ -13,6 +13,10 @@ describe('stripInvisible', () => {
     expect(stripInvisible('x\u0000y\u0007z')).toBe('xyz');
     expect(stripInvisible('p\tq\r\nr')).toBe('p\tq\r\nr');
   });
+
+  it('C1 控制符（0x80–0x9F）同样不可见，一并清掉', () => {
+    expect(stripInvisible('a\u0085b\u009Fc')).toBe('abc');
+  });
 });
 
 describe('toSingleLine', () => {

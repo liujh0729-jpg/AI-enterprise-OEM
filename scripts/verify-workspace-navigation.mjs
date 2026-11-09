@@ -37,15 +37,15 @@ const domains = (me) => leaves(navigationFor(me)).filter((route) => route.domain
 const joinItem = (me) =>
   navigationFor(me).routes.find((route) => route.name === "管理设置")?.routes.find((route) => route.path === "/staff");
 
-test("高管驾驶舱独立置顶，分组为工作台/业务服务/管理设置/开放集成/AI增值服务，首页只出现一次", () => {
+test("高管驾驶舱独立置顶，分组为工作台/业务服务/商务人脉/管理设置/开放集成/AI增值服务（智能硬件收在开放集成下），驾驶舱入口只出现一次", () => {
   for (const identity of ["ENTERPRISE_USER", "SERVICE_PROVIDER", "PROVIDER_STAFF"]) {
     const me = account(identity);
     const nav = navigationFor(me);
-    assert.equal(nav.routes[0].path, "/");
+    assert.equal(nav.routes[0].path, "/dashboard");
     assert.equal(nav.routes[0].name, "高管驾驶舱");
     assert.deepEqual(nav.routes.filter((route) => route.type === "group").map((route) => route.name),
-      ["工作台", ...(identity === "ENTERPRISE_USER" ? ["业务服务"] : []), "商务人脉", "管理设置", "开放集成", "AI增值服务"]);
-    assert.equal(paths(me).filter((path) => path === "/").length, 1);
+      ["工作台", "业务服务", "商务人脉", "管理设置", "开放集成", "AI增值服务"]);
+    assert.equal(paths(me).filter((path) => path === "/dashboard").length, 1);
     const workspace = nav.routes.find((route) => route.name === "工作台");
     // 「内容创作」是工作台下的板块（可展开子菜单）：原来平铺的同名菜单改名「内容创作小工具」并收进板块，路径不变
     const contentBoard = workspace.routes.find((route) => route.name === "内容创作");
@@ -53,21 +53,26 @@ test("高管驾驶舱独立置顶，分组为工作台/业务服务/管理设置
     assert.equal(contentBoard.path, undefined);
     assert.deepEqual(
       contentBoard.routes.map((route) => [route.path, route.name]),
-      [["/content", "内容创作小工具"], ["/community", "创意社区"]],
+      [["/content", "内容创作小工具"], ["/community", "创意社区"], ["/content/video-templates", "视频模版"]],
     );
     assert.ok(!workspace.routes.some((route) => route.path === "/content"), "/content 不能再平铺在工作台下");
     assert.ok(!workspace.routes.some((route) => route.path === "/community"), "/community 不能平铺在工作台下");
-    // 展开板块后的叶节点顺序与改造前一致（只在「内容创作小工具」后多一个「创意社区」），避免漏挂或错序
+    // 展开板块后的叶节点顺序：「知识库」紧跟「Agent」；「应用中心」「专题大厅」按业务口径移到「进销存」下方
     assert.deepEqual(leaves(workspace).map((route) => route.path),
-      ["/agent", "/workbuddy", "/data-table", "/rpa", "/content", "/community", "/marketing-tools", "/assets", "/mail", "/crm", "/bi", "/oa", "/okr", "/service-desk", "/app-center", "/question-hall"]);
+      ["/agent", "/kb", "/workbuddy", "/data-table", "/rpa", "/content", "/community", "/content/video-templates", "/marketing-tools", "/assets", "/mail", "/crm", "/bi", "/oa", "/okr", "/service-desk", "/hrm", "/project", "/erp", "/app-center", "/question-hall"]);
     assert.deepEqual(leaves(workspace).map((route) => route.name),
-      ["Agent", "Workbuddy 企业云", "多维表格", "RPA自动化", "内容创作小工具", "创意社区", "营销工具", "数字资产管理", "AI邮箱服务", "CRM", "BI智能分析", "OA", "OKR计划", "AI客服", "应用中心", "专题大厅"]);
+      ["Agent", "知识库", "Workbuddy 企业云", "多维表格", "RPA自动化", "内容创作小工具", "创意社区", "视频模版", "营销工具", "数字资产管理", "AI邮箱服务", "CRM", "BI智能分析", "OA", "OKR计划", "AI客服", "HR工作台", "项目管理", "进销存", "应用中心", "专题大厅"]);
     assert.deepEqual(nav.routes.find((route) => route.name === "管理设置").routes.map((route) => route.path),
       ["/identity", ...(identity === "ENTERPRISE_USER" ? [] : ["/staff"]), "/contracts", "/points", "/invite"]);
     assert.deepEqual(nav.routes.find((route) => route.name === "AI增值服务").routes.map((route) => route.path),
       ["https://app.aipdd.work", "https://www.aiworkin.com"]);
-    assert.deepEqual(nav.routes.find((route) => route.name === "开放集成").routes.map((route) => route.path),
-      ["/developer/keys", "/model-settings", "/developer/docs", "/developer/mcp"]);
+    const openIntegration = nav.routes.find((route) => route.name === "开放集成");
+    // 智能硬件整组收进「开放集成」作三级子菜单，只隐藏菜单层级、页面地址不变
+    const hardwareBoard = openIntegration.routes.find((route) => route.name === "智能硬件");
+    assert.deepEqual(hardwareBoard.routes.map((route) => [route.path, route.name]),
+      [["/hardware", "硬件广场"], ["/hardware/devices", "添加硬件"], ["/hardware/mcp", "硬件MCP"], ["/hardware/api", "硬件API"]]);
+    assert.deepEqual(openIntegration.routes.filter((route) => route.path).map((route) => route.path),
+      ["/developer/keys", "/model-plaza", "/model-settings", "/developer/api-mcp-skill", "/developer/mechanisms"]);
     assert(!paths(me).some((path) => path.startsWith("/admin")));
   }
 });
@@ -129,10 +134,12 @@ test("平台身份使用管理菜单；管理员切换业务身份后保留全�
     identities: ["ENTERPRISE_USER", "SERVICE_PROVIDER", "PROVIDER_STAFF", "PLATFORM_ADMIN"],
     enterprise: { subjectType: "PERSONAL" },
   });
-  assert.equal(navigationFor(admin).routes[0].path, "/");
+  assert.equal(navigationFor(admin).routes[0].path, "/dashboard");
   // 平台管理员侧栏不带「管理设置」分组（个人账户视角入口，管理员的账户级操作都在 /admin 内完成）
   assert.deepEqual(navigationFor(admin).routes.slice(1).map((route) => route.name),
-    ["平台管理", "开放集成", "AI增值服务"]);
+    ["用户与服务商", "业务运营监管", "计费与商品", "能力与安全", "系统与内容", "开放集成", "AI增值服务"]);
+  // 平台数据总览已并入高管驾驶舱：侧栏不再保留独立的「总览」板块与 /admin/overview 入口
+  assert(!paths(admin).includes("/admin/overview"));
   assert.equal(navigationFor(admin).routes.find((route) => route.name === "管理设置"), undefined);
   assert(!paths(admin).includes("/identity"));
   assert(paths(admin).includes("/admin/provider-applications"));

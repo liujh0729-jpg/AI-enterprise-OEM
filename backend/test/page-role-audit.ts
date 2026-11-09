@@ -11,6 +11,7 @@ import { BUSINESS_IDENTITIES, SUBITEM_OWNERS } from '../src/common/constants';
 import type { IdentitySnapshot } from '../src/identity/identity-snapshot';
 import type { Qualifications } from '../src/identity/identity.service';
 import { runInRequestContext } from '../src/common/request-context';
+import { stub } from './doubles';
 
 const url = new URL(process.env.DATABASE_URL || '');
 assert.equal(url.hostname, '127.0.0.1');
@@ -53,16 +54,14 @@ async function legacyQualifications(userId: string) {
       }),
       prisma.identityPreference.findUnique({ where: { userId } }),
     ]);
-  return (
-    services.identity as unknown as {
-      qualificationsFrom: (
-        value: Pick<
-          IdentitySnapshot,
-          'enterprise' | 'providerApps' | 'staffProfile' | 'staffOf' | 'pref'
-        >,
-      ) => Qualifications;
-    }
-  ).qualificationsFrom({
+  return stub<{
+    qualificationsFrom: (
+      value: Pick<
+        IdentitySnapshot,
+        'enterprise' | 'providerApps' | 'staffProfile' | 'staffOf' | 'pref'
+      >,
+    ) => Qualifications;
+  }>(services.identity).qualificationsFrom({
     enterprise,
     providerApps,
     staffProfile,

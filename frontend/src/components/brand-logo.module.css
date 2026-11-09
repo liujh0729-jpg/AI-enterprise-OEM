@@ -2,4 +2,6 @@
   display: block;
   flex-shrink: 0;
   object-fit: contain;
+  /* 外层（如 ProLayout 顶栏）只设了 height，宽度需跟随以保持比例，避免 Next Image 告警 */
+  width: auto;
 }

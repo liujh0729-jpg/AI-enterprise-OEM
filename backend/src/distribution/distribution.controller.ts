@@ -10,8 +10,8 @@ import { DistributionService } from './distribution.service';
 export class DistributionController {
   constructor(private readonly distribution: DistributionService) {}
 
-  async meta(user: CurrentUser) {
-    return ok(await this.distribution.meta(user));
+  meta() {
+    return ok(this.distribution.meta());
   }
 
   async list(
@@ -36,7 +36,9 @@ export class DistributionController {
   }
 
   async update(user: CurrentUser, id: string, body: Record<string, unknown>) {
-    return ok(await this.distribution.update(user, parseId(id, '内容 ID'), body));
+    return ok(
+      await this.distribution.update(user, parseId(id, '内容 ID'), body),
+    );
   }
 
   async remove(user: CurrentUser, id: string) {
@@ -47,7 +49,11 @@ export class DistributionController {
     return ok(await this.distribution.mark(user, parseId(id, '内容 ID')));
   }
 
-  async reportLogs(user: CurrentUser, id: string, body: Record<string, unknown>) {
+  async reportLogs(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
     return ok(
       await this.distribution.reportLogs(user, parseId(id, '内容 ID'), body),
     );

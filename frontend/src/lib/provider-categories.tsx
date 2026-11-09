@@ -481,8 +481,10 @@ export function canPublishService(
   domain: string,
 ): boolean {
   if (!me || me.currentIdentity !== "SERVICE_PROVIDER") return false;
+  // 板块域名带下划线（`THINK_TANK`），而 DOMAIN_TYPES 的键是路由域（`think-tank`），
+  // 归一化时把下划线折成连字符，否则智库的发布门控永远匹配不到类目。
   return isDomainOpened(
     registeredTypes(me.providerApps || []),
-    domain.toLowerCase(),
+    domain.toLowerCase().replace(/_/g, "-"),
   );
 }

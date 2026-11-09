@@ -38,6 +38,13 @@ jobs:
       # 创意社区（Comfy Cloud 市场）的不变量：出站白名单 / 禁跳转 / 纯 BYOK / Key 加密与掩码 /
       # 槽位封闭覆盖 / 危险节点表 / 限流 / 审核端点两处一致 / seed 幂等。同样不连库。
       - run: pnpm test:creative-community
+      # 类型逃逸盘点工具自身的行为断言（.vue 分段 / 同行去重 / 生产密度口径 /
+      # 未跟踪文件纳入 / 索引与磁盘不一致显式报出 / 预算只降不升 / allowlist 行号漂移）。
+      # 量具不准，后面的预算门禁就没有意义，所以放在门禁之前。
+      - run: pnpm test:escape-audit
+      # 类型逃逸预算门禁：总数与分类不得超 .escape-budget.json 冻结的基线（只降不升），
+      # 且 .escape-allowlist.json 的登记条目不得失效（行号漂移即失败）。
+      - run: pnpm check:escape-budget
       - run: pnpm test:environment
       # OpenAPI 生成会构造 PrismaClient 与服务容器（不真正连库），缺少必填配置会直接抛错；
       # 这里注入占位连接串与临时密钥，方言与本地快照生成时保持一致（mysql）。
@@ -48,10 +55,9 @@ jobs:
           JWT_SECRET: isolated-ci-signing-key-20261103
           EXTERNAL_CRED_KEY: isolated-ci-credential-encryption-key
       - run: pnpm typecheck
-      # 存量 lint 债务（约 690 条，绝大部分是 Windows CRLF 触发 prettier 与少量规则项）：
-      # 不阻塞构建/部署验证，结果照常输出，后续逐步清零后再改为硬门禁。
+      # 代码规范硬门禁：规则项与 prettier 排版均已清零（行尾由 backend/.prettierrc 的
+      # endOfLine=auto 统一，Windows 检出 CRLF 不再误报），此后新代码违反即失败。
       - run: pnpm lint
-        continue-on-error: true
       - run: pnpm --filter aiworkin-enterprise-api test --runInBand
       - run: pnpm test:uploads
       # 默认 MySQL 路径的建表校验：空库从 0001 依次执行到最新。

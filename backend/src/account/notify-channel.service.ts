@@ -47,7 +47,7 @@ export class NotifyChannelService {
     const secret = useLink
       ? randomBytes(24).toString('hex')
       : String(randomBytes(3).readUIntBE(0, 3) % 1000000).padStart(6, '0');
-    const password = await this.settings.smtpPassword(smtp);
+    const password = this.settings.smtpPassword(smtp);
     const transport = createTransport({
       host: smtp.host,
       port: smtp.port,
@@ -63,7 +63,13 @@ export class NotifyChannelService {
         : bodyText(secret),
     });
     transport.close();
-    await this.storeCode(scene, 'EMAIL', email, secret, useLink ? 30 * 60_000 : CODE_TTL_MS);
+    await this.storeCode(
+      scene,
+      'EMAIL',
+      email,
+      secret,
+      useLink ? 30 * 60_000 : CODE_TTL_MS,
+    );
     return useLink ? secret : undefined;
   }
 
@@ -77,22 +83,36 @@ export class NotifyChannelService {
       );
     }
     await this.assertResendAllowed('SMS', phone, sms.dailyLimit);
-    const code = String(randomBytes(3).readUIntBE(0, 3) % 1000000).padStart(6, '0');
+    const code = String(randomBytes(3).readUIntBE(0, 3) % 1000000).padStart(
+      6,
+      '0',
+    );
     await this.aliyunSms(phone, sms.signName, sms.templateCode, code);
     await this.storeCode(scene, 'SMS', phone, code, CODE_TTL_MS);
   }
 
   /** 校验并消费验证码/令牌：成功即标记 used_at，连错 5 次作废。 */
-  async consumeCode(scene: VerifyScene, channel: VerifyChannel, target: string, code: string) {
+  async consumeCode(
+    scene: VerifyScene,
+    channel: VerifyChannel,
+    target: string,
+    code: string,
+  ) {
     const row = await this.prisma.verifyCode.findFirst({
       where: { scene, channel, target, usedAt: null },
       orderBy: { createdAt: 'desc' },
     });
     if (!row || row.expiresAt < new Date()) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '验证码已过期，请重新获取');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '验证码已过期，请重新获取',
+      );
     }
     if (row.failCount >= MAX_VERIFY_FAILS) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '验证码错误次数过多，请重新获取');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '验证码错误次数过多，请重新获取',
+      );
     }
     if (this.hash(code) !== row.codeHash) {
       await this.prisma.verifyCode.update({
@@ -107,13 +127,20 @@ export class NotifyChannelService {
     });
   }
 
-  private async assertResendAllowed(channel: VerifyChannel, target: string, dailyLimit = 20) {
+  private async assertResendAllowed(
+    channel: VerifyChannel,
+    target: string,
+    dailyLimit = 20,
+  ) {
     const last = await this.prisma.verifyCode.findFirst({
       where: { channel, target },
       orderBy: { createdAt: 'desc' },
     });
     if (last && Date.now() - last.createdAt.getTime() < RESEND_GAP_MS) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '发送太频繁，请稍后再试');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '发送太频繁，请稍后再试',
+      );
     }
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
@@ -121,7 +148,10 @@ export class NotifyChannelService {
       where: { channel, target, createdAt: { gte: dayStart } },
     });
     if (today >= dailyLimit) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '今日发送次数已达上限');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '今日发送次数已达上限',
+      );
     }
   }
 
@@ -144,52 +174,69 @@ export class NotifyChannelService {
   }
 
   /** 阿里云短信 Dysmsapi（RPC 风格 HMAC-SHA1 签名，无需 SDK）。 */
-  private aliyunSms(
+  private async aliyunSms(
     phone: string,
     signName: string,
     templateCode: string,
     code: string,
   ): Promise<void> {
-    return new Promise(async (resolve, reject) => {
-      const settings = await this.settings.sms();
-      if (!settings) return reject(new Error('短信未配置'));
-      const secret = await this.settings.smsSecret(settings);
-      const percent = (value: string) =>
-        encodeURIComponent(value).replace(/\+/g, '%20').replace(/\*/g, '%2A').replace(/%7E/g, '~');
-      const params: Record<string, string> = {
-        Action: 'SendSms',
-        Version: '2017-05-25',
-        Format: 'JSON',
-        RegionId: 'cn-hangzhou',
-        SignatureMethod: 'HMAC-SHA1',
-        SignatureVersion: '1.0',
-        SignatureNonce: randomBytes(16).toString('hex'),
-        Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-        AccessKeyId: settings.accessKeyId,
-        PhoneNumbers: phone,
-        SignName: signName,
-        TemplateCode: templateCode,
-        TemplateParam: JSON.stringify({ code }),
-      };
-      const sorted = Object.keys(params)
-        .sort()
-        .map((key) => `${percent(key)}=${percent(params[key])}`)
-        .join('&');
-      const stringToSign = `GET&%2F&${percent(sorted)}`;
-      const signature = createHmac('sha1', `${secret}&`)
-        .update(stringToSign)
-        .digest('base64');
-      const url = `https://dysmsapi.aliyuncs.com/?Signature=${percent(signature)}&${sorted}`;
+    const settings = await this.settings.sms();
+    if (!settings) throw new Error('短信未配置');
+    const secret = this.settings.smsSecret(settings);
+    const percent = (value: string) =>
+      encodeURIComponent(value)
+        .replace(/\+/g, '%20')
+        .replace(/\*/g, '%2A')
+        .replace(/%7E/g, '~');
+    const params: Record<string, string> = {
+      Action: 'SendSms',
+      Version: '2017-05-25',
+      Format: 'JSON',
+      RegionId: 'cn-hangzhou',
+      SignatureMethod: 'HMAC-SHA1',
+      SignatureVersion: '1.0',
+      SignatureNonce: randomBytes(16).toString('hex'),
+      Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      AccessKeyId: settings.accessKeyId,
+      PhoneNumbers: phone,
+      SignName: signName,
+      TemplateCode: templateCode,
+      TemplateParam: JSON.stringify({ code }),
+    };
+    const sorted = Object.keys(params)
+      .sort()
+      .map((key) => `${percent(key)}=${percent(params[key])}`)
+      .join('&');
+    const stringToSign = `GET&%2F&${percent(sorted)}`;
+    const signature = createHmac('sha1', `${secret}&`)
+      .update(stringToSign)
+      .digest('base64');
+    const url = `https://dysmsapi.aliyuncs.com/?Signature=${percent(signature)}&${sorted}`;
+    return new Promise<void>((resolve, reject) => {
       const req = request(url, { method: 'GET', timeout: 8000 }, (res) => {
         let raw = '';
         res.on('data', (chunk) => (raw += chunk));
         res.on('end', () => {
           try {
-            const payload = JSON.parse(raw) as { Code?: string; Message?: string };
+            const payload = JSON.parse(raw) as {
+              Code?: string;
+              Message?: string;
+            };
             if (payload.Code === 'OK') resolve();
-            else reject(new BusinessException(ErrorCode.BAD_REQUEST, `短信发送失败：${payload.Message || payload.Code || '未知错误'}`));
+            else
+              reject(
+                new BusinessException(
+                  ErrorCode.BAD_REQUEST,
+                  `短信发送失败：${payload.Message || payload.Code || '未知错误'}`,
+                ),
+              );
           } catch {
-            reject(new BusinessException(ErrorCode.BAD_REQUEST, '短信服务返回内容异常'));
+            reject(
+              new BusinessException(
+                ErrorCode.BAD_REQUEST,
+                '短信服务返回内容异常',
+              ),
+            );
           }
         });
       });
@@ -198,7 +245,10 @@ export class NotifyChannelService {
         reject(
           error instanceof BusinessException
             ? error
-            : new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, '短信服务暂时不可用'),
+            : new BusinessException(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                '短信服务暂时不可用',
+              ),
         ),
       );
       req.end();

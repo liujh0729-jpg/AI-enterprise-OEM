@@ -2,6 +2,10 @@ import { CurrentUser } from '../auth/current-user';
 import { QxyClient } from './qxy.client';
 import { QxyService } from './qxy.service';
 import { QxySettingsService } from './qxy-settings.service';
+import { stub } from '../../test/doubles';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityService } from '../identity/identity.service';
+import type { CapabilityService } from '../capability/capability.service';
 
 describe('tax and invoice request construction', () => {
   const user = new CurrentUser('test-staff', 'test-staff', 'user');
@@ -38,11 +42,11 @@ describe('tax and invoice request construction', () => {
     credentialsForTaxNo: jest.fn().mockResolvedValue(credentials),
   };
   const service = new QxyService(
-    prisma as never,
-    identity as never,
-    capability as never,
-    client as never,
-    accounts as never,
+    stub<PrismaService>(prisma),
+    stub<IdentityService>(identity),
+    stub<CapabilityService>(capability),
+    stub<QxyClient>(client),
+    stub<QxySettingsService>(accounts),
   );
 
   beforeEach(() => {
@@ -132,10 +136,10 @@ describe('tax and invoice request construction', () => {
       const oldEncryptionKey = process.env.EXTERNAL_CRED_KEY;
       process.env.EXTERNAL_CRED_KEY = 'unit-encryption-key';
       const settings = new QxySettingsService(
-        {
+        stub<PrismaService>({
           systemSetting: { findUnique: jest.fn().mockResolvedValue(null) },
-        } as never,
-        {} as never,
+        }),
+        stub<IdentityService>({}),
       );
       if (oldEncryptionKey === undefined) delete process.env.EXTERNAL_CRED_KEY;
       else process.env.EXTERNAL_CRED_KEY = oldEncryptionKey;

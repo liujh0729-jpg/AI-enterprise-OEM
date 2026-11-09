@@ -17,8 +17,16 @@ type ShareRow = {
   createdAt: Date;
 };
 
+/** 共享范围：已认证企业，或服务商（负责人与其在职职员之间）。 */
+type ShareOrg = {
+  orgType: 'ENTERPRISE' | 'PROVIDER';
+  orgUserId: string;
+  name: string;
+};
+
 /**
- * 共享资料：把 AIPDD 数字资产按账号共享给「本企业」内的用户（多选＝多行）。
+ * 共享资料：把 AIPDD 数字资产按账号共享给同一组织内的用户（多选＝多行）。
+ * 组织口径：已认证企业（企业主与在职成员），或服务商（服务商与其在职职员）。
  * 资产本身仍只在 AIPDD 平台上，本表只记共享关系；文件归属仍是上传它的账号。
  */
 export class AssetShareService {
@@ -46,23 +54,132 @@ export class AssetShareService {
     });
   }
 
-  /** 共享目标＝本企业内**其他**账号（企业主 + `org_staff` 在职成员，不含本人：共享给自己没有意义）。 */
-  async targets(user: CurrentUser) {
-    const enterprise = await this.enterpriseOf(user.userId);
-    if (!enterprise) {
-      return { orgName: '', users: [] };
+  /**
+   * 服务商主体：负责人（有在册职员或备案记录），或其属下在职职员所属的服务商。
+   * 服务商靠 provider_staff 挂靠关系认定，不以平台备案审核状态为准——内部共享资料与对外展示无关。
+   */
+  private async providerOf(userId: string): Promise<ShareOrg | null> {
+    const [staffRow, application] = await Promise.all([
+      this.prisma.providerStaff.findFirst({
+        where: { providerUserId: userId, status: 'ACTIVE' },
+        select: { id: true },
+      }),
+      this.prisma.providerApplication.findFirst({
+        where: { userId },
+        orderBy: { id: 'desc' },
+        select: { orgName: true },
+      }),
+    ]);
+    if (staffRow || application) {
+      return {
+        orgType: 'PROVIDER',
+        orgUserId: userId,
+        name: text(application?.orgName),
+      };
     }
-    const rows = await this.prisma.orgStaff.findMany({
-      where: {
+    const [member, legacy] = await Promise.all([
+      this.prisma.orgStaff.findFirst({
+        where: {
+          orgType: 'PROVIDER',
+          memberUserId: userId,
+          status: 'ACTIVE',
+        },
+        orderBy: { id: 'asc' },
+        select: { orgUserId: true },
+      }),
+      this.prisma.providerStaff.findFirst({
+        where: { staffUserId: userId, status: 'ACTIVE' },
+        orderBy: { id: 'asc' },
+        select: { providerUserId: true },
+      }),
+    ]);
+    const orgUserId = member?.orgUserId || legacy?.providerUserId;
+    if (!orgUserId) return null;
+    const owner = await this.prisma.providerApplication.findFirst({
+      where: { userId: orgUserId },
+      orderBy: { id: 'desc' },
+      select: { orgName: true },
+    });
+    return {
+      orgType: 'PROVIDER',
+      orgUserId,
+      name: text(owner?.orgName),
+    };
+  }
+
+  /** 组织口径：企业优先（保持原行为），其次服务商。 */
+  private async orgOf(userId: string): Promise<ShareOrg | null> {
+    const enterprise = await this.enterpriseOf(userId);
+    if (enterprise) {
+      return {
         orgType: 'ENTERPRISE',
         orgUserId: enterprise.userId,
-        status: 'ACTIVE',
-      },
-      orderBy: { id: 'asc' },
-      select: { memberUserId: true, department: true },
-    });
+        name: enterprise.name,
+      };
+    }
+    return this.providerOf(userId);
+  }
+
+  /** 组织在职成员（含负责人本人）：企业读 `org_staff`；服务商合并新旧两张挂靠表。 */
+  private async membersOf(
+    org: ShareOrg,
+  ): Promise<{ userId: string; department: string }[]> {
+    if (org.orgType === 'ENTERPRISE') {
+      const rows = await this.prisma.orgStaff.findMany({
+        where: {
+          orgType: 'ENTERPRISE',
+          orgUserId: org.orgUserId,
+          status: 'ACTIVE',
+        },
+        orderBy: { id: 'asc' },
+        select: { memberUserId: true, department: true },
+      });
+      return rows.map((row) => ({
+        userId: row.memberUserId,
+        department: row.department || '',
+      }));
+    }
+    const [rows, legacyRows] = await Promise.all([
+      this.prisma.orgStaff.findMany({
+        where: {
+          orgType: 'PROVIDER',
+          orgUserId: org.orgUserId,
+          status: 'ACTIVE',
+        },
+        orderBy: { id: 'asc' },
+        select: { memberUserId: true, department: true },
+      }),
+      this.prisma.providerStaff.findMany({
+        where: { providerUserId: org.orgUserId, status: 'ACTIVE' },
+        orderBy: { id: 'asc' },
+        select: { staffUserId: true, department: true },
+      }),
+    ]);
+    const merged = new Map<string, string>();
+    for (const row of [
+      ...legacyRows.map((item) => ({
+        userId: item.staffUserId,
+        department: item.department,
+      })),
+      ...rows.map((item) => ({
+        userId: item.memberUserId,
+        department: item.department,
+      })),
+    ]) {
+      if (!merged.get(row.userId)) merged.set(row.userId, row.department || '');
+    }
+    return [...merged].map(([userId, department]) => ({ userId, department }));
+  }
+
+  /** 共享目标＝同组织内**其他**账号（负责人 + 在职成员，不含本人：共享给自己没有意义）。 */
+  async targets(user: CurrentUser) {
+    const org = await this.orgOf(user.userId);
+    if (!org) {
+      return { orgName: '', users: [] };
+    }
+    const members = await this.membersOf(org);
     const ids = [
-      ...new Set([enterprise.userId, ...rows.map((row) => row.memberUserId)]),
+      ...new Set([org.orgUserId, ...members.map((item) => item.userId)]),
     ].filter((userId) => userId !== user.userId);
     const [directory, profiles] = await Promise.all([
       ids.length ? this.users.lookup(ids) : Promise.resolve([]),
@@ -74,10 +191,10 @@ export class AssetShareService {
     const dir = new Map(directory.map((item) => [item.id, item]));
     const prof = new Map(profiles.map((item) => [item.userId, item]));
     const departmentOf = new Map(
-      rows.map((row) => [row.memberUserId, row.department]),
+      members.map((item) => [item.userId, item.department]),
     );
     return {
-      orgName: enterprise.name,
+      orgName: org.name,
       users: ids.map((userId) => ({
         userId,
         name:
@@ -145,11 +262,11 @@ export class AssetShareService {
   }
 
   async share(user: CurrentUser, body: Record<string, unknown>) {
-    const enterprise = await this.enterpriseOf(user.userId);
-    if (!enterprise) {
+    const org = await this.orgOf(user.userId);
+    if (!org) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
-        '只有已认证的企业账号可以把资料共享给企业内用户',
+        '只有已认证企业账号或服务商在职人员可以把资料共享给本组织内用户',
       );
     }
     // 资产信息一律取本账号的归属台账，不接受请求体里的名称/直链：
@@ -186,7 +303,7 @@ export class AssetShareService {
     if (!targets.length) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
-        '请选择要共享到的企业内用户',
+        '请选择要共享到的组织内用户',
       );
     }
     const data = targets.map((targetUserId) => ({

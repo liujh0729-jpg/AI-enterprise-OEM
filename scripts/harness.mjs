@@ -21,6 +21,7 @@
  *   账号服务地址由测试前端的 AUTH_BACKEND_URL 决定，不固定为本机 1688。
  */
 import { createRequire } from "node:module";
+import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -149,4 +150,54 @@ export function createSuite({ base, okLabel = "OK  " } = {}) {
     counts: () => ({ ...state }),
     summary: () => `${state.passed} 项通过，${state.failed} 项失败`,
   };
+}
+
+/**
+ * 本系统自签会话套件（开源版鉴权口径）：backend authenticate 只接受
+ * issuer=enterprise-sso 的本地会话（密钥从 JWT_SECRET HKDF 派生），遗留上游 JWT 通道已下线。
+ * 签名所需的 userId/tokenVersion 从本地 account 表按用户名读取（自建自删的验证账号同样适用）。
+ * 用法与 createSuite 一致：`const suite = await createLocalSessionSuite()`，api 覆盖为 SSO 通道并附带 prisma。
+ */
+export async function createLocalSessionSuite({ base, okLabel = "OK  " } = {}) {
+  const suite = createSuite({ base, okLabel });
+  const prisma = createPrisma();
+  const secret = createHmac("sha256", scriptJwtSecret())
+    .update("enterprise-sso-session")
+    .digest();
+  const tokens = new Map();
+  const ssoToken = async (username) => {
+    if (!tokens.has(username)) {
+      const row = await prisma.account.findFirst({ where: { username } });
+      if (!row) throw new Error(`本地 account 表没有账号：${username}`);
+      tokens.set(
+        username,
+        jwt.sign(
+          {
+            userId: String(row.id),
+            username,
+            // 与登录链路同口径（account.service）：DB PLATFORM_ADMIN → 令牌 role=admin，否则 isAdmin() 判不出
+            role: row.role === "PLATFORM_ADMIN" ? "admin" : "user",
+            tokenVersion: row.tokenVersion,
+            type: "access",
+          },
+          secret,
+          { algorithm: "HS256", issuer: "enterprise-sso", expiresIn: 3600 },
+        ),
+      );
+    }
+    return tokens.get(username);
+  };
+  const api = async (method, path, body, username) =>
+    httpJson({
+      url: `${suite.base}${path}`,
+      method,
+      body,
+      bearer: username ? await ssoToken(username) : undefined,
+    });
+  const call = async (method, path, username, body) => {
+    const res = await api(method, path, body, username);
+    const envelope = res.data && typeof res.data === "object" ? res.data : {};
+    return { status: res.status, ...envelope };
+  };
+  return { ...suite, api, call, prisma, disconnect: () => prisma.$disconnect() };
 }

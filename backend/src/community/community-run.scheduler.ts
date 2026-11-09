@@ -114,7 +114,7 @@ export class CommunityRunScheduler {
           createdAt: true,
         },
       });
-      for (const run of runs as unknown as ActiveRun[]) {
+      for (const run of runs) {
         try {
           await this.poll(run);
         } catch (error) {

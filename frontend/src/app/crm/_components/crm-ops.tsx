@@ -10,20 +10,22 @@ import {
   Select,
   Space,
   Switch,
-  Tabs,
   Tag,
   message,
 } from "antd";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CRM_FORM_TYPES } from "@enterprise/contracts";
 import type {
+  CrmApprovalFlowRow,
   CrmApprovalRow,
   CrmApprovalTaskRow,
   CrmMemberRow,
   CrmPoolRow,
   CrmStageRow,
+  EndpointInput,
 } from "@enterprise/contracts";
 import { crmApi } from "@/api/crm";
-import { Panel, StatCard, StatGrid } from "@/components/ui/panel";
+import { Panel, PanelTabs, StatCard, StatGrid } from "@/components/ui/panel";
 import { moneyCny } from "@/lib/money";
 import {
   ActionButton,
@@ -41,27 +43,26 @@ export function WorkbenchTab({
   initial?: Awaited<ReturnType<typeof crmApi.workbench>> | null;
 }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof crmApi.workbench>> | null>(initial ?? null);
-  const [range, setRange] = useState("month");
+  const [range, setRange] = useState<NonNullable<EndpointInput<"Crm_workbench">["query"]["range"]>>("month");
   const [keyword, setKeyword] = useState("");
   const [groups, setGroups] = useState<Array<Record<string, unknown>>>([]);
   const [dup, setDup] = useState<Array<Record<string, unknown>>>([]);
   const [dupForm, setDupForm] = useState({ name: "", phone: "", email: "" });
   const fetchedRange = useRef(initial ? "month" : "");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
-      setData(await crmApi.workbench({ query: { range: range as never } }));
+      setData(await crmApi.workbench({ query: { range } }));
     } catch (error) {
       message.error(errText(error));
     }
-  };
+  }, [range]);
 
   useEffect(() => {
     if (fetchedRange.current === range) return;
     fetchedRange.current = range;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range]);
+  }, [range, load]);
 
   if (!data) return <div className="muted">加载中…</div>;
   if (!data.isMember) {
@@ -204,9 +205,15 @@ export function ApprovalsTab() {
   const [todo, setTodo] = useState<CrmApprovalTaskRow[]>([]);
   const [done, setDone] = useState<CrmApprovalTaskRow[]>([]);
   const [instances, setInstances] = useState<CrmApprovalRow[]>([]);
-  const [flows, setFlows] = useState<Array<Record<string, unknown>>>([]);
+  const [flows, setFlows] = useState<CrmApprovalFlowRow[]>([]);
   const [flowOpen, setFlowOpen] = useState(false);
-  const [flowDraft, setFlowDraft] = useState({ formType: "CONTRACT", name: "", nodes: "[]" });
+  const [flowDraft, setFlowDraft] = useState<{
+    id?: number;
+    formType: EndpointInput<"Crm_saveApprovalFlow">["body"]["formType"];
+    name: string;
+    enabled: boolean;
+    nodes: string;
+  }>({ formType: "CONTRACT", name: "", enabled: true, nodes: "[]" });
   const [comment, setComment] = useState<Record<number, string>>({});
 
   const load = async () => {
@@ -220,7 +227,7 @@ export function ApprovalsTab() {
       setTodo((todoData?.list || []) as CrmApprovalTaskRow[]);
       setDone((doneData?.list || []) as CrmApprovalTaskRow[]);
       setInstances((instanceData?.list || []) as CrmApprovalRow[]);
-      setFlows((flowData || []) as Array<Record<string, unknown>>);
+      setFlows(flowData || []);
     } catch (error) {
       message.error(errText(error));
     }
@@ -256,13 +263,20 @@ export function ApprovalsTab() {
         title="审批"
         extra={
           <Space>
-            <Button onClick={() => setFlowOpen(true)}>配置审批流</Button>
+            <Button
+              onClick={() => {
+                setFlowDraft({ formType: "CONTRACT", name: "", enabled: true, nodes: "[]" });
+                setFlowOpen(true);
+              }}
+            >
+              配置审批流
+            </Button>
             <Button onClick={() => void load()}>刷新</Button>
           </Space>
         }
       >
-    <Tabs
-          activeKey={tab}
+    <PanelTabs
+          value={tab}
           onChange={setTab}
           items={[
             {
@@ -339,17 +353,19 @@ export function ApprovalsTab() {
                     { title: "单据", dataIndex: "formTypeLabel", width: 100 },
                     { title: "名称", dataIndex: "name" },
                     { title: "启用", dataIndex: "enabled", width: 80, render: (value: boolean) => (value ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
-                    { title: "节点数", width: 80, render: (_: unknown, row: Record<string, unknown>) => (Array.isArray(row.nodes) ? row.nodes.length : 0) },
+                    { title: "节点数", width: 80, render: (_: unknown, row: CrmApprovalFlowRow) => row.nodes.length },
                     {
                       title: "操作",
                       width: 100,
-                      render: (_: unknown, row: Record<string, unknown>) => (
+                      render: (_: unknown, row: CrmApprovalFlowRow) => (
                         <ActionButton
                           onClick={() => {
                             setFlowDraft({
-                              formType: String(row.formType || "CONTRACT"),
-                              name: String(row.name || ""),
-                              nodes: JSON.stringify(row.nodes || [], null, 2),
+                              id: row.id,
+                              formType: CRM_FORM_TYPES.find((item) => item === row.formType) ?? "CONTRACT",
+                              name: row.name,
+                              enabled: row.enabled,
+                              nodes: JSON.stringify(row.nodes, null, 2),
                             });
                             setFlowOpen(true);
                           }}
@@ -359,7 +375,7 @@ export function ApprovalsTab() {
                       ),
                     },
                   ]}
-                  rows={flows as Array<{ id: number; name: string }>}
+                  rows={flows}
                   empty="还没有审批流"
                 />
               ),
@@ -378,9 +394,10 @@ export function ApprovalsTab() {
             const nodes = JSON.parse(flowDraft.nodes || "[]");
             await crmApi.saveApprovalFlow({
               body: {
-                formType: flowDraft.formType as never,
+                ...(flowDraft.id ? { id: flowDraft.id } : {}),
+                formType: flowDraft.formType,
                 name: flowDraft.name || "审批流",
-                enabled: true,
+                enabled: flowDraft.enabled,
                 nodes,
               },
             });
@@ -420,8 +437,8 @@ export function ApprovalsTab() {
 
 export function ReportsTab() {
   const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
-  const [funnel, setFunnel] = useState<Array<Record<string, unknown>>>([]);
-  const [receivables, setReceivables] = useState<Record<string, unknown> | null>(null);
+  const [funnel, setFunnel] = useState<NonNullable<Awaited<ReturnType<typeof crmApi.statsFunnel>>>["stages"]>([]);
+  const [receivables, setReceivables] = useState<Awaited<ReturnType<typeof crmApi.statsReceivables>> | null>(null);
   const [range, setRange] = useState("month");
 
   useEffect(() => {
@@ -431,9 +448,9 @@ export function ReportsTab() {
       crmApi.statsReceivables(),
     ])
       .then(([a, b, c]) => {
-        setOverview(a as Record<string, unknown>);
-        setFunnel((b?.stages || []) as Array<Record<string, unknown>>);
-        setReceivables(c as unknown as Record<string, unknown>);
+        setOverview(a);
+        setFunnel(b?.stages || []);
+        setReceivables(c);
       })
       .catch((error) => message.error(errText(error)));
   }, [range]);
@@ -478,7 +495,7 @@ export function ReportsTab() {
             { title: "商机数", dataIndex: "count", width: 100 },
             { title: "金额", dataIndex: "amount", width: 180, render: (value: unknown) => moneyCny(value) },
           ]}
-          rows={funnel as Array<{ name: string }>}
+          rows={funnel}
         />
       </Panel>
       <Panel title="回款报表">
@@ -502,7 +519,7 @@ export function ReportsTab() {
                 { title: "已回款", dataIndex: "paid", render: (value: unknown) => moneyCny(value) },
                 { title: "未回款", dataIndex: "remaining", render: (value: unknown) => moneyCny(value) },
               ]}
-              rows={(receivables.rows || []) as Array<{ id: number; name: string }>}
+              rows={receivables.rows}
             />
           </>
         ) : (
@@ -579,6 +596,10 @@ function AiGuidePanel({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+/** 商机阶段类型：契约输入侧是枚举，输出侧 stageRow.type 放宽成 string，故在读取处收窄。 */
+const STAGE_TYPES = ["AFOOT", "END"] as const;
+type StageType = (typeof STAGE_TYPES)[number];
+
 export function SettingsTab() {
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   const [members, setMembers] = useState<{ rows: CrmMemberRow[]; candidates: Array<Record<string, unknown>>; isAdmin: boolean } | null>(null);
@@ -590,16 +611,17 @@ export function SettingsTab() {
   const [orderStages, setOrderStages] = useState<CrmStageRow[]>([]);
   const [capacities, setCapacities] = useState<Array<Record<string, unknown>>>([]);
   const [memberOpen, setMemberOpen] = useState(false);
-  const [memberDraft, setMemberDraft] = useState({ memberUserId: "", role: "SALES", dataScope: "SELF", department: "" });
+  const [memberDraft, setMemberDraft] = useState<EndpointInput<"Crm_saveMember">["body"]>({ memberUserId: "", role: "SALES", dataScope: "SELF", department: "" });
   const [fieldOpen, setFieldOpen] = useState(false);
   const [fieldDraft, setFieldDraft] = useState({ formKey: "lead", fieldKey: "", name: "", type: "text", required: false });
   const [poolOpen, setPoolOpen] = useState<{ kind: "lead" | "customer"; row?: CrmPoolRow } | null>(null);
   const [poolDraft, setPoolDraft] = useState({ name: "", description: "", auto: false });
   const [stageOpen, setStageOpen] = useState<{ kind: "opportunity" | "contract" | "order"; row?: CrmStageRow } | null>(null);
-  const [stageDraft, setStageDraft] = useState({ name: "", type: "AFOOT", winRate: 0, sort: 0 });
-  const [capacityDraft, setCapacityDraft] = useState({ targetType: "LEAD", scopeType: "ORG", scopeId: "", capacity: 0 });
+  const [stageDraft, setStageDraft] = useState<{ name: string; type: StageType; winRate: number; sort: number }>({ name: "", type: "AFOOT", winRate: 0, sort: 0 });
+  const [capacityDraft, setCapacityDraft] = useState<EndpointInput<"Crm_saveCapacity">["body"]>({ targetType: "LEAD", scopeType: "ORG", scopeId: "", capacity: 0 });
   const [general, setGeneral] = useState({ maskPhone: true, maskEmail: true });
   const [generalSaving, setGeneralSaving] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("general");
 
   const load = async () => {
     try {
@@ -619,7 +641,7 @@ export function SettingsTab() {
         maskPhone: Boolean(s?.maskPhone),
         maskEmail: Boolean(s?.maskEmail),
       });
-      setMembers(m as never);
+      setMembers(m);
       setFields((f || []) as Array<Record<string, unknown>>);
       setLeadPools((lp || []) as CrmPoolRow[]);
       setCustomerPools((cp || []) as CrmPoolRow[]);
@@ -661,7 +683,9 @@ export function SettingsTab() {
 
   return (
     <>
-    <Tabs
+    <PanelTabs
+      value={settingsTab}
+      onChange={setSettingsTab}
       items={[
         {
           key: "general",
@@ -820,7 +844,7 @@ export function SettingsTab() {
                   <Button
                     type="primary"
                     onClick={async () => {
-                      await crmApi.saveCapacity({ body: capacityDraft as never });
+                      await crmApi.saveCapacity({ body: capacityDraft });
                       void load();
                     }}
                   >
@@ -866,7 +890,7 @@ export function SettingsTab() {
                         render: (_: unknown, row: CrmStageRow) => (
                           <ActionButton
                             onClick={() => {
-                              setStageDraft({ name: row.name, type: row.type || "AFOOT", winRate: row.winRate, sort: row.sort });
+                              setStageDraft({ name: row.name, type: STAGE_TYPES.find((item) => item === row.type) ?? "AFOOT", winRate: row.winRate, sort: row.sort });
                               setStageOpen({ kind: group.kind, row });
                             }}
                           >
@@ -891,7 +915,7 @@ export function SettingsTab() {
         onCancel={() => setMemberOpen(false)}
         onOk={async () => {
           try {
-            await crmApi.saveMember({ body: memberDraft as never });
+            await crmApi.saveMember({ body: memberDraft });
             setMemberOpen(false);
             void load();
           } catch (error) {
@@ -996,8 +1020,8 @@ export function SettingsTab() {
         onOk={async () => {
           if (!poolOpen) return;
           const body = { ...poolDraft, ...(poolOpen.row?.id ? { id: poolOpen.row.id } : {}) };
-          if (poolOpen.kind === "lead") await crmApi.saveLeadPool({ body: body as never });
-          else await crmApi.saveCustomerPool({ body: body as never });
+          if (poolOpen.kind === "lead") await crmApi.saveLeadPool({ body });
+          else await crmApi.saveCustomerPool({ body });
           setPoolOpen(null);
           void load();
         }}
@@ -1021,13 +1045,13 @@ export function SettingsTab() {
           const body = {
             ...(stageOpen.row?.id ? { id: stageOpen.row.id } : {}),
             name: stageDraft.name,
-            type: stageDraft.type,
-            winRate: stageDraft.winRate,
             sort: stageDraft.sort,
           };
-          if (stageOpen.kind === "opportunity") await crmApi.saveOpportunityStage({ body: body as never });
-          else if (stageOpen.kind === "contract") await crmApi.saveContractStage({ body: body as never });
-          else await crmApi.saveOrderStage({ body: body as never });
+          // type / winRate 只属于商机阶段契约，合同与订单阶段不接受这两个字段。
+          if (stageOpen.kind === "opportunity")
+            await crmApi.saveOpportunityStage({ body: { ...body, type: stageDraft.type, winRate: stageDraft.winRate } });
+          else if (stageOpen.kind === "contract") await crmApi.saveContractStage({ body });
+          else await crmApi.saveOrderStage({ body });
           setStageOpen(null);
           void load();
         }}
@@ -1044,7 +1068,7 @@ export function SettingsTab() {
                   { value: "END", label: "结束" },
                 ]}
               />
-              <InputNumber min={0} max={100} addonAfter="%" value={stageDraft.winRate} onChange={(value) => setStageDraft({ ...stageDraft, winRate: Number(value || 0) })} />
+              <InputNumber min={0} max={100} suffix="%" value={stageDraft.winRate} onChange={(value) => setStageDraft({ ...stageDraft, winRate: Number(value || 0) })} />
             </>
           ) : null}
           <InputNumber min={0} value={stageDraft.sort} onChange={(value) => setStageDraft({ ...stageDraft, sort: Number(value || 0) })} />

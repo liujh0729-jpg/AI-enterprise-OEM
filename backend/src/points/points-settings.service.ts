@@ -98,7 +98,7 @@ export class PointsSettingsService {
       { cents: 50000, bonusPercent: 15 },
     ];
     try {
-      const stored = JSON.parse(text('recharge_tiers'));
+      const stored = JSON.parse(text('recharge_tiers')) as RechargeTier[];
       if (
         Array.isArray(stored) &&
         stored.every(
@@ -118,10 +118,10 @@ export class PointsSettingsService {
     }
     const wechatConfigured = Boolean(
       text('wx_appid') &&
-        text('wx_mchid') &&
-        (await this.raw('wx_apiv3_key')) &&
-        (await this.raw('wx_serial')) &&
-        (await this.raw('wx_private_key')),
+      text('wx_mchid') &&
+      (await this.raw('wx_apiv3_key')) &&
+      (await this.raw('wx_serial')) &&
+      (await this.raw('wx_private_key')),
     );
     return {
       rate: this.num(cache, 'rate', 10),
@@ -170,9 +170,7 @@ export class PointsSettingsService {
     for (const key of allowed) {
       if (body[key] === undefined) continue;
       const value =
-        typeof body[key] === 'string'
-          ? (body[key] as string)
-          : JSON.stringify(body[key]);
+        typeof body[key] === 'string' ? body[key] : JSON.stringify(body[key]);
       await this.prisma.pointSetting.upsert({
         where: { key },
         create: { key, value },
@@ -202,9 +200,10 @@ export class PointsSettingsService {
     for (const [key, value] of pairs) {
       if (value === undefined) continue;
       const trimmed = String(value).trim();
-      const stored = SECRET_KEYS.has(key) && trimmed
-        ? this.crypto.encrypt(trimmed)
-        : trimmed;
+      const stored =
+        SECRET_KEYS.has(key) && trimmed
+          ? this.crypto.encrypt(trimmed)
+          : trimmed;
       await this.prisma.pointSetting.upsert({
         where: { key },
         create: { key, value: stored },
@@ -225,7 +224,15 @@ export class PointsSettingsService {
     const configured = Boolean(
       appId && mchId && apiv3Key && certSerial && privateKey,
     );
-    return { appId, mchId, apiv3Key, certSerial, privateKey, notifyUrl, configured };
+    return {
+      appId,
+      mchId,
+      apiv3Key,
+      certSerial,
+      privateKey,
+      notifyUrl,
+      configured,
+    };
   }
 
   /** 定时任务幂等标记（如「今天已跑过日批」），复用键值表。 */

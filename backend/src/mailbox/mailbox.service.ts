@@ -10,10 +10,12 @@ import {
   type MailMessageSummary,
   type MailScript,
 } from '@enterprise/contracts';
+import { Prisma } from '../../generated/prisma';
 import { CurrentUser } from '../auth/current-user';
 import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { toJsonInput } from '../common/json-input';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdentityService } from '../identity/identity.service';
 import { MailCrypto } from './mail-crypto';
@@ -80,6 +82,12 @@ type ScriptRow = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+/** 邮箱可写列；id / userId / 时间戳由调用点补。 */
+type AccountWrite = Omit<
+  Prisma.MailAccountUncheckedCreateInput,
+  'id' | 'userId' | 'createdAt' | 'updatedAt'
+>;
 
 /** 上海时区的今天 0 点（台账按天去重与统计都按这个口径）。 */
 function dayStart(offsetDays = 0): Date {
@@ -246,7 +254,7 @@ export class MailboxService {
   private readAccountBody(
     body: Record<string, unknown>,
     existing?: AccountRow,
-  ): Record<string, unknown> {
+  ): AccountWrite {
     const address = text(body.address, existing?.address).trim().toLowerCase();
     if (!isEmail(address)) {
       throw new BusinessException(
@@ -312,12 +320,25 @@ export class MailboxService {
     }
     const incomingPassword = text(body.incomingPassword).trim();
     const outgoingPassword = text(body.outgoingPassword).trim();
+    // 密码：只有真的填了新值才重新加密；留空＝沿用原密文
+    const incomingSecret = incomingPassword
+      ? this.crypto.encrypt(incomingPassword)
+      : existing?.incomingSecret;
+    if (!incomingSecret) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '请填写收信密码或授权码',
+      );
+    }
+    const outgoingSecret = outgoingPassword
+      ? this.crypto.encrypt(outgoingPassword)
+      : (existing?.outgoingSecret ?? '');
     const outgoingHost = text(body.outgoingHost, existing?.outgoingHost).trim();
     const outgoingUsername = text(
       body.outgoingUsername,
       existing?.outgoingUsername ?? incomingUsername,
     ).trim();
-    const data: Record<string, unknown> = {
+    const data: AccountWrite = {
       address,
       displayName: text(body.displayName, existing?.displayName)
         .trim()
@@ -350,6 +371,8 @@ export class MailboxService {
       ),
       outgoingSecurity,
       outgoingUsername,
+      incomingSecret,
+      outgoingSecret,
       signature: text(body.signature, existing?.signature).slice(
         0,
         MAX_SIGNATURE,
@@ -360,23 +383,15 @@ export class MailboxService {
         body.enabled === undefined
           ? (existing?.enabled ?? true)
           : body.enabled === true || text(body.enabled) === 'true',
-      libraryIds: idList(
-        body.libraryIds !== undefined ? body.libraryIds : existing?.libraryIds,
-        50,
+      libraryIds: toJsonInput(
+        idList(
+          body.libraryIds !== undefined
+            ? body.libraryIds
+            : existing?.libraryIds,
+          50,
+        ),
       ),
     };
-    // 密码：只有真的填了新值才重新加密；留空＝沿用原密文
-    if (incomingPassword) {
-      data.incomingSecret = this.crypto.encrypt(incomingPassword);
-    } else if (!existing) {
-      throw new BusinessException(
-        ErrorCode.BAD_REQUEST,
-        '请填写收信密码或授权码',
-      );
-    }
-    if (outgoingPassword) {
-      data.outgoingSecret = this.crypto.encrypt(outgoingPassword);
-    }
     return data;
   }
 
@@ -402,7 +417,7 @@ export class MailboxService {
       );
     }
     const row = await this.prisma.mailAccount.create({
-      data: { userId: user.userId, ...data } as never,
+      data: { userId: user.userId, ...data },
     });
     await this.identity.audit(user.userId, 'AI邮箱服务添加邮箱', row.address);
     return this.shapeAccount(row, {
@@ -435,7 +450,7 @@ export class MailboxService {
     }
     const row = await this.prisma.mailAccount.update({
       where: { id: existing.id },
-      data: data as never,
+      data,
     });
     const stats = await this.statsOf([row.id]);
     return this.shapeAccount(
@@ -642,15 +657,17 @@ export class MailboxService {
 
   /** 场景话术命中：关键词在主题/正文里，或发件人匹配；取优先级最小的一条。 */
   private async matchScript(row: AccountRow, detail: MailDetail) {
+    // 生效范围是 Json 数组：空数组＝全部邮箱，否则包含本邮箱 id
+    const where: Prisma.MailScriptWhereInput = {
+      userId: row.userId,
+      enabled: true,
+      OR: [
+        { mailboxIds: { equals: [] } },
+        { mailboxIds: { array_contains: [row.id] } },
+      ],
+    };
     const scripts = await this.prisma.mailScript.findMany({
-      where: {
-        userId: row.userId,
-        enabled: true,
-        OR: [
-          { mailboxIds: { equals: [] } },
-          { mailboxIds: { array_contains: [row.id] } },
-        ],
-      } as never,
+      where,
       orderBy: [{ priority: 'asc' }, { id: 'asc' }],
       take: 50,
     });
@@ -802,6 +819,29 @@ export class MailboxService {
     };
   }
 
+  /** 模板/系统通知发信：只接收已渲染好的纯文本，不落正文、不写处理台账。 */
+  async sendTemplate(
+    user: CurrentUser,
+    id: string,
+    draft: { to: string; subject: string; body: string },
+  ): Promise<{ savedTo: string }> {
+    const row = await this.ownedAccount(user, id);
+    const to = String(draft.to || '').trim();
+    if (!to) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写收件人邮箱');
+    }
+    const { savedTo } = await mailProtocol.send(this.configOf(row), {
+      to: [to],
+      subject: String(draft.subject || '').slice(0, 200),
+      body: String(draft.body || ''),
+    });
+    await this.prisma.mailAccount.update({
+      where: { id: row.id },
+      data: { lastRunAt: new Date(), lastError: '' },
+    });
+    return { savedTo };
+  }
+
   // ---------------------------------------------------------------- 话术
 
   private shapeScript(row: ScriptRow): MailScript {
@@ -822,18 +862,19 @@ export class MailboxService {
 
   async scripts(user: CurrentUser, query: Record<string, unknown> = {}) {
     const mailboxId = Number(query.mailboxId ?? 0);
+    const where: Prisma.MailScriptWhereInput = {
+      userId: user.userId,
+      ...(Number.isInteger(mailboxId) && mailboxId > 0
+        ? {
+            OR: [
+              { mailboxIds: { equals: [] } },
+              { mailboxIds: { array_contains: [mailboxId] } },
+            ],
+          }
+        : {}),
+    };
     const rows = await this.prisma.mailScript.findMany({
-      where: {
-        userId: user.userId,
-        ...(Number.isInteger(mailboxId) && mailboxId > 0
-          ? {
-              OR: [
-                { mailboxIds: { equals: [] } },
-                { mailboxIds: { array_contains: [mailboxId] } },
-              ],
-            }
-          : {}),
-      } as never,
+      where,
       orderBy: [{ priority: 'asc' }, { id: 'asc' }],
       take: 200,
     });
@@ -898,7 +939,7 @@ export class MailboxService {
     const created = await this.prisma.mailScript.create({
       data: {
         mailboxId: mailboxIds[0] ?? 0,
-        mailboxIds: mailboxIds as never,
+        mailboxIds: toJsonInput(mailboxIds),
         userId: user.userId,
         ...data,
       },
@@ -937,7 +978,7 @@ export class MailboxService {
       data: {
         ...data,
         mailboxId: mailboxIds[0] ?? 0,
-        mailboxIds: mailboxIds as never,
+        mailboxIds: toJsonInput(mailboxIds),
       },
     });
     return this.shapeScript(row);

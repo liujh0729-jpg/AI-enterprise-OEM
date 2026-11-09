@@ -18,9 +18,11 @@ import {
   serviceMarketTab,
 } from "@/components/service-publish-tab";
 import { type HeroTab } from "@/components/ui/panel";
+import { filterBoardTabs } from "@/lib/board-tabs";
 import { isProviderAccount } from "@/lib/can-work-on";
 import { LOGISTICS_SUB_ITEMS } from "@/lib/provider-categories";
 import { useSession } from "@/lib/session";
+import { useSiteBrand } from "@/lib/site-brand";
 
 type LogisticsRow=import('@enterprise/contracts').LogisticsRow;
 
@@ -88,6 +90,7 @@ export default function LogisticsPage() {
   /** 回复公开池工单是机构级动作（后端 requireRoles SERVICE_PROVIDER）：仅服务商账号本人可见 */
   const canAcceptOrder = isProviderAccount(me);
   const [tab, setTab] = useState("requests");
+  const { hiddenBoardTabs } = useSiteBrand();
   const tabs: HeroTab[] = [
     { key: "requests", label: <><UnorderedListOutlined aria-hidden /> 需求信息</> },
     { key: "providers", label: <><TagOutlined aria-hidden /> 物流服务商</> },
@@ -95,6 +98,9 @@ export default function LogisticsPage() {
     // 资源库/名录页签之后，全站同位置。「发布服务」按钮仍按备案类目门控（组件内判定）。
     serviceMarketTab("物流服务市集"),
   ];
+  // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染，命中当前页签则回退到第一个可见页签。
+  const visibleTabs = filterBoardTabs("logistics", tabs, hiddenBoardTabs);
+  const activeTab = visibleTabs.some((item) => item.key === tab) ? tab : visibleTabs[0]?.key || "";
   const myUserId = me?.userId || "";
 
   const board = useDemandBoard<LogisticsRow>({
@@ -127,8 +133,8 @@ export default function LogisticsPage() {
         title: "物流服务",
         desc: "物流服务商（平台备案服务商名录，按「境内陆运 / 跨境货代 / 仓储」分区 → 企业按细项发起签约，同一细项不限服务商）· 需求信息（境内陆运 / 跨境货代需求消息通道：企业提交需求，已签约服务商自动直派，未签约进入公开需求池，服务商直接回复即接单）。",
       }}
-      tabs={tabs}
-      activeTab={tab}
+      tabs={visibleTabs}
+      activeTab={activeTab}
       onTabChange={setTab}
       board={board}
       toDemand={toDemand}

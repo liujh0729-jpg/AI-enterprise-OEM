@@ -23,7 +23,16 @@ for(const file of files(path.join(root,'packages/contracts/src')).filter(file=>f
  }
  visit(ast);
 }
+const AI_GATEWAY = ['backend/src/ai/ai-gateway.ts','backend/src/geo/geo-llm.client.ts'];
+const AI_GUARD = /resolveTarget\s*\(|assertAiAllowed\s*\(|aiGuardDeny\s*\(/;
+for(const file of files(path.join(root,'backend/src')).filter(file=>file.endsWith('.ts')&&!file.endsWith('.spec.ts'))){
+ const source=readFileSync(file,'utf8'),relative=path.relative(root,file).split(path.sep).join('/');
+ if(!source.includes('geoChatMulti')||AI_GATEWAY.includes(relative))continue;
+ if(!AI_GUARD.test(source))errors.push(`${relative}: 直接调用 geoChatMulti 必须先过 AI 闸门（resolveTarget / assertAiAllowed / aiGuardDeny）`);
+}
 const baseline=JSON.parse(readFileSync(path.join(root,'docs/migration/route-baseline.json'),'utf8'));
-const routes=readFileSync(path.join(root,'backend/src/http/routes.ts'),'utf8');
+const routeDir=path.join(root,'backend/src/http/route-groups');
+const routes=[readFileSync(path.join(root,'backend/src/http/routes.ts'),'utf8'),
+  ...readdirSync(routeDir).filter(file=>file.endsWith('.ts')).map(file=>readFileSync(path.join(routeDir,file),'utf8'))].join('\n');
 for(const route of baseline)if(!(routes.includes(`"${route.operationId}"`)||routes.includes(`'${route.operationId}'`)))errors.push(`遗漏迁移路由: ${route.operationId}`);
 if(errors.length){console.error(errors.join('\n'));process.exitCode=1;}else console.log(`架构边界检查通过（${baseline.length} 个业务路由）`);

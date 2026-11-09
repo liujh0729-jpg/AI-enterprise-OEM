@@ -227,4 +227,22 @@ export class IdentityController {
   async keyUsage(user: CurrentUser, id: string) {
     return ok(await this.identity.apiKeyUsage(user, parseId(id)));
   }
+  async updateKeyQuota(
+    user: CurrentUser,
+    id: string,
+    body: { pointsQuota?: number | null },
+  ) {
+    return ok(
+      await this.identity.updateApiKeyQuota(
+        user,
+        parseId(id),
+        body.pointsQuota === null || body.pointsQuota === undefined
+          ? null
+          : Number(body.pointsQuota),
+      ),
+    );
+  }
+  async revealKey(user: CurrentUser, id: string) {
+    return ok(await this.identity.revealApiKey(user, parseId(id)));
+  }
 }

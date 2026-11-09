@@ -16,7 +16,7 @@ import {
   message,
 } from "antd";
 import QRCode from "qrcode";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   QR_CHILD_LIMIT_SCOPES,
   QR_CHILD_LIMIT_SCOPE_LABELS,
@@ -29,6 +29,7 @@ import {
   type QrDomainRow,
 } from "@enterprise/contracts";
 import { Panel, TabStrip } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import { livecodeApi } from "@/api/collab";
 import { joinSiteUrl } from "@/lib/site-url";
 import { useSiteBase } from "@/lib/site-brand";
@@ -418,7 +419,7 @@ function CodeDetail({
   // 活码入口地址要能被扫码后直达，域名跟站点配置走
   const origin = useSiteBase();
 
-  const loadEntry = async () => {
+  const loadEntry = useCallback(async () => {
     try {
       const data = await livecodeApi.entry({
         params: { id: String(code.id) },
@@ -433,21 +434,20 @@ function CodeDetail({
     } catch (error) {
       message.error((error as Error).message || "生成入口失败");
     }
-  };
+  }, [code.id, origin]);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       setStats(await livecodeApi.stats({ params: { id: String(code.id) }, query: { days: 30 } }));
     } catch {
       // 统计是辅助信息
     }
-  };
+  }, [code.id]);
 
   useEffect(() => {
     void loadEntry();
     void loadStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code.id, code.currentDomainId]);
+  }, [loadEntry, loadStats]);
 
   const children = useMemo(() => code.children || [], [code.children]);
 
@@ -485,8 +485,7 @@ function CodeDetail({
         {entry ? (
           <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
             {qr ? (
-              // eslint-disable-next-line @next/next/no-img-element -- 二维码是本地生成的 data URL
-              <img src={qr} alt="二维码" style={{ width: 180, height: 180 }} />
+              <RawImg src={qr} alt="二维码" style={{ width: 180, height: 180 }} />
             ) : null}
             <div style={{ minWidth: 0 }}>
               <Input value={entry.url} readOnly />

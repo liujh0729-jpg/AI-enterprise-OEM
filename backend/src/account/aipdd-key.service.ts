@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Prisma } from '../../generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
@@ -31,7 +32,13 @@ function safeRegisterUrl(): string {
 
 type VerifyEnvelope = {
   code?: number;
-  data?: { userId?: string; id?: string; username?: string; nickName?: string; avatar?: string } | null;
+  data?: {
+    userId?: string;
+    id?: string;
+    username?: string;
+    nickName?: string;
+    avatar?: string;
+  } | null;
 };
 
 /**
@@ -45,13 +52,22 @@ export class AipddKeyService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 验真：以 Bearer <key> 请求上游用户信息；开发态可 AIPDD_KEY_VERIFY=off 跳过。 */
-  private async verify(key: string): Promise<{ aipddUserId: string; profile: Record<string, unknown> | null }> {
+  private async verify(key: string): Promise<{
+    aipddUserId: string;
+    profile: Prisma.InputJsonObject | null;
+  }> {
     if (process.env.AIPDD_KEY_VERIFY === 'off') {
       // 冒烟/离线开发：不请求上游，用指纹派生一个稳定的占位身份
-      const fakeId = createHash('sha256').update(key).digest('hex').slice(0, 12);
+      const fakeId = createHash('sha256')
+        .update(key)
+        .digest('hex')
+        .slice(0, 12);
       return { aipddUserId: `dev-${fakeId}`, profile: null };
     }
-    const base = (process.env.AIPDD_KEY_VERIFY_URL || `${process.env.JAVA_BASE_URL || 'https://api.aipdd.work'}/user/info`).replace(/\/$/, '');
+    const base = (
+      process.env.AIPDD_KEY_VERIFY_URL ||
+      `${process.env.JAVA_BASE_URL || 'https://api.aipdd.work'}/user/info`
+    ).replace(/\/$/, '');
     let response;
     try {
       response = await httpRequest<VerifyEnvelope>(base, {
@@ -61,7 +77,10 @@ export class AipddKeyService {
         operation: 'aipdd:key-verify',
       });
     } catch {
-      throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, 'AIPDD 验真服务暂时不可用，请稍后重试');
+      throw new BusinessException(
+        ErrorCode.SERVICE_UNAVAILABLE,
+        'AIPDD 验真服务暂时不可用，请稍后重试',
+      );
     }
     const data = response.data?.data;
     if (response.ok && response.data?.code === 0 && data) {
@@ -77,7 +96,10 @@ export class AipddKeyService {
         };
       }
     }
-    throw new BusinessException(ErrorCode.BAD_REQUEST, 'AIPDD APIKey 验证失败：请检查 Key 是否有效');
+    throw new BusinessException(
+      ErrorCode.BAD_REQUEST,
+      'AIPDD APIKey 验证失败：请检查 Key 是否有效',
+    );
   }
 
   /** 绑定/换绑：验真 → 指纹归并 → 加密落库 → 用户唯一绑定。 */
@@ -91,14 +113,16 @@ export class AipddKeyService {
     }
     const identity = await this.verify(key);
     const fingerprint = this.crypto.fingerprint(key);
-    const existing = await this.prisma.aipddKey.findUnique({ where: { keyFingerprint: fingerprint } });
+    const existing = await this.prisma.aipddKey.findUnique({
+      where: { keyFingerprint: fingerprint },
+    });
     const keyRow = existing
       ? await this.prisma.aipddKey.update({
           where: { id: existing.id },
           data: {
             keyCipher: this.crypto.encrypt(key),
             aipddUserId: identity.aipddUserId,
-            ...(identity.profile ? { aipddProfile: identity.profile as object } : {}),
+            ...(identity.profile ? { aipddProfile: identity.profile } : {}),
             status: 'ACTIVE',
             lastVerifiedAt: new Date(),
           },
@@ -108,7 +132,7 @@ export class AipddKeyService {
             keyFingerprint: fingerprint,
             keyCipher: this.crypto.encrypt(key),
             aipddUserId: identity.aipddUserId,
-            ...(identity.profile ? { aipddProfile: identity.profile as object } : {}),
+            ...(identity.profile ? { aipddProfile: identity.profile } : {}),
             lastVerifiedAt: new Date(),
           },
         });
@@ -120,7 +144,11 @@ export class AipddKeyService {
     });
     await this.prisma.auditLog
       .create({
-        data: { userId, action: 'AIPDD_KEY_BOUND', detail: `key#${keyRow.id} aipdd=${identity.aipddUserId}` },
+        data: {
+          userId,
+          action: 'AIPDD_KEY_BOUND',
+          detail: `key#${keyRow.id} aipdd=${identity.aipddUserId}`,
+        },
       })
       .catch(() => undefined);
     return this.status(userId);
@@ -142,11 +170,18 @@ export class AipddKeyService {
   /** 当前绑定状态（脱敏）：永不返回原文；附带注册引导（registerUrl / referralCode）。 */
   async status(userId: string) {
     const referral = await this.referralInfo();
-    const binding = await this.prisma.userAipddBinding.findUnique({ where: { userId } });
+    const binding = await this.prisma.userAipddBinding.findUnique({
+      where: { userId },
+    });
     if (!binding) return { bound: false as const, ...referral };
-    const key = await this.prisma.aipddKey.findUnique({ where: { id: binding.keyId } });
-    if (!key || key.status !== 'ACTIVE') return { bound: false as const, ...referral };
-    const sharers = await this.prisma.userAipddBinding.count({ where: { keyId: key.id } });
+    const key = await this.prisma.aipddKey.findUnique({
+      where: { id: binding.keyId },
+    });
+    if (!key || key.status !== 'ACTIVE')
+      return { bound: false as const, ...referral };
+    const sharers = await this.prisma.userAipddBinding.count({
+      where: { keyId: key.id },
+    });
     return {
       bound: true as const,
       masked: this.mask(key.keyCipher),
@@ -161,8 +196,11 @@ export class AipddKeyService {
   }
 
   async unbind(userId: string) {
-    const deleted = await this.prisma.userAipddBinding.deleteMany({ where: { userId } });
-    if (!deleted.count) throw new BusinessException(ErrorCode.NOT_FOUND, '尚未绑定 AIPDD APIKey');
+    const deleted = await this.prisma.userAipddBinding.deleteMany({
+      where: { userId },
+    });
+    if (!deleted.count)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '尚未绑定 AIPDD APIKey');
     await this.prisma.auditLog
       .create({ data: { userId, action: 'AIPDD_KEY_UNBOUND', detail: '' } })
       .catch(() => undefined);
@@ -174,25 +212,36 @@ export class AipddKeyService {
    * 未绑定时抛业务错误，前端引导去「开放集成 → API Key 管理」页绑定。
    */
   async resolveToken(userId: string): Promise<string> {
-    const binding = await this.prisma.userAipddBinding.findUnique({ where: { userId } });
+    const binding = await this.prisma.userAipddBinding.findUnique({
+      where: { userId },
+    });
     if (!binding) {
       throw new BusinessException(
         ErrorCode.FORBIDDEN,
         '请先在「开放集成 → API Key 管理」绑定 AIPDD API Key，再使用需要同步上游的功能',
       );
     }
-    const key = await this.prisma.aipddKey.findUnique({ where: { id: binding.keyId } });
+    const key = await this.prisma.aipddKey.findUnique({
+      where: { id: binding.keyId },
+    });
     if (!key || key.status !== 'ACTIVE') {
-      throw new BusinessException(ErrorCode.FORBIDDEN, '绑定的 AIPDD APIKey 已失效，请重新绑定');
+      throw new BusinessException(
+        ErrorCode.FORBIDDEN,
+        '绑定的 AIPDD APIKey 已失效，请重新绑定',
+      );
     }
     return this.crypto.decrypt(key.keyCipher);
   }
 
   /** 绑定 Key 对应的 AIPDD 用户身份（模型配置贯通用：绑定了就整体一致）。 */
   async resolveAipddUserId(userId: string): Promise<string> {
-    const binding = await this.prisma.userAipddBinding.findUnique({ where: { userId } });
+    const binding = await this.prisma.userAipddBinding.findUnique({
+      where: { userId },
+    });
     if (!binding) return '';
-    const key = await this.prisma.aipddKey.findUnique({ where: { id: binding.keyId } });
+    const key = await this.prisma.aipddKey.findUnique({
+      where: { id: binding.keyId },
+    });
     return key?.status === 'ACTIVE' ? String(key.aipddUserId || '') : '';
   }
 

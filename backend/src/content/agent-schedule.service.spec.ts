@@ -1,6 +1,12 @@
 import * as bcrypt from 'bcryptjs';
 import { CurrentUser } from '../auth/current-user';
 import { ContentAgentScheduleService } from './agent-schedule.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { IdentityService } from '../identity/identity.service';
+import { UserLookupService } from '../directory/user-lookup.service';
+import { ContentAgentService } from './agent.service';
+import { ContentAgentExpertService } from './agent-experts.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 定时任务的「允许自动执行写动作」：默认关，且只有从关到开要验本站登录密码。
@@ -44,20 +50,20 @@ function build(account: unknown = { passwordHash: HASH, status: 'ACTIVE' }) {
     .fn()
     .mockImplementation(({ data }) => Promise.resolve({ ...stored, ...data }));
   const findUnique = jest.fn().mockResolvedValue(account);
-  const prisma = {
+  const prisma = stub<PrismaService>({
     account: { findUnique },
     contentAgentSchedule: { create },
     contentAgentMcpConnector: { count: jest.fn() },
     mailAccount: { count: jest.fn() },
-  } as never;
-  const identity = { audit: jest.fn() } as never;
-  const experts = { bindable: jest.fn() } as never;
+  });
+  const identity = stub<IdentityService>({ audit: jest.fn() });
+  const experts = stub<ContentAgentExpertService>({ bindable: jest.fn() });
   return {
     service: new ContentAgentScheduleService(
       prisma,
       identity,
-      {} as never,
-      {} as never,
+      stub<UserLookupService>(),
+      stub<ContentAgentService>(),
       experts,
     ),
     create,

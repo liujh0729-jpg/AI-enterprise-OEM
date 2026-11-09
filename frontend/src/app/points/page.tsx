@@ -10,10 +10,8 @@ import {
   Radio,
   Space,
   Table,
-  Tabs,
 } from "antd";
 import {
-  GiftOutlined,
   QrcodeOutlined,
   WalletOutlined,
 } from "@ant-design/icons";
@@ -23,17 +21,26 @@ import {
   Notice,
   PageHero,
   Panel,
+  PanelTabs,
   StatCard,
   StatGrid,
 } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import {
   pointsApi,
+  type AiUsageModuleRow,
   type PointTxRow,
   type RechargeOrderRow,
   type UserPointsSettings,
 } from "@/api/points";
+import {
+  aiModuleLabel,
+  billingSubjectLabel,
+  fmtTokens,
+} from "@/lib/ai-usage";
 import { useBusinessQuery } from "@/query/business";
 import { useI18n } from "@/lib/i18n/i18n";
+import { GapsPromoPanel } from "./_components/gaps-promo";
 
 /* ============================================================
    用户「积分中心」（/points）：双币余额（本站积分 + AWcoin 只读）/
@@ -114,17 +121,21 @@ export default function PointsPage() {
   const [ordersNonce, setOrdersNonce] = useState(0);
   const [txNonce, setTxNonce] = useState(0);
   const [payOrder, setPayOrder] = useState<PayOrder | null>(null);
+  const [serviceTab, setServiceTab] = useState("recharge");
+
+  const payOrderNo = payOrder?.orderNo ?? "";
+  const payOrderStatus = payOrder?.status ?? "";
 
   // 轮询支付结果（每 3 秒，最多 5 分钟）：回调丢失时后端会主动查单兜底
   useEffect(() => {
-    if (!payOrder || payOrder.status !== "CREATED") return;
+    if (!payOrderNo || payOrderStatus !== "CREATED") return;
     let cancelled = false;
     let tries = 0;
     const timer = setInterval(async () => {
       if (cancelled) return;
       tries += 1;
       try {
-        const result = await pointsApi.rechargeQuery(payOrder.orderNo);
+        const result = await pointsApi.rechargeQuery(payOrderNo);
         if (cancelled) return;
         if (result.status !== "CREATED") {
           setPayOrder((prev) => (prev ? { ...prev, status: result.status } : prev));
@@ -150,7 +161,7 @@ export default function PointsPage() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [payOrder?.orderNo, payOrder?.status, message, reloadSummary]);
+  }, [payOrderNo, payOrderStatus, message, reloadSummary]);
 
   const arrears = summary?.points.status === "ARREARS";
   const awcoinValue = summary?.awcoin.value;
@@ -164,12 +175,7 @@ export default function PointsPage() {
         desc="本站积分与 AWcoin 双币展示：积分可充值、可赠送，用于数字资产存储与 CRM / BI / OA / AI 客服等模块消费；AWcoin 只读展示、永不互兑。"
       />
 
-      <Panel
-        title="我的积分"
-        extra={
-          <Button onClick={() => void reloadSummary()}>刷新</Button>
-        }
-      >
+      <Panel title="我的积分">
         <StatGrid>
           <StatCard
             label={t("可用余额")}
@@ -212,7 +218,9 @@ export default function PointsPage() {
       </Panel>
 
       <Panel title="积分服务">
-        <Tabs
+        <PanelTabs
+          value={serviceTab}
+          onChange={setServiceTab}
           items={[
             {
               key: "recharge",
@@ -243,9 +251,19 @@ export default function PointsPage() {
               children: <TransactionsPanel nonce={txNonce} />,
             },
             {
+              key: "ai-usage",
+              label: t("AI 用量"),
+              children: <AiUsagePanel />,
+            },
+            {
               key: "orders",
               label: t("充值订单"),
               children: <OrdersPanel nonce={ordersNonce} />,
+            },
+            {
+              key: "promo",
+              label: t("兑换码"),
+              children: <GapsPromoPanel />,
             },
           ]}
         />
@@ -291,8 +309,7 @@ export default function PointsPage() {
               </Space>
             ) : payOrder.qr ? (
               <Space orientation="vertical" size={10}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={payOrder.qr} alt="微信支付二维码" width={260} height={260} />
+                <RawImg src={payOrder.qr} alt="微信支付二维码" width={260} height={260} />
                 <div className="text-12 muted">{t("请使用微信扫码完成支付")}</div>
                 <div className="text-12 muted">{t("支付成功后积分自动到账")}（正在自动查询…）</div>
               </Space>
@@ -328,6 +345,21 @@ function RechargePanel({
 
   const tiers = settings?.rechargeTiers ?? [];
   const minCents = settings?.rechargeMinCents ?? 100;
+  /** 当前待支付金额：自定义金额优先，否则取所选档位；后端按金额匹配赠送档位，这里同口径预告到账。 */
+  const selectedCents =
+    customYuan !== null && customYuan > 0
+      ? Math.round(customYuan * 100)
+      : tierIndex !== null
+        ? (tiers[tierIndex]?.cents ?? null)
+        : null;
+  const matchedTier =
+    selectedCents !== null ? tiers.find((tier) => tier.cents === selectedCents) : undefined;
+  const basePoints = selectedCents
+    ? Number(((selectedCents / 100) * (settings?.rate ?? 0)).toFixed(4))
+    : 0;
+  const bonusPoints = matchedTier
+    ? Number(((basePoints * matchedTier.bonusPercent) / 100).toFixed(4))
+    : 0;
 
   const submit = async () => {
     if (!settings?.wechatConfigured) {
@@ -388,33 +420,43 @@ function RechargePanel({
         </Notice>
       ) : null}
 
-      <div style={{ marginTop: 12, fontWeight: 600 }}>{t("选择充值档位")}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 }}>
-        {tiers.map((tier, index) => (
-          <Button
-            key={index}
-            type={tierIndex === index && customYuan === null ? "primary" : "default"}
-            onClick={() => {
-              setTierIndex(index);
-              setCustomYuan(null);
-            }}
-          >
-            {fmtYuan(tier.cents)}
-            {tier.bonusPercent > 0 ? `（送 ${tier.bonusPercent}%）` : ""}
-            <span className="text-12 muted" style={{ marginLeft: 6 }}>
-              {fmtPoints((tier.cents / 100) * (settings?.rate ?? 0))} 积分
-            </span>
-          </Button>
-        ))}
+      <div className="points-block">
+        <div className="points-block-title">{t("选择充值档位")}</div>
+        <div className="points-tier-grid">
+          {tiers.map((tier, index) => {
+            const active = tierIndex === index && customYuan === null;
+            return (
+              <button
+                key={index}
+                type="button"
+                aria-pressed={active}
+                className={active ? "points-tier active" : "points-tier"}
+                onClick={() => {
+                  setTierIndex(index);
+                  setCustomYuan(null);
+                }}
+              >
+                <span className="points-tier-amount">{fmtYuan(tier.cents)}</span>
+                <span className="points-tier-points">
+                  {fmtPoints((tier.cents / 100) * (settings?.rate ?? 0))} 积分
+                </span>
+                {tier.bonusPercent > 0 ? (
+                  <span className="points-tier-bonus">赠送 {tier.bonusPercent}%</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t("自定义金额")}</div>
+      <div className="points-pay-grid">
+        <div className="points-field">
+          <div className="points-field-label">{t("自定义金额")}</div>
           <InputNumber
             min={minCents / 100}
             step={1}
-            addonBefore="¥"
+            prefix="¥"
+            style={{ width: "100%" }}
             placeholder={`最低 ${fmtYuan(minCents)}`}
             value={customYuan ?? undefined}
             onChange={(value) => {
@@ -423,8 +465,8 @@ function RechargePanel({
             }}
           />
         </div>
-        <div>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t("支付方式")}</div>
+        <div className="points-field">
+          <div className="points-field-label">{t("支付方式")}</div>
           <Radio.Group
             value={channel}
             onChange={(event) => setChannel(event.target.value)}
@@ -434,12 +476,20 @@ function RechargePanel({
             ]}
           />
         </div>
+      </div>
+
+      <div className="points-pay-actions">
+        <div className="points-rate-note">
+          汇率 1 元 = {settings?.rate ?? "—"} 积分，以订单创建时为准（永不追溯已充积分）。
+          {selectedCents
+            ? ` 本次应付 ${fmtYuan(selectedCents)}，到账 ${fmtPoints(basePoints + bonusPoints)} 积分${
+                bonusPoints > 0 ? `（含赠送 ${fmtPoints(bonusPoints)}）` : ""
+              }。`
+            : null}
+        </div>
         <Button type="primary" loading={busy} onClick={() => void submit()}>
           {t("生成支付订单")}
         </Button>
-      </div>
-      <div className="text-12 muted" style={{ marginTop: 10 }}>
-        汇率 1 元 = {settings?.rate ?? "—"} 积分，以订单创建时为准（永不追溯已充积分）；档位赠送比例由平台管理员配置。
       </div>
     </div>
   );
@@ -524,9 +574,9 @@ function TransferPanel({
           : "，当前免手续费"}
         ；每日笔数与额度上限由平台管理员配置。积分转出后不可撤销。
       </Notice>
-      <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+      <div className="points-form">
+        <div className="points-field">
+          <div className="points-field-label">
             {t("接收方")}（{t("邀请码或用户名")}）
           </div>
           <Space.Compact style={{ width: "100%" }}>
@@ -548,15 +598,15 @@ function TransferPanel({
             </div>
           ) : null}
         </div>
-        <div>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t("赠送数量")}</div>
+        <div className="points-field">
+          <div className="points-field-label">{t("赠送数量")}</div>
           <InputNumber
             min={settings.transferMin}
             step={1}
             style={{ width: "100%" }}
             value={amount ?? undefined}
             onChange={(value) => setAmount(typeof value === "number" ? value : null)}
-            addonAfter="积分"
+            suffix="积分"
           />
         </div>
         <Button type="primary" loading={busy} onClick={() => void submit()} style={{ width: 160 }}>
@@ -640,6 +690,61 @@ function TransactionsPanel({ nonce }: { nonce: number }) {
             },
             { title: "余额", width: 100, render: (_, row) => fmtPoints(row.balanceAmount) },
             { title: t("说明"), render: (_, row) => <span className="text-12">{row.remark || "—"}</span> },
+          ]}
+        />
+      </div>
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------- AI 用量 */
+
+/**
+ * 本人各板块的 AI 用量（AI 底座方案 §4.4）：与后台用量页读同一张用量事实，
+ * 「未扣分」的行是免费额内或该科目还没配价目——用看得见花了多少代替事前拦截。
+ */
+function AiUsagePanel() {
+  const { t } = useI18n();
+  const { data, isPending } = useBusinessQuery(
+    "points",
+    "ai-usage",
+    {},
+    (signal) => pointsApi.aiUsage({}, { signal }),
+  );
+  const totals = data?.totals;
+
+  return (
+    <>
+      <div className="text-12 muted" style={{ marginBottom: 10 }}>
+        {`近 30 天：${fmtPoints(totals?.calls ?? 0)} 次 AI 调用，输入 ${fmtTokens(
+          totals?.tokenInAmount ?? 0,
+        )} / 输出 ${fmtTokens(totals?.tokenOutAmount ?? 0)} token，消耗 ${fmtPoints(
+          totals?.pointsAmount ?? 0,
+        )} 积分；AI 洞察产出 ${fmtPoints(totals?.insightCount ?? 0)} 条。`}
+      </div>
+      <div className="table-wrap">
+        <Table<AiUsageModuleRow>
+          rowKey={(row) => `${row.module}·${row.code}`}
+          loading={isPending}
+          dataSource={data?.modules ?? []}
+          size="middle"
+          pagination={false}
+          locale={{ emptyText: <EmptyState text={t("暂无 AI 用量记录")} /> }}
+          columns={[
+            { title: "板块", width: 150, render: (_, row) => aiModuleLabel(row.module) },
+            { title: "科目", width: 170, render: (_, row) => billingSubjectLabel(row.code) },
+            { title: "调用次数", width: 110, render: (_, row) => fmtPoints(row.calls) },
+            {
+              title: "输入 token",
+              width: 130,
+              render: (_, row) => fmtTokens(row.tokenInAmount),
+            },
+            {
+              title: "输出 token",
+              width: 130,
+              render: (_, row) => fmtTokens(row.tokenOutAmount),
+            },
+            { title: "消耗积分", width: 120, render: (_, row) => fmtPoints(row.pointsAmount) },
           ]}
         />
       </div>

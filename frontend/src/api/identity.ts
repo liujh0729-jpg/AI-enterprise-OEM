@@ -38,4 +38,6 @@ export const identityApi = {
   resetKey: endpoint(endpoints.Identity_resetKey),
   revokeKey: endpoint(endpoints.Identity_revokeKey),
   keyUsage: endpoint(endpoints.Identity_keyUsage),
+  updateKeyQuota: endpoint(endpoints.Identity_updateKeyQuota),
+  revealKey: endpoint(endpoints.Identity_revealKey),
 };

@@ -123,9 +123,17 @@ function expectStatus(res, name, status) {
   console.log("══ 2·5 平台管理后台（侧栏板块来自 ADMIN_SECTIONS） ══");
   const adminEntry = await page("GET", "/admin", undefined, "admin");
   assert(
-    adminEntry.status === 307 && String(adminEntry.location || "").endsWith("/admin/overview"),
-    "/admin 重定向到总览",
+    adminEntry.status === 307 && String(adminEntry.location || "").endsWith("/admin/users"),
+    "/admin 重定向到第一个管理板块",
     `status=${adminEntry.status} loc=${adminEntry.location || ""}`,
+  );
+  // 平台数据总览已并入高管驾驶舱，旧地址重定向回首页
+  const legacyOverview = await page("GET", "/admin/overview", undefined, "admin");
+  const legacyOverviewTarget = new URL(String(legacyOverview.location || "/"), WEB).pathname;
+  assert(
+    legacyOverview.status === 307 && legacyOverviewTarget === "/",
+    "/admin/overview 重定向到高管驾驶舱",
+    `status=${legacyOverview.status} loc=${legacyOverview.location || ""}`,
   );
   for (const section of ADMIN_SECTIONS) {
     expectStatus(await page("GET", `/admin/${section}`, undefined, "admin"), `板块 /admin/${section}`, 200);

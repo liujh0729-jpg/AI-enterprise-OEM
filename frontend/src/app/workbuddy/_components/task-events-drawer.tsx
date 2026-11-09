@@ -45,8 +45,7 @@ export function TaskEventsDrawer({
       setLoading(false);
     });
     // 同一任务重新打开时也要重取
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, task?.id]);
+  }, [open, task]);
 
   const current = detail || task;
 

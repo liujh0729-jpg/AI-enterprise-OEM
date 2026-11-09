@@ -18,7 +18,7 @@ import {
   SendOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ServiceDeskConversationRow,
   ServiceDeskMessage,
@@ -66,7 +66,7 @@ export function ConversationPanel({
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTo, setTransferTo] = useState<string>("");
 
-  const loadList = async () => {
+  const loadList = useCallback(async () => {
     try {
       setLoading(true);
       const data = await serviceDeskApi.conversations({
@@ -85,7 +85,7 @@ export function ConversationPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [status, mine]);
 
   const loadDetail = async (id: number) => {
     try {
@@ -119,8 +119,7 @@ export function ConversationPanel({
       void onOverview();
     }, 15000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, mine]);
+  }, [loadList, onOverview]);
 
   useEffect(() => {
     if (!current) return;
@@ -204,6 +203,29 @@ export function ConversationPanel({
     } catch (error) {
       message.error((error as Error).message || "转接失败");
     }
+  };
+
+  const convertToCrm = () => {
+    if (!current) return;
+    Modal.confirm({
+      title: "转为 CRM 线索",
+      content: "会用访客昵称、联系方式与最近一条消息创建线索；重复操作不会产生第二条线索。",
+      okText: "转线索",
+      onOk: async () => {
+        try {
+          const data = await serviceDeskApi.convertToCrm({
+            params: { id: String(current) },
+            body: {},
+          });
+          message.success(`已转为 CRM 线索 #${data?.crmLeadId || ""}`);
+          await loadDetail(current);
+          await loadList();
+        } catch (error) {
+          message.error((error as Error).message || "转线索失败");
+          throw error;
+        }
+      },
+    });
   };
 
   const suggest = async () => {
@@ -400,6 +422,9 @@ export function ConversationPanel({
             <span className="muted">
               {detail.conversation.siteName} · {detail.conversation.statusLabel}
               {detail.visitor.contact ? ` · ${detail.visitor.contact}` : ""}
+              {detail.conversation.crmLeadId
+                ? ` · CRM 线索 #${detail.conversation.crmLeadId}`
+                : ""}
             </span>
           ) : undefined
         }
@@ -420,6 +445,9 @@ export function ConversationPanel({
                 转接
               </Button>
               <Button onClick={() => void suggest()}>AI 建议</Button>
+              {detail.conversation.crmLeadId ? null : (
+                <Button onClick={convertToCrm}>转 CRM 线索</Button>
+              )}
               <Button danger onClick={() => void close()}>
                 结束
               </Button>

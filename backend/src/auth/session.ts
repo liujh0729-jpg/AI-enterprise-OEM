@@ -1,5 +1,5 @@
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import type { Context } from 'hono';
+import type { Context, Input } from 'hono';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import {
   ErrorCode,
@@ -44,8 +44,10 @@ function normalize(value?: string) {
 /**
  * 读取当前请求携带的本系统会话令牌（Authorization 头优先，其次 Cookie）。
  * 开源版令牌全部由本系统自签（issueSsoSession），不再有「过期后向账号侧刷新」的链路。
+ * 后两个泛型写满（不用 Context<ApiEnv> 默认值）：默认值里路径与校验输入是 any，
+ * `use('*')` 中间件传进来的实参会被 no-unsafe-argument 判成不安全实参。
  */
-export async function sessionToken(c: Context<ApiEnv>, publicRequest = false) {
+export function sessionToken(c: Context<ApiEnv, string, Input>) {
   const header = c.req.header('authorization');
   if (header) return normalize(header);
   return normalize(getCookie(c, ACCESS)) || undefined;
@@ -110,7 +112,7 @@ export function registerSessionRoutes(
     parseAccessToken(token);
     setCookie(c, ACCESS, token, cookieOptions());
     deleteCookie(c, REFRESH, { path: '/' });
-    c.header('x-login-next', safeNextPath(c.req.query('next')));
+    c.header('x-login-next', safeNextPath(c.req.query('next'), '/dashboard'));
     return c.json(envelope(0, '登录成功'));
   });
   app.post('/api/auth/register', async (c) => {
@@ -139,7 +141,7 @@ export function registerSessionRoutes(
   });
   /** 敏感操作二次验密：核对当前会话用户的本地密码（前端按 422 判「密码不正确」）。 */
   app.post('/api/auth/verify-password', async (c) => {
-    const token = await sessionToken(c);
+    const token = sessionToken(c);
     let userId = '';
     try {
       userId = token ? parseAccessToken(token).userId : '';

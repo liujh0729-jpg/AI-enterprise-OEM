@@ -496,7 +496,7 @@ export function OnboardingTab({
         okButtonProps={{ disabled: Boolean(uploadingKey) }}
         cancelButtonProps={{ disabled: Boolean(uploadingKey) || submitting }}
         closable={!uploadingKey && !submitting}
-        maskClosable={!uploadingKey && !submitting}
+        mask={{ closable: !uploadingKey && !submitting }}
         keyboard={!uploadingKey && !submitting}
         okText="提交进件"
         onCancel={() => {

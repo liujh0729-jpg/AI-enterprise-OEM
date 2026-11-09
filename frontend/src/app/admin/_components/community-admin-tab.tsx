@@ -144,8 +144,7 @@ export function CommunityAdminTab() {
 
   useEffect(() => {
     void loadRows();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, status]);
+  }, [loadRows]);
 
   useEffect(() => {
     loadStats();

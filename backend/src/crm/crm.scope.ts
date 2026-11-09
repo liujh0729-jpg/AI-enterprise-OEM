@@ -4,6 +4,17 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+
+/**
+ * 数据范围裁剪后的 where 片段。字段与 crm_* 表一致，可直接展开进各模型的
+ * `XWhereInput`；不用 `Record<string, unknown>` 是为了让调用点保持类型检查。
+ */
+export type CrmScopeWhere = {
+  ownerUserId: string;
+  ownerId?: string | Prisma.StringFilter;
+  createdBy?: string | Prisma.StringFilter;
+};
 
 export type CrmRole =
   'ADMIN' | 'MANAGER' | 'SALES' | 'FINANCE' | 'READONLY' | '';
@@ -22,6 +33,8 @@ export type CrmAction =
 
 export type CrmContext = {
   ownerUserId: string;
+  /** 统一租户键的组织侧；写入 crm_* 时与 ownerUserId 一起落库。 */
+  orgType: string;
   actorId: string;
   role: CrmRole;
   dataScope: 'ALL' | 'DEPT' | 'SELF';
@@ -85,9 +98,10 @@ export class CrmScopeService {
 
   async context(user: CurrentUser): Promise<CrmContext> {
     const owner = await this.ownerOf(user.userId);
-    if (!owner || owner === user.userId) {
+    if (owner.orgUserId === user.userId) {
       return {
         ownerUserId: user.userId,
+        orgType: owner.orgType,
         actorId: user.userId,
         role: 'ADMIN',
         dataScope: 'ALL',
@@ -100,14 +114,15 @@ export class CrmScopeService {
     const member = await this.prisma.crmMember.findUnique({
       where: {
         ownerUserId_memberUserId: {
-          ownerUserId: owner,
+          ownerUserId: owner.orgUserId,
           memberUserId: user.userId,
         },
       },
     });
     if (!member || member.status !== 'ACTIVE') {
       return {
-        ownerUserId: owner,
+        ownerUserId: owner.orgUserId,
+        orgType: owner.orgType,
         actorId: user.userId,
         role: '',
         dataScope: 'SELF',
@@ -119,7 +134,8 @@ export class CrmScopeService {
     }
     const role = (member.role as CrmRole) || 'SALES';
     return {
-      ownerUserId: owner,
+      ownerUserId: owner.orgUserId,
+      orgType: owner.orgType,
       actorId: user.userId,
       role,
       dataScope: (member.dataScope as CrmContext['dataScope']) || 'SELF',
@@ -131,7 +147,9 @@ export class CrmScopeService {
   }
 
   /** 当前用户自己是否拥有一个组织（有职员/代理人），是则用自己的账号；否则看其所属组织。 */
-  private async ownerOf(userId: string) {
+  private async ownerOf(
+    userId: string,
+  ): Promise<{ orgType: string; orgUserId: string }> {
     const [orgOwner, providerOwner, enterpriseOwner] = await Promise.all([
       this.prisma.orgStaff.findFirst({
         where: { orgUserId: userId, status: 'ACTIVE' },
@@ -144,17 +162,31 @@ export class CrmScopeService {
       this.prisma.orgStaff.findFirst({
         where: { memberUserId: userId, status: 'ACTIVE' },
         orderBy: { id: 'asc' },
-        select: { orgUserId: true },
+        select: { orgType: true, orgUserId: true },
       }),
     ]);
-    if (orgOwner || providerOwner) return userId;
-    if (enterpriseOwner?.orgUserId) return enterpriseOwner.orgUserId;
+    if (orgOwner) return { orgType: 'ENTERPRISE', orgUserId: userId };
+    if (providerOwner) return { orgType: 'PROVIDER', orgUserId: userId };
+    if (enterpriseOwner?.orgUserId) {
+      return {
+        orgType: enterpriseOwner.orgType || 'ENTERPRISE',
+        orgUserId: enterpriseOwner.orgUserId,
+      };
+    }
     const providerMember = await this.prisma.providerStaff.findFirst({
       where: { staffUserId: userId, status: 'ACTIVE' },
       orderBy: { id: 'asc' },
       select: { providerUserId: true },
     });
-    return providerMember?.providerUserId || userId;
+    return {
+      orgType: 'PROVIDER',
+      orgUserId: providerMember?.providerUserId || userId,
+    };
+  }
+
+  /** 写入 crm_* 时的统一租户键。 */
+  orgKey(ctx: CrmContext) {
+    return { orgType: ctx.orgType, orgUserId: ctx.ownerUserId };
   }
 
   async requireMember(user: CurrentUser) {
@@ -193,19 +225,21 @@ export class CrmScopeService {
     ctx: CrmContext,
     kind: 'CORE' | 'FINANCE' = 'CORE',
     ownerField: 'ownerId' | 'createdBy' = 'ownerId',
-  ) {
-    const base: Record<string, unknown> = { ownerUserId: ctx.ownerUserId };
+  ): Promise<CrmScopeWhere> {
+    const base: CrmScopeWhere = { ownerUserId: ctx.ownerUserId };
     if (ctx.isAdmin || ctx.role === 'MANAGER' || ctx.dataScope === 'ALL')
       return base;
     if (kind === 'FINANCE' && ctx.role === 'FINANCE') return base;
     if (ctx.dataScope === 'DEPT' && ctx.department) {
       const ids = await this.departmentMembers(ctx.ownerUserId, ctx.department);
-      return {
-        ...base,
-        [ownerField]: { in: [...new Set([...ids, ctx.actorId])] },
-      };
+      const filter = { in: [...new Set([...ids, ctx.actorId])] };
+      return ownerField === 'createdBy'
+        ? { ...base, createdBy: filter }
+        : { ...base, ownerId: filter };
     }
-    return { ...base, [ownerField]: ctx.actorId };
+    return ownerField === 'createdBy'
+      ? { ...base, createdBy: ctx.actorId }
+      : { ...base, ownerId: ctx.actorId };
   }
 
   async departmentMembers(ownerUserId: string, department: string) {

@@ -24,6 +24,7 @@ import {
   OA_TASK_STATUS_LABELS,
 } from '@enterprise/contracts';
 import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CurrentUser } from '../auth/current-user';
 import { pageOf, pageParam, text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
@@ -97,10 +98,10 @@ const asLinkState = (value: unknown): OaLinkState => {
 };
 
 const linkState = (rules: OaLinkageRule[], targets: OaRefSnapshot[]) =>
-  ({
+  toJsonInput({
     rules,
     targets,
-  }) as unknown as Prisma.InputJsonValue;
+  });
 
 type AppRow = {
   id: number;
@@ -456,16 +457,14 @@ export class OaService {
       templateVersion: template.version,
       title,
       formData: clean as Prisma.InputJsonValue,
-      fieldsSnapshot: fields as unknown as Prisma.InputJsonValue,
-      flowSnapshot: asFlowNodes(
-        template.flowSchema,
-      ) as unknown as Prisma.InputJsonValue,
+      fieldsSnapshot: toJsonInput(fields),
+      flowSnapshot: toJsonInput(asFlowNodes(template.flowSchema)),
       linkageSnapshot: linkState(
         asLinkageRules(template.linkageSchema),
         snapshots,
       ),
-      ccUserIds: ccUserIds as unknown as Prisma.InputJsonValue,
-      attachments: attachments as unknown as Prisma.InputJsonValue,
+      ccUserIds: toJsonInput(ccUserIds),
+      attachments: toJsonInput(attachments),
       amount: amount || null,
     };
     let applicationId = id;

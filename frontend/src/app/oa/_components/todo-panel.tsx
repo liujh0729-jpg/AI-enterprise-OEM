@@ -218,7 +218,7 @@ export function TodoPanel({
           <Alert
             type="warning"
             showIcon
-            message={`其他系统待办加载失败：${inboxError}`}
+            title={`其他系统待办加载失败：${inboxError}`}
           />
         ) : otherGroups.length ? (
           <div className="exec-list">
@@ -285,7 +285,7 @@ export function TodoPanel({
           <Alert
             type="error"
             showIcon
-            message={error}
+            title={error}
             style={{ marginBottom: 12 }}
           />
         ) : null}

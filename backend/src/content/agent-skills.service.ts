@@ -1,10 +1,26 @@
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { RateWindow } from '../common/rate-window';
+import { toJsonInput } from '../common/json-input';
 import { stripInvisible, toSingleLine } from '../common/text-safety';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  describeFindings,
+  describePermissions,
+  formatSecurityFailure,
+  hasDeclaredPermissions,
+  parseSkillSecurityMeta,
+  runUploadSecurityGate,
+  scanRuntimeContent,
+  type SkillPermissions,
+} from '../feature/skill-security';
+import type { BlacklistEntryLite } from '../feature/skill-review.rules';
+import type {
+  PackageReviewInput,
+  PackageReviewResult,
+} from '../feature/skill-review.runner';
 import {
   parseSkillMarkdown,
   readZipTextFiles,
@@ -33,6 +49,19 @@ const IMPORT_WINDOW_MS = 60_000;
  */
 export class ContentAgentSkillService {
   private readonly importLimiter = new RateWindow(IMPORT_MAX, IMPORT_WINDOW_MS);
+  /** 审查挂钩（§5.9 先审后用）：装配时由 services.ts 属性注入 SkillReviewRunner.enqueue。 */
+  reviewHook?: (
+    kind: 'skill' | 'plugin',
+    itemId: number,
+    userId: string,
+  ) => void;
+  /** 上传前同步审查（用户配置的 LLM 判定安全/不安全）：装配时由 services.ts 注入。 */
+  uploadReview?: (
+    userId: string,
+    pkg: PackageReviewInput,
+  ) => Promise<PackageReviewResult>;
+  /** 运行期复扫用的平台出口黑名单：装配时由 services.ts 注入。 */
+  blacklistProvider?: () => Promise<BlacklistEntryLite[]>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -59,9 +88,31 @@ export class ContentAgentSkillService {
     content: string;
     files?: unknown;
     enabled: boolean;
+    reviewStatus: string;
+    reviewVerdict?: unknown;
     updatedAt: Date;
   }) {
     const files = ContentAgentSkillService.fileList(row.files);
+    const verdict =
+      row.reviewVerdict && typeof row.reviewVerdict === 'object'
+        ? (row.reviewVerdict as {
+            summary?: unknown;
+            permissionAcknowledgedAt?: unknown;
+            category?: unknown;
+            permissions?: unknown;
+            permissionsDeclared?: unknown;
+          })
+        : {};
+    // 权限/分类优先取上传审查时的结论；存量行没有结论时回落到正文 frontmatter
+    const meta = parseSkillSecurityMeta(stripInvisible(row.content));
+    const permissions =
+      verdict.permissions && typeof verdict.permissions === 'object'
+        ? (verdict.permissions as SkillPermissions)
+        : meta.permissions;
+    const category =
+      typeof verdict.category === 'string' && verdict.category
+        ? verdict.category
+        : meta.category;
     return {
       id: row.id,
       // 展示口径同一套清洗：不可见字符既不进系统提示，也不该在界面上藏字
@@ -71,6 +122,18 @@ export class ContentAgentSkillService {
       fileCount: files.length,
       files,
       enabled: row.enabled,
+      // 审查状态回传上传人（§5.9.3 Agent 反馈闭环）：pending/rejected/needsAdmin 都要能看见原因
+      reviewStatus: row.reviewStatus,
+      reviewMessage: String(
+        typeof verdict.summary === 'string' ? verdict.summary : '',
+      ).slice(0, 500),
+      category,
+      permissions,
+      permissionsDeclared:
+        typeof verdict.permissionsDeclared === 'boolean'
+          ? verdict.permissionsDeclared
+          : hasDeclaredPermissions(permissions),
+      permissionsAcknowledged: Boolean(verdict.permissionAcknowledgedAt),
       updatedAt: row.updatedAt.toISOString(),
     };
   }
@@ -94,6 +157,8 @@ export class ContentAgentSkillService {
       where: {
         userId,
         enabled: true,
+        // 先审后用：未过审的技能不进系统提示（§5.9.6 启用约束）
+        reviewStatus: 'passed',
         ...(scoped.length ? { id: { in: scoped } } : {}),
       },
       orderBy: { id: 'asc' },
@@ -125,7 +190,7 @@ export class ContentAgentSkillService {
   /** 工具调用：按名字取启用中的技能全文；带 file 时取技能包里的附加文件。 */
   async read(userId: string, name: string, file?: string) {
     const rows = await this.prisma.contentAgentSkill.findMany({
-      where: { userId, enabled: true },
+      where: { userId, enabled: true, reviewStatus: 'passed' },
       select: { name: true, content: true, files: true },
       take: MAX_SKILLS,
     });
@@ -141,11 +206,13 @@ export class ContentAgentSkillService {
     }
     const wanted = String(file || '').trim();
     if (!wanted) {
+      // 正文进模型上下文前再清一遍：存量技能包可能带着零宽/双向字符
+      const content = stripInvisible(row.content).slice(0, 20000);
+      await this.assertRuntimeSafe(userId, row.name, '', content);
       return {
         found: true as const,
         name: row.name,
-        // 正文进模型上下文前再清一遍：存量技能包可能带着零宽/双向字符
-        content: stripInvisible(row.content).slice(0, 20000),
+        content,
         file: '',
       };
     }
@@ -162,11 +229,96 @@ export class ContentAgentSkillService {
           .join('、')}`,
       };
     }
+    const content = stripInvisible(hit.content).slice(0, 20000);
+    await this.assertRuntimeSafe(userId, row.name, hit.path, content);
     return {
       found: true as const,
       name: row.name,
-      content: stripInvisible(hit.content).slice(0, 20000),
+      content,
       file: hit.path,
+    };
+  }
+
+  /** 运行期复扫：读取前再查一遍，命中即中止本轮（存量包也覆盖）。 */
+  private async assertRuntimeSafe(
+    userId: string,
+    name: string,
+    file: string,
+    content: string,
+  ) {
+    const blacklist = this.blacklistProvider
+      ? await this.blacklistProvider()
+      : [];
+    const findings = scanRuntimeContent(
+      [{ path: file || 'SKILL.md', content }],
+      blacklist,
+    );
+    if (!findings.length) return;
+    const detail = describeFindings(findings);
+    await this.identity.audit(
+      userId,
+      'Agent技能运行期拦截',
+      `「${name}」${detail}`.slice(0, 1200),
+    );
+    throw new BusinessException(
+      ErrorCode.AGENT_SECURITY_BLOCKED,
+      `技能「${name}」命中运行期安全规则：${detail}。本次运行已中止。`,
+    );
+  }
+
+  /**
+   * 上传前审查：用户配置的 LLM 分析决定放行/拒绝；确定性四组结果一并写入台账。
+   * 未装配审查引擎（单测/离线）时退回静态检查，放行后仍走异步重审。
+   */
+  private async reviewBeforeStore(
+    user: CurrentUser,
+    name: string,
+    mainPath: string,
+    content: string,
+    files: { path: string; content: string }[],
+  ): Promise<PackageReviewResult> {
+    if (this.uploadReview) {
+      return this.uploadReview(user.userId, {
+        kind: 'skill',
+        name,
+        mainPath,
+        content,
+        files,
+      });
+    }
+    const gate = runUploadSecurityGate({ mainPath, content, files });
+    return {
+      passed: gate.passed,
+      status: gate.passed ? 'pending' : 'rejected',
+      decision: gate.passed ? 'unreviewed' : 'reject',
+      riskLevel: gate.passed ? 'unknown' : 'high',
+      summary: gate.passed
+        ? '已通过静态检查，待 AI 复核'
+        : formatSecurityFailure(gate),
+      violations: gate.firstFailure?.findings || [],
+      groups: gate.groups,
+      deterministic: gate.groups.flatMap((group) => group.findings),
+      category: gate.category,
+      permissions: gate.permissions,
+      metaDeclared: gate.metaDeclared,
+      model: '',
+      tokens: 0,
+    };
+  }
+
+  /** 审查结论落库：summary 给上传人看，category/permissions 供启用时二次确认。 */
+  private verdictOf(review: PackageReviewResult) {
+    return {
+      decision: review.decision,
+      riskLevel: review.riskLevel,
+      violations: review.violations,
+      summary: review.summary,
+      model: review.model,
+      source: 'upload',
+      category: review.category,
+      permissions: review.permissions,
+      permissionsDeclared:
+        review.metaDeclared || hasDeclaredPermissions(review.permissions),
     };
   }
 
@@ -201,6 +353,30 @@ export class ContentAgentSkillService {
         path: file.path.slice(0, 200),
         content: stripInvisible(file.content).slice(0, 20000),
       }));
+    const review = await this.reviewBeforeStore(
+      user,
+      parsed.name,
+      skillFile.path,
+      parsed.content,
+      attached,
+    );
+    // 用户配置的 LLM 判定不安全（或无法完成分析）→ 直接失败，不落库
+    if (!review.passed) {
+      await this.identity.audit(
+        user.userId,
+        '技能包上传安全拦截',
+        `「${parsed.name}」来自 ${originalName.slice(0, 80)}：${review.summary}`.slice(
+          0,
+          1500,
+        ),
+      );
+      throw new BusinessException(
+        ErrorCode.SKILL_SECURITY_REJECTED,
+        review.summary || '技能包未通过上传安全审查，未入库',
+      );
+    }
+    const reviewVerdict = toJsonInput(this.verdictOf(review));
+    const pendingReview = review.status === 'pending';
     const existing = await this.prisma.contentAgentSkill.findFirst({
       where: { userId: user.userId, name: parsed.name },
     });
@@ -223,13 +399,18 @@ export class ContentAgentSkillService {
         data: {
           description: parsed.description,
           content: parsed.content,
-          files: attached as never,
+          files: toJsonInput(attached),
+          // 同名覆盖即重审：旧版结论与权限确认不继承
+          enabled: false,
+          reviewStatus: review.status,
+          reviewVerdict,
         },
       });
+      if (pendingReview) this.reviewHook?.('skill', row.id, user.userId);
       await this.identity.audit(
         user.userId,
         'Agent技能覆盖更新',
-        `「${row.name}」由技能包 ${originalName.slice(0, 80)} 重新导入`,
+        `「${row.name}」由技能包 ${originalName.slice(0, 80)} 重新导入，上传安全审查已通过`,
       );
       return this.shape(row);
     }
@@ -248,13 +429,18 @@ export class ContentAgentSkillService {
         name: parsed.name,
         description: parsed.description,
         content: parsed.content,
-        files: attached as never,
+        files: toJsonInput(attached),
+        // 上传即审：通过才入库；仍需用户启用后才可被模型调用
+        enabled: false,
+        reviewStatus: review.status,
+        reviewVerdict,
       },
     });
+    if (pendingReview) this.reviewHook?.('skill', row.id, user.userId);
     await this.identity.audit(
       user.userId,
       'Agent技能新增',
-      `「${row.name}」来自技能包 ${originalName.slice(0, 80)}`,
+      `「${row.name}」来自技能包 ${originalName.slice(0, 80)}，上传安全审查已通过`,
     );
     return this.shape(row);
   }
@@ -274,14 +460,65 @@ export class ContentAgentSkillService {
     });
     if (!existing)
       throw new BusinessException(ErrorCode.NOT_FOUND, '技能不存在');
+    // 启用前置：未过审的技能不允许启用（绝对安全门，§5.9.1 ③）
+    if (body.enabled && existing.reviewStatus !== 'passed') {
+      throw new BusinessException(
+        ErrorCode.SKILL_NOT_PASSED,
+        existing.reviewStatus === 'rejected'
+          ? '技能包未通过安全审查，不能启用：请整改后重新上传'
+          : '技能包尚未通过安全审查，不能启用：审查进行中或需到治理台人工放行',
+      );
+    }
+    const verdict =
+      existing.reviewVerdict && typeof existing.reviewVerdict === 'object'
+        ? (existing.reviewVerdict as Record<string, unknown>)
+        : {};
+    let verdictUpdate: Record<string, unknown> | null = null;
+    if (body.enabled) {
+      const meta = parseSkillSecurityMeta(stripInvisible(existing.content));
+      const permissions =
+        verdict.permissions && typeof verdict.permissions === 'object'
+          ? (verdict.permissions as SkillPermissions)
+          : meta.permissions;
+      const category =
+        typeof verdict.category === 'string' && verdict.category
+          ? verdict.category
+          : meta.category;
+      // 1.2 权限二次确认：声明了权限的技能，用户必须在启用时明确同意
+      if (
+        hasDeclaredPermissions(permissions) &&
+        !verdict.permissionAcknowledgedAt
+      ) {
+        if (body.confirmPermissions !== true) {
+          throw new BusinessException(
+            ErrorCode.SKILL_PERMISSIONS_UNCONFIRMED,
+            `技能「${existing.name}」声明了以下权限，启用前请确认：${describePermissions(
+              permissions,
+            ).join('；')}`,
+          );
+        }
+        verdictUpdate = {
+          ...verdict,
+          category,
+          permissions,
+          permissionsDeclared: true,
+          permissionAcknowledgedAt: new Date().toISOString(),
+        };
+      }
+    }
     const row = await this.prisma.contentAgentSkill.update({
       where: { id: skillId },
-      data: { enabled: Boolean(body.enabled) },
+      data: {
+        enabled: Boolean(body.enabled),
+        ...(verdictUpdate ? { reviewVerdict: toJsonInput(verdictUpdate) } : {}),
+      },
     });
     await this.identity.audit(
       user.userId,
       'Agent技能启停',
-      `「${row.name}」${row.enabled ? '启用' : '停用'}`,
+      `「${row.name}」${row.enabled ? '启用' : '停用'}${
+        row.enabled && verdictUpdate ? '（已确认声明权限）' : ''
+      }`,
     );
     return this.shape(row);
   }
@@ -364,13 +601,19 @@ export class ContentAgentSkillService {
       data: {
         description: revision.description,
         content: revision.content,
-        files: revision.files as never,
+        files: toJsonInput(revision.files),
+        // 回滚即内容变更：同样重审（旧版 passed 不自动继承，§5.9.6）
+        enabled: false,
+        reviewStatus: 'pending',
+        // 审查结论与权限确认都属于旧版本，不能带到回滚后的内容上
+        reviewVerdict: {},
       },
     });
+    this.reviewHook?.('skill', row.id, user.userId);
     await this.identity.audit(
       user.userId,
       'Agent技能回滚',
-      `「${row.name}」回到历史版本 #${revision.id}`,
+      `「${row.name}」回到历史版本 #${revision.id}，已重新提交安全审查`,
     );
     return this.shape(row);
   }

@@ -359,7 +359,7 @@ export function AttachmentField({
   };
 
   return (
-    <Space direction="vertical" size={6} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={6} style={{ width: "100%" }}>
       <Upload
         multiple
         showUploadList={false}
@@ -559,7 +559,7 @@ function FieldControl({
           targets={targets}
           org={org}
           refTarget={field.refTarget}
-          value={(rowOf(value).id ? (rowOf(value) as unknown as OaLinkSearchItem) : null)}
+          value={rowOf(value).id ? (rowOf(value) as OaLinkSearchItem) : null}
           onChange={(next) => onChange?.(next)}
           disabled={disabled}
         />

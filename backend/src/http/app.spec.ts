@@ -4,6 +4,8 @@ import { endpoints } from '@enterprise/contracts';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { issueSsoSession } from '../auth/token';
+import type { Account } from '../../generated/prisma';
+import { stub } from '../../test/doubles';
 
 // PrismaClient 构造时要求 datasource 地址；单测不连库，没有 backend/.env 时（CI）
 // 用占位连接串与临时密钥兜底，避免模块加载阶段就抛错。
@@ -20,11 +22,13 @@ describe('Hono routing and session boundary', () => {
     process.env.DEV_AUTO_LOGIN = 'false';
     jest.spyOn(services.users, 'remember').mockResolvedValue(undefined);
     // 开源版会话只认本站自签令牌，并核对账号版本；这里把账户查询固定为有效账户。
-    jest.spyOn(services.prisma.account, 'findUnique').mockResolvedValue({
-      id: 1,
-      status: 'ACTIVE',
-      tokenVersion: 0,
-    } as never);
+    jest.spyOn(services.prisma.account, 'findUnique').mockResolvedValue(
+      stub<Account>({
+        id: 1,
+        status: 'ACTIVE',
+        tokenVersion: 0,
+      }),
+    );
     jest.spyOn(services.users, 'requireActiveUser').mockResolvedValue({
       id: 'unit-user',
       username: 'unit',

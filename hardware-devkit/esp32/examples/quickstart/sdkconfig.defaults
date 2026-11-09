@@ -1,0 +1,2 @@
+# 使用证书包校验 HTTPS（平台通常走 https）。连内网 http 地址时不影响。
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y

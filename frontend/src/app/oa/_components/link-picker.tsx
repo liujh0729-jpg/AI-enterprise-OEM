@@ -123,7 +123,7 @@ export function LinkPicker({
   };
 
   return (
-    <Space direction="vertical" size={8} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={8} style={{ width: "100%" }}>
       <Toolbar hint={`已关联 ${value.length} 个，最多 ${OA_LINK_MAX} 个`}>
         <Select
           placeholder="业务对象类型"

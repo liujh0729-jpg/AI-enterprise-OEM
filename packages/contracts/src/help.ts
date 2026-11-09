@@ -54,6 +54,8 @@ export const helpSearchHitSchema = helpTopicBriefSchema.extend({
   chapterTitle: z.string(),
   /** 命中上下文片段（正文里关键字附近的一行，供结果页高亮） */
   excerpt: z.string(),
+  /** 归一相关度 0~1（统一检索内核口径，跨源合并用） */
+  score: z.number().default(0),
 });
 export type HelpSearchHit = z.infer<typeof helpSearchHitSchema>;
 

@@ -26,6 +26,7 @@ import type { HelpChapter, HelpSearchHit, HelpTopicDetail } from "@enterprise/co
 import { PageHero } from "@/components/ui/panel";
 import { useI18n } from "@/lib/i18n/i18n";
 import { helpApi } from "./_components/help-common";
+import { GapsChangelogList } from "./_components/gaps-changelog";
 
 /**
  * 帮助中心（章节知识库）：左侧章节树 + 右侧正文，顶部全文搜索。
@@ -110,9 +111,12 @@ function renderMarkdown(markdown: string): ReactNode {
   return <div>{blocks}</div>;
 }
 
+type HelpView = "docs" | "changelog";
+
 export default function HelpCenterPage() {
   const router = useRouter();
   const { t } = useI18n();
+  const [view, setView] = useState<HelpView>("docs");
   const [chapters, setChapters] = useState<HelpChapter[]>([]);
   const [loadingChapters, setLoadingChapters] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -149,7 +153,7 @@ export default function HelpCenterPage() {
   // 载入章节目录；默认选中深链 topic 或第一条主题。
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const data = await helpApi.chapters();
         if (cancelled) return;
@@ -211,19 +215,28 @@ export default function HelpCenterPage() {
       <PageHero
         title={t("帮助中心")}
         desc={t("按章节了解系统怎么用；也可以直接问右上角的 Agent，它会读同一份知识库回答。")}
+        tabs={[
+          { key: "docs", label: t("使用文档") },
+          { key: "changelog", label: t("更新日志") },
+        ]}
+        activeTab={view}
+        onTabChange={(key) => setView(key as HelpView)}
       />
 
-      {loadError && (
+      {view === "changelog" ? <GapsChangelogList /> : null}
+
+      {view === "docs" && loadError && (
         <Alert
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          message={loadError}
+          title={loadError}
           onClose={() => setLoadError("")}
           closable
         />
       )}
 
+      {view === "docs" ? (
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ width: 280, flexShrink: 0 }}>
           <Input
@@ -251,7 +264,7 @@ export default function HelpCenterPage() {
                     void openTopic(item.code);
                   }}
                 >
-                  <Space direction="vertical" size={2} style={{ width: "100%" }}>
+                  <Space orientation="vertical" size={2} style={{ width: "100%" }}>
                     <Tag color="blue">{item.chapterTitle}</Tag>
                     <Typography.Text strong>{item.title}</Typography.Text>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -316,6 +329,7 @@ export default function HelpCenterPage() {
           )}
         </div>
       </div>
+      ) : null}
     </div>
   );
 }

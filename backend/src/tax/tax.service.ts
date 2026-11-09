@@ -2,6 +2,7 @@ import { pageParam } from '../common/api';
 import { allocateNo } from '../common/document-number';
 import { randomUUID } from 'node:crypto';
 import { Prisma, TaxMaterialPack, AccountSet } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { CurrentUser } from '../auth/current-user';
 import { BusinessException } from '../common/business.exception';
 import { TAX_FORM_TYPES } from '../common/constants';
@@ -243,14 +244,11 @@ export class TaxService {
     const current = (row.formData || {}) as Record<string, unknown>;
     const merged: Record<string, unknown> = { ...form };
     if (!merged.basic) merged.basic = current.basic;
-    const amount = calcTaxAmount(
-      row.taxType,
-      merged as unknown as Record<string, number | string | undefined>,
-    );
+    const amount = calcTaxAmount(row.taxType, merged);
     await this.prisma.taxDeclaration.update({
       where: { id },
       data: {
-        formData: merged as unknown as Prisma.InputJsonValue,
+        formData: toJsonInput(merged),
         taxAmount: amount,
       },
     });
@@ -1065,7 +1063,7 @@ export class TaxService {
         ),
         title: `${currentPeriod} 属期报税材料`,
         period: currentPeriod,
-        payload: emptyPayload() as unknown as Prisma.InputJsonValue,
+        payload: toJsonInput(emptyPayload()),
         files: [],
       },
     });
@@ -1091,7 +1089,7 @@ export class TaxService {
     payload[key] = [...payload[key], entry];
     const updated = await this.prisma.taxMaterialPack.update({
       where: { id },
-      data: { payload: payload as unknown as Prisma.InputJsonValue },
+      data: { payload: toJsonInput(payload) },
     });
     await this.identity.audit(
       user.userId,
@@ -1119,7 +1117,7 @@ export class TaxService {
     payload[key][index] = { ...payload[key][index], ...merged, id: rowId };
     const updated = await this.prisma.taxMaterialPack.update({
       where: { id },
-      data: { payload: payload as unknown as Prisma.InputJsonValue },
+      data: { payload: toJsonInput(payload) },
     });
     await this.identity.audit(
       user.userId,
@@ -1145,7 +1143,7 @@ export class TaxService {
     payload[key] = next;
     const updated = await this.prisma.taxMaterialPack.update({
       where: { id },
-      data: { payload: payload as unknown as Prisma.InputJsonValue },
+      data: { payload: toJsonInput(payload) },
     });
     await this.identity.audit(
       user.userId,

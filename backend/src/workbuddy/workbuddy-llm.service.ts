@@ -4,7 +4,8 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { geoChatMulti, type ChatMessage } from '../geo/geo-llm.client';
+import { aiChat } from '../ai/ai-gateway';
+import { type ChatMessage } from '../geo/geo-llm.client';
 import { httpRequest, TransportError } from '../http/transport';
 import { ModelKeyService } from '../aiworkin/model-key.service';
 import {
@@ -44,7 +45,7 @@ export class WorkbuddyLlmService {
     const row = await this.prisma.workbuddyLlmSetting.findUnique({
       where: { userId: user.userId },
     });
-    const key = await this.modelKeys.status(token);
+    const key = this.modelKeys.status(token);
     return {
       configured: key.configured,
       keyMasked: key.keyMasked,
@@ -72,7 +73,7 @@ export class WorkbuddyLlmService {
       'Workbuddy配置默认模型',
       `默认模型${row.model ? ` ${row.model}` : '（清空）'}`,
     );
-    const key = await this.modelKeys.status(token);
+    const key = this.modelKeys.status(token);
     return {
       configured: key.configured,
       keyMasked: key.keyMasked,
@@ -94,7 +95,7 @@ export class WorkbuddyLlmService {
 
   /** 拉模型列表：既当可选模型的来源，也当「这把 Key 通不通」的校验。 */
   async models(user: CurrentUser, token?: string) {
-    const apiKey = await this.modelKeys.requireKey(token);
+    const apiKey = this.modelKeys.requireKey(token);
     const baseUrl = this.baseUrl();
     try {
       const response = await httpRequest<string>(`${baseUrl}/models`, {
@@ -154,17 +155,9 @@ export class WorkbuddyLlmService {
     body: Record<string, unknown>,
     token?: string,
   ) {
-    const apiKey = await this.modelKeys.requireKey(token);
     const setting = await this.prisma.workbuddyLlmSetting.findUnique({
       where: { userId: user.userId },
     });
-    const model = text(body.model).trim() || setting?.model || '';
-    if (!model) {
-      throw new BusinessException(
-        ErrorCode.BAD_REQUEST,
-        '请选择文字模型（或先把默认模型存进配置）',
-      );
-    }
     const messages: ChatMessage[] = (
       Array.isArray(body.messages) ? body.messages : []
     )
@@ -188,17 +181,19 @@ export class WorkbuddyLlmService {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请先描述你的目标');
     }
     const current = normalizePlanSpec(body.spec);
-    const reply = await geoChatMulti({
-      baseUrl: this.baseUrl(),
-      apiKey,
-      model,
+    const reply = await aiChat(this.prisma, {
+      userId: user.userId,
+      token,
+      model: text(body.model).trim(),
+      moduleModel: setting?.model || '',
+      module: 'workbuddy',
+      operation: 'clarify',
       messages: [
         { role: 'system', content: buildClarifyPrompt(current) },
         ...messages,
       ],
       maxTokens: CLARIFY_MAX_TOKENS,
       timeoutMs: CLARIFY_TIMEOUT_MS,
-      userId: user.userId,
       purpose: 'chat',
     });
     const extracted = extractSpec(reply.reply);

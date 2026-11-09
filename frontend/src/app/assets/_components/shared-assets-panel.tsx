@@ -21,7 +21,7 @@ const TYPE_LABEL: Record<string, string> = {
   file: "文件",
 };
 
-/** 把一条数字资产共享给本企业内账号：多选用户，支持全选。 */
+/** 把一条数字资产共享给同一组织内的账号（已认证企业或服务商）：多选用户，支持全选。 */
 export function ShareAssetModal({
   asset,
   onClose,
@@ -60,7 +60,7 @@ export function ShareAssetModal({
   const share = async () => {
     if (!asset) return;
     if (!picked.length) {
-      message.warning("请选择要共享到的企业内用户");
+      message.warning("请选择要共享到的组织内用户");
       return;
     }
     setSaving(true);
@@ -101,14 +101,14 @@ export function ShareAssetModal({
       {error ? <Notice variant="error">{error}</Notice> : null}
       {!loading && !targets.length ? (
         <Notice variant="warn">
-          当前账号不是已认证企业账号，或企业还没有在职成员；只有企业内用户之间可以共享资料。
+          当前账号不是已认证企业账号、也不是服务商在职人员，或组织内还没有其他在职成员；只有同组织内用户之间可以共享资料。
         </Notice>
       ) : null}
       {targets.length ? (
-        <Space direction="vertical" size={10} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={10} style={{ width: "100%" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span className="field-label" style={{ marginBottom: 0 }}>
-              {`共享给 ${orgName || "本企业"} 的用户`}
+              {`共享给 ${orgName || "本组织"} 的用户`}
             </span>
             <Button
               size="small"
@@ -132,7 +132,7 @@ export function ShareAssetModal({
             value={picked}
             onChange={(values: string[]) => setPicked(values)}
             optionFilterProp="label"
-            placeholder="可多选企业内用户"
+            placeholder="可多选组织内用户"
             options={targets.map((item) => ({
               value: item.userId,
               label: `${item.name}${item.department ? `（${item.department}）` : ""}${item.phone ? ` · ${item.phone}` : ""}`,
@@ -248,7 +248,7 @@ export function SharedAssetsPanel({ onChanged }: { onChanged?: () => void }) {
         title="收到的共享"
         titleExtra={
           <span className="text-12 muted">
-            企业内其他账号共享给你的资料；文件仍归上传者
+            同组织其他账号共享给你的资料；文件仍归上传者
           </span>
         }
       >
@@ -266,7 +266,7 @@ export function SharedAssetsPanel({ onChanged }: { onChanged?: () => void }) {
         title="我共享的"
         titleExtra={
           <span className="text-12 muted">
-            在「数字资产」页签点资产卡上的「共享」，选择企业内用户（可全选）
+            在「数字资产」页签点资产卡上的「共享」，选择同组织内用户（可全选）
           </span>
         }
       >

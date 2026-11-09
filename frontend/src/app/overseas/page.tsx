@@ -10,7 +10,9 @@ import {
 } from "@/components/ui/panel";
 import { MarketDemandTab } from "@/components/market-demand-tab";
 import { ServicePublishTab, serviceMarketTab } from "@/components/service-publish-tab";
+import { filterBoardTabs } from "@/lib/board-tabs";
 import { useSession } from "@/lib/session";
+import { useSiteBrand } from "@/lib/site-brand";
 import { isPersonalSubject } from "@/lib/subject";
 import { OverseasCatalog } from "./_components/catalog";
 import { useOverseasWorkspace } from "@/query/workspaces";
@@ -27,7 +29,10 @@ const TABS: HeroTab[] = [
 export default function OverseasPage() {
   const { me } = useSession();
   const [tab, setTab] = useState("tools");
-
+  const { hiddenBoardTabs } = useSiteBrand();
+  // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染，命中当前页签则回退到第一个可见页签。
+  const visibleTabs = filterBoardTabs("overseas", TABS, hiddenBoardTabs);
+  const activeTab = visibleTabs.some((item) => item.key === tab) ? tab : visibleTabs[0]?.key || "";
 
   const isEnterprise = (me?.currentIdentity || "ENTERPRISE_USER") === "ENTERPRISE_USER";
   /** 个人主体：整页照常浏览（服务商名录、需求信息、申请加入），只有「签约 / 发起出海申请 / 发布需求」锁住。 */
@@ -47,7 +52,7 @@ export default function OverseasPage() {
     return [...ids];
   }, [me]);
 
-  const workspace = useOverseasWorkspace(tab !== "requests", tab === "catalog");
+  const workspace = useOverseasWorkspace(activeTab !== "requests", activeTab === "catalog");
   const providers = workspace.data?.providers ?? [];
   const contracts = workspace.data?.contracts ?? [];
   const {refetch: refetchWorkspace} = workspace;
@@ -73,10 +78,10 @@ export default function OverseasPage() {
         desc={
           personalUser
             ? "跨境出海服务商：6 类服务按分类展示已备案服务商，可查看资质并申请加入服务商；出海服务工具：查看服务分类与办理流程；需求信息：查看出海需求与服务商回复（签约、发起出海申请、发布需求需以企业或个体工商户主体办理）"
-            : "跨境出海服务商：6 类服务按分类展示已备案服务商（分类独立签约）；出海服务工具：选择服务发起申请（未签约时先提醒签约）；需求信息：把出海需求发布到平台供需匹配池并查看服务商回复（本系统不另存需求台账）"
+            : "跨境出海服务商：6 类服务按分类展示已备案服务商（分类独立签约）；出海服务工具：选择服务发起申请（未签约时先提醒签约）；需求信息：把出海需求发布到平台供需匹配池并查看服务商回复（发布同步落本地台账并记平台内容 ID，列表读该台账）"
         }
-        tabs={TABS}
-        activeTab={tab}
+        tabs={visibleTabs}
+        activeTab={activeTab}
         onTabChange={setTab}
       />
 
@@ -88,7 +93,7 @@ export default function OverseasPage() {
       ) : null}
 
       {workspace.isError ? <Notice variant="warn">{workspace.error.message} <Button onClick={() => {void workspace.refetch();}}>重试</Button></Notice> : null}
-      {tab === "tools" ? (
+      {activeTab === "tools" ? (
         <OverseasTools
           contracts={contracts}
           isEnterprise={isEnterprise}
@@ -99,9 +104,9 @@ export default function OverseasPage() {
           reload={load}
           onGoCatalog={() => setTab("catalog")}
         />
-      ) : tab === "requests" ? (
+      ) : activeTab === "requests" ? (
         demandTab
-      ) : tab === "services" ? (
+      ) : activeTab === "services" ? (
         <ServicePublishTab domain="OVERSEAS" pool />
       ) : (
         <OverseasCatalog

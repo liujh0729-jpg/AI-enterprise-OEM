@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { setCookie, getCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import type { OpenAPIHono } from '@hono/zod-openapi';
@@ -11,12 +12,14 @@ import { CurrentUser } from '../auth/current-user';
 import { ok } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { resolveSiteUrl, joinSiteUrl } from '../common/site-url';
 import type { ApiEnv } from '../http/types';
 import type { Services } from '../http/services';
 import { AccountService, type LoginContext } from './account.service';
-import { AccountSettingsService, type RegisterMode } from './account-settings.service';
+import { AccountSettingsService } from './account-settings.service';
 import { NotifyChannelService } from './notify-channel.service';
 import { AipddKeyService } from './aipdd-key.service';
+import { exchangeWechatCode, fetchWechatProfile } from './wechat-oauth';
 
 /** 登录会话 Cookie 与既有会话通道同名，前端与退出逻辑零改动。 */
 const ACCESS_COOKIE = 'aiworkin_token';
@@ -35,8 +38,11 @@ export class AccountModule {
   readonly channels: NotifyChannelService;
   readonly account: AccountService;
   readonly aipdd: AipddKeyService;
+  /** 微信回调地址要按站点域名拼，路由层借它读后台站点设置。 */
+  readonly prisma: Services['prisma'];
 
   constructor(services: Services) {
+    this.prisma = services.prisma;
     this.settings = new AccountSettingsService(services.prisma);
     this.channels = new NotifyChannelService(services.prisma, this.settings);
     this.account = new AccountService(
@@ -65,29 +71,136 @@ function rateLimit(ip: string) {
     return;
   }
   if (++entry.count > 30) {
-    throw new BusinessException(ErrorCode.RATE_LIMITED, '请求过于频繁，请稍后再试');
+    throw new BusinessException(
+      ErrorCode.RATE_LIMITED,
+      '请求过于频繁，请稍后再试',
+    );
   }
 }
 
 const clientIp = (c: { req: { header(name: string): string | undefined } }) =>
-  (c.req.header('x-forwarded-for')?.split(',')[0].trim() ||
+  (
+    c.req.header('x-forwarded-for')?.split(',')[0].trim() ||
     c.req.header('x-real-ip') ||
-    '').slice(0, 64);
+    ''
+  ).slice(0, 64);
 const loginContext = (c: {
   req: { header(name: string): string | undefined };
-}): LoginContext => ({ ip: clientIp(c), userAgent: c.req.header('user-agent') });
+}): LoginContext => ({
+  ip: clientIp(c),
+  userAgent: c.req.header('user-agent'),
+});
 
-export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>, module: AccountModule) {
-  // 登录/注册页配置：开放的注册通道与各渠道可用性
+type LoginSession = {
+  userId: string;
+  username: string;
+  role: string;
+  tokenVersion: number;
+  mustChangePassword: boolean;
+  public: unknown;
+};
+/** 签发会话令牌（勾选记住则 30 天）并写 Cookie。 */
+function setSessionCookie(
+  c: Context<ApiEnv>,
+  session: LoginSession,
+  remember?: boolean,
+) {
+  const token = issueSsoSession(
+    session.userId,
+    session.username,
+    session.role,
+    session.tokenVersion,
+    remember === true ? REMEMBER_TTL_SECONDS : undefined,
+  );
+  parseIssue(token);
+  setCookie(c, ACCESS_COOKIE, token, cookieOptions());
+}
+/** 登录成功统一收口：写会话并返回登录页需要的数据。 */
+function writeSession(
+  c: Context<ApiEnv>,
+  session: LoginSession,
+  remember?: boolean,
+) {
+  setSessionCookie(c, session, remember);
+  c.header('x-login-next', '/');
+  return ok({
+    mustChangePassword: session.mustChangePassword,
+    user: session.public,
+  });
+}
+
+/**
+ * 微信扫码的一次性 state（防 CSRF）与「待绑定」票据：进程内短 TTL，
+ * 不落库；多实例部署时各实例独立，扫码回跳需落在同一实例（单实例网关下无影响）。
+ */
+const WECHAT_STATE_TTL_MS = 5 * 60_000;
+const WECHAT_BIND_TTL_MS = 10 * 60_000;
+type WechatState = {
+  redirectUri: string;
+  next: string;
+  remember: boolean;
+  exp: number;
+};
+type WechatProfile = {
+  provider: string;
+  openId: string;
+  unionId?: string;
+  nickname?: string;
+  avatarUrl?: string;
+};
+const wechatStates = new Map<string, WechatState>();
+const wechatPendings = new Map<string, WechatProfile & { exp: number }>();
+
+/** 条目积压到一定量时顺手清掉过期项，避免长期运行内存只增不减。 */
+function purgeExpired<T extends { exp: number }>(map: Map<string, T>) {
+  if (map.size < 500) return;
+  const now = Date.now();
+  for (const [key, value] of map) if (value.exp < now) map.delete(key);
+}
+
+/** 回跳登录页：callback 是浏览器跳转，不走 JSON 信封。 */
+function loginRedirect(c: Context<ApiEnv>, location: string) {
+  return c.redirect(location, 302);
+}
+
+/** 只接受站内相对路径，挡掉 //evil.com 与带协议的外链（防开放重定向）。 */
+function safeNext(raw?: string): string {
+  const value = (raw || '').trim();
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/';
+  return value.slice(0, 300);
+}
+
+/** 访客当前来源（后台站点域名未配置时的兜底）。 */
+function requestOrigin(c: Context<ApiEnv>): string {
+  const forwardedProto = c.req
+    .header('x-forwarded-proto')
+    ?.split(',')[0]
+    .trim();
+  const forwardedHost = c.req.header('x-forwarded-host')?.split(',')[0].trim();
+  const url = new URL(c.req.url);
+  const proto = forwardedProto || url.protocol.replace(':', '');
+  const host = forwardedHost || c.req.header('host') || url.host;
+  return `${proto}://${host}`;
+}
+
+export function registerAccountRoutes(
+  app: OpenAPIHono<ApiEnv>,
+  module: AccountModule,
+) {
+  // 登录/注册页配置：开放的注册通道、登录方式与各渠道可用性（微信只回「开没开」）
   app.get('/api/auth/account-config', async (c) => {
-    const [modes, availability] = await Promise.all([
+    const [modes, availability, login] = await Promise.all([
       module.settings.registerModes(),
       module.settings.channelAvailability(),
+      module.settings.publicLoginView(),
     ]);
     return c.json(
       ok({
         registerModes: modes,
         availability,
+        loginMethods: login.loginMethods,
+        loginAvailability: login.loginAvailability,
+        wechat: login.wechat,
         captchaRequired: false,
       }),
     );
@@ -119,7 +232,7 @@ export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>, module: AccountM
         inviteCode: z.string().max(32).optional(),
       })
       .parse(await c.req.json());
-    const account = await module.account.register(body as { mode?: RegisterMode });
+    const account = await module.account.register(body);
     return c.json(ok(account, '注册成功'));
   });
 
@@ -133,23 +246,192 @@ export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>, module: AccountM
         remember: z.boolean().optional(),
       })
       .parse(await c.req.json());
-    const session = await module.account.login(body.account, body.password, loginContext(c));
-    const token = issueSsoSession(
-      session.userId,
-      session.username,
-      session.role,
-      session.tokenVersion,
-      body.remember === true ? REMEMBER_TTL_SECONDS : undefined,
+    const session = await module.account.login(
+      body.account,
+      body.password,
+      loginContext(c),
     );
-    parseIssue(token);
-    setCookie(c, ACCESS_COOKIE, token, cookieOptions());
-    c.header('x-login-next', '/');
+    return c.json(writeSession(c, session, body.remember));
+  });
+
+  // 验证码登录：先发码，再用「邮箱/手机 + 验证码」换会话（与常规登录同收口）
+  app.post('/api/auth/local/login-code', async (c) => {
+    rateLimit(clientIp(c));
+    const body = z
+      .object({
+        channel: z.enum(['EMAIL', 'SMS']),
+        target: z.string().min(3).max(160),
+      })
+      .parse(await c.req.json());
+    await module.account.sendLoginCode(body.channel, body.target);
+    return c.json(ok({ sent: true }, '验证码已发送'));
+  });
+
+  app.post('/api/auth/local/login-by-code', async (c) => {
+    rateLimit(clientIp(c));
+    const body = z
+      .object({
+        channel: z.enum(['EMAIL', 'SMS']),
+        target: z.string().min(3).max(160),
+        code: z.string().min(4).max(128),
+        remember: z.boolean().optional(),
+      })
+      .parse(await c.req.json());
+    const session = await module.account.loginByCode(
+      body.channel,
+      body.target,
+      body.code,
+      loginContext(c),
+    );
+    return c.json(writeSession(c, session, body.remember));
+  });
+
+  // 微信扫码：取授权地址（一次性 state）→ 微信回跳 callback → 登录 / 引导绑定
+  app.get('/api/auth/local/wechat/authorize', async (c) => {
+    const [wechat, configured] = await Promise.all([
+      module.settings.wechat(),
+      module.settings.wechatConfigured(),
+    ]);
+    if (!wechat?.enabled || !configured) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '微信登录未开启，请联系管理员',
+      );
+    }
+    const siteUrl = await resolveSiteUrl(module.prisma);
+    const redirectUri = joinSiteUrl(
+      siteUrl || requestOrigin(c),
+      '/api/auth/local/wechat/callback',
+    );
+    const state = randomBytes(24).toString('hex');
+    purgeExpired(wechatStates);
+    wechatStates.set(state, {
+      redirectUri,
+      next: safeNext(c.req.query('next')),
+      remember: c.req.query('remember') === '1',
+      exp: Date.now() + WECHAT_STATE_TTL_MS,
+    });
+    const query = new URLSearchParams({
+      appid: wechat.appId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: wechat.scopes || 'snsapi_login',
+      state,
+    });
     return c.json(
       ok({
-        mustChangePassword: session.mustChangePassword,
-        user: session.public,
+        authorizeUrl: `https://open.weixin.qq.com/connect/qrconnect?${query.toString()}#wechat_redirect`,
+        redirectUri,
       }),
     );
+  });
+
+  app.get('/api/auth/local/wechat/callback', async (c) => {
+    const state = c.req.query('state') || '';
+    const code = c.req.query('code') || '';
+    const entry = wechatStates.get(state);
+    if (!entry || entry.exp < Date.now()) {
+      wechatStates.delete(state);
+      return loginRedirect(c, '/login?wechat=error&reason=state');
+    }
+    // 一次性：校验即作废，重复回放直接失败
+    wechatStates.delete(state);
+    if (!code) return loginRedirect(c, '/login?wechat=error&reason=denied');
+    try {
+      const wechat = await module.settings.wechat();
+      if (!wechat?.enabled || !(await module.settings.wechatConfigured())) {
+        return loginRedirect(c, '/login?wechat=error&reason=disabled');
+      }
+      const token = await exchangeWechatCode(
+        wechat.appId,
+        module.settings.wechatSecret(wechat),
+        code,
+      );
+      const profile = await fetchWechatProfile(token.accessToken, token.openId);
+      const result = await module.account.wechatAuthenticate(
+        {
+          provider: wechat.provider || 'WECHAT_OPEN',
+          openId: profile.openId,
+          unionId: profile.unionId || token.unionId,
+          nickname: profile.nickname,
+          avatarUrl: profile.avatarUrl,
+        },
+        loginContext(c),
+      );
+      if (result.status === 'LOGIN') {
+        setSessionCookie(c, result.session, entry.remember);
+        // 扫码页是登录页内嵌的 iframe：先回登录页（同源），由它把父窗口带到 next，
+        // 否则业务页会只加载在二维码 iframe 里。
+        return loginRedirect(
+          c,
+          `/login?wechat=ok&next=${encodeURIComponent(entry.next)}`,
+        );
+      }
+      const ticket = randomBytes(18).toString('hex');
+      purgeExpired(wechatPendings);
+      wechatPendings.set(ticket, {
+        ...result.profile,
+        exp: Date.now() + WECHAT_BIND_TTL_MS,
+      });
+      return loginRedirect(c, `/login?wechat=bind&ticket=${ticket}`);
+    } catch (error) {
+      const reason =
+        error instanceof BusinessException ? error.message : 'network';
+      return loginRedirect(
+        c,
+        `/login?wechat=error&reason=${encodeURIComponent(reason.slice(0, 120))}`,
+      );
+    }
+  });
+
+  // 未开自动注册时：用户用「账号密码」或「邮箱/手机验证码」证明身份后再绑定
+  app.post('/api/auth/local/wechat/bind', async (c) => {
+    rateLimit(clientIp(c));
+    const body = z
+      .object({
+        ticket: z.string().min(8).max(128),
+        account: z.string().max(160).optional(),
+        password: z.string().max(128).optional(),
+        channel: z.enum(['EMAIL', 'SMS']).optional(),
+        target: z.string().max(160).optional(),
+        code: z.string().max(64).optional(),
+        remember: z.boolean().optional(),
+      })
+      .parse(await c.req.json());
+    const pending = wechatPendings.get(body.ticket);
+    if (!pending || pending.exp < Date.now()) {
+      wechatPendings.delete(body.ticket);
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '绑定已超时，请重新扫码',
+      );
+    }
+    const ctx = loginContext(c);
+    let session: LoginSession;
+    if (body.channel && body.target && body.code) {
+      session = await module.account.loginByCode(
+        body.channel,
+        body.target,
+        body.code,
+        ctx,
+      );
+    } else if (body.account && body.password) {
+      session = await module.account.login(body.account, body.password, ctx);
+    } else {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '请填写账号密码或验证码以确认身份',
+      );
+    }
+    await module.account.bindWechat(session.userId, {
+      provider: pending.provider,
+      openId: pending.openId,
+      unionId: pending.unionId,
+      nickname: pending.nickname,
+      avatarUrl: pending.avatarUrl,
+    });
+    wechatPendings.delete(body.ticket);
+    return c.json(writeSession(c, session, body.remember));
   });
 
   // 找回密码：三通道之二的自助入口（邮箱·短信）；管理员兜底走后台接口
@@ -175,7 +457,12 @@ export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>, module: AccountM
         password: z.string().min(1).max(128),
       })
       .parse(await c.req.json());
-    await module.account.resetPassword(body.channel, body.target, body.code, body.password);
+    await module.account.resetPassword(
+      body.channel,
+      body.target,
+      body.code,
+      body.password,
+    );
     return c.json(ok({ reset: true }, '密码已重置，请用新密码登录'));
   });
 }
@@ -183,7 +470,9 @@ export function registerAccountRoutes(app: OpenAPIHono<ApiEnv>, module: AccountM
 /** 写 Cookie 前自验一次签名，避免签发异常令牌落到浏览器。 */
 function parseIssue(token: string) {
   try {
-    JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString('utf8'));
+    JSON.parse(
+      Buffer.from(token.split('.')[1] || '', 'base64url').toString('utf8'),
+    );
   } catch {
     throw new BusinessException(ErrorCode.INTERNAL_ERROR, '会话签发失败');
   }
@@ -221,9 +510,16 @@ export function registerAccountBusinessRoutes(
 
   app.post('/enterprise/account/password', async (c) => {
     const body = z
-      .object({ oldPassword: z.string().min(1), newPassword: z.string().min(1) })
+      .object({
+        oldPassword: z.string().min(1),
+        newPassword: z.string().min(1),
+      })
       .parse(await c.req.json());
-    const result = await module.account.changePassword(userOf(c), body.oldPassword, body.newPassword);
+    const result = await module.account.changePassword(
+      userOf(c),
+      body.oldPassword,
+      body.newPassword,
+    );
     // 换发新会话 Cookie：当前设备保持登录，其他设备旧会话被 tokenVersion 顶替失效。
     // 时长沿用当前令牌剩余寿命：30 天免登录会话改密后不被降级回默认时长。
     const keepTtl = tokenRemainingSeconds(
@@ -243,7 +539,10 @@ export function registerAccountBusinessRoutes(
   app.get('/enterprise/account/login-logs', async (c) =>
     json(
       c,
-      await module.account.loginLogs(userOf(c), Number(c.req.query('limit') || 20)),
+      await module.account.loginLogs(
+        userOf(c),
+        Number(c.req.query('limit') || 20),
+      ),
     ),
   );
 
@@ -254,9 +553,15 @@ export function registerAccountBusinessRoutes(
 
   app.post('/enterprise/account/rebind-code', async (c) => {
     const body = z
-      .object({ channel: z.enum(['EMAIL', 'SMS']), target: z.string().min(3).max(160) })
+      .object({
+        channel: z.enum(['EMAIL', 'SMS']),
+        target: z.string().min(3).max(160),
+      })
       .parse(await c.req.json());
-    return json(c, await module.account.sendRebindCode(userOf(c), body.channel, body.target));
+    return json(
+      c,
+      await module.account.sendRebindCode(userOf(c), body.channel, body.target),
+    );
   });
   app.post('/enterprise/account/rebind', async (c) => {
     const body = z
@@ -266,7 +571,15 @@ export function registerAccountBusinessRoutes(
         code: z.string().min(4).max(128),
       })
       .parse(await c.req.json());
-    return json(c, await module.account.confirmRebind(userOf(c), body.channel, body.target, body.code));
+    return json(
+      c,
+      await module.account.confirmRebind(
+        userOf(c),
+        body.channel,
+        body.target,
+        body.code,
+      ),
+    );
   });
 
   app.post('/enterprise/account/deactivate', async (c) =>
@@ -278,8 +591,14 @@ export function registerAccountBusinessRoutes(
     json(c, await module.aipdd.status(userOf(c).userId)),
   );
   app.put('/enterprise/account/aipdd-key', async (c) => {
-    const body = z.object({ key: z.string().min(8).max(200) }).parse(await c.req.json());
-    return json(c, await module.aipdd.bind(userOf(c).userId, body.key), '绑定成功');
+    const body = z
+      .object({ key: z.string().min(8).max(200) })
+      .parse(await c.req.json());
+    return json(
+      c,
+      await module.aipdd.bind(userOf(c).userId, body.key),
+      '绑定成功',
+    );
   });
   app.delete('/enterprise/account/aipdd-key', async (c) =>
     json(c, await module.aipdd.unbind(userOf(c).userId), '已解绑'),
@@ -294,7 +613,12 @@ export function registerAccountBusinessRoutes(
     requireAdmin(userOf(c));
     const body = z
       .object({
-        registerModes: z.array(z.enum(['USERNAME', 'EMAIL', 'PHONE'])).optional(),
+        registerModes: z
+          .array(z.enum(['USERNAME', 'EMAIL', 'PHONE']))
+          .optional(),
+        loginMethods: z
+          .array(z.enum(['PASSWORD', 'EMAIL_CODE', 'SMS_CODE', 'WECHAT']))
+          .optional(),
         smtp: z
           .object({
             host: z.string(),
@@ -314,18 +638,38 @@ export function registerAccountBusinessRoutes(
             dailyLimit: z.number().optional(),
           })
           .optional(),
+        wechat: z
+          .object({
+            provider: z.string().optional(),
+            appId: z.string(),
+            appSecret: z.string().optional(),
+            enabled: z.boolean().optional(),
+            scopes: z.string().optional(),
+            autoRegister: z.boolean().optional(),
+          })
+          .optional(),
         policy: z
-          .object({ cooldownDays: z.number().optional(), resetLinkBase: z.string().optional() })
+          .object({
+            cooldownDays: z.number().optional(),
+            resetLinkBase: z.string().optional(),
+          })
           .optional(),
       })
       .parse(await c.req.json());
     if (body.smtp) await module.settings.saveSmtp(body.smtp);
     if (body.sms) await module.settings.saveSms(body.sms);
+    if (body.wechat) await module.settings.saveWechat(body.wechat);
     if (body.policy) await module.settings.saveAccountPolicy(body.policy);
     if (body.registerModes) {
       await module.settings.saveRegisterModes(
-        body.registerModes as RegisterMode[],
-        (await module.settings.channelAvailability()) as Record<RegisterMode, boolean>,
+        body.registerModes,
+        await module.settings.channelAvailability(),
+      );
+    }
+    if (body.loginMethods) {
+      await module.settings.saveLoginMethods(
+        body.loginMethods,
+        await module.settings.loginAvailability(),
       );
     }
     return json(c, await module.settings.maskedView(), '设置已保存');
@@ -367,21 +711,46 @@ export function registerAccountBusinessRoutes(
       ),
     );
   });
-  app.post('/enterprise/admin/account/users/:userId/reset-password', async (c) => {
-    requireAdmin(userOf(c));
-    return json(
-      c,
-      await module.account.adminResetPassword(userOf(c), c.req.param('userId')),
-      '请把一次性新密码告知用户',
-    );
-  });
+  app.post(
+    '/enterprise/admin/account/users/:userId/reset-password',
+    async (c) => {
+      requireAdmin(userOf(c));
+      return json(
+        c,
+        await module.account.adminResetPassword(
+          userOf(c),
+          c.req.param('userId'),
+        ),
+        '请把一次性新密码告知用户',
+      );
+    },
+  );
   app.post('/enterprise/admin/account/users/:userId/ban', async (c) => {
     requireAdmin(userOf(c));
-    const body = z.object({ reason: z.string().max(255).default('') }).parse(await c.req.json().catch(() => ({})));
-    return json(c, await module.account.adminSetStatus(userOf(c), c.req.param('userId'), 'BANNED', body.reason), '已封禁');
+    const body = z
+      .object({ reason: z.string().max(255).default('') })
+      .parse(await c.req.json().catch(() => ({})));
+    return json(
+      c,
+      await module.account.adminSetStatus(
+        userOf(c),
+        c.req.param('userId'),
+        'BANNED',
+        body.reason,
+      ),
+      '已封禁',
+    );
   });
   app.post('/enterprise/admin/account/users/:userId/unban', async (c) => {
     requireAdmin(userOf(c));
-    return json(c, await module.account.adminSetStatus(userOf(c), c.req.param('userId'), 'ACTIVE'), '已解封');
+    return json(
+      c,
+      await module.account.adminSetStatus(
+        userOf(c),
+        c.req.param('userId'),
+        'ACTIVE',
+      ),
+      '已解封',
+    );
   });
 }

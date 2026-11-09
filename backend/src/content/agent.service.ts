@@ -8,10 +8,18 @@ import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { stripInvisible } from '../common/text-safety';
+import { toJsonInput } from '../common/json-input';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
-import type { ContentAgentConnectorService } from './agent-connectors.service';
-import { ContentAgentEngine, type EngineEvent } from './agent-engine';
+import type {
+  ConnectorToolSpec,
+  ContentAgentConnectorService,
+} from './agent-connectors.service';
+import {
+  ContentAgentEngine,
+  type EngineEvent,
+  type EngineResult,
+} from './agent-engine';
 import { ContentAgentExpertService } from './agent-experts.service';
 import { ContentAgentMemoryService } from './agent-memory.service';
 import { ContentAgentPluginService } from './agent-plugins.service';
@@ -22,10 +30,23 @@ import {
   runWithAgentScope,
 } from './agent-scope';
 import type { AgentReference, AgentToolContext } from './agent-tools';
+import type { HardwareMcpTool } from '../hardware/hardware.service';
 
 const TITLE_MAX = 30;
 const HISTORY_MESSAGES = 30;
 const MODE_LABELS = { image: '图片', video: '视频', audio: '音频' } as const;
+
+/** 一位数字分身在协同流程里用到的字段（渠道/模型/知识范围）。 */
+type PersonaRow = {
+  id: number;
+  name: string;
+  style: string;
+  persona: string;
+  spaceId: number;
+  libraryIds: unknown;
+  channelId: number;
+  model: string;
+};
 
 /** 参考素材只认本系统上传后回的公网地址；模型名（label）用于 @ 与工具引用。 */
 export function parseReferences(raw: unknown): AgentReference[] {
@@ -62,6 +83,33 @@ function parseMode(raw: unknown): 'text' | 'image' | 'video' {
   return value === 'image' || value === 'video' ? value : 'text';
 }
 
+/**
+ * 嵌入式副驾（P2-A）：业务页打开面板时把「当前模块 + 当前记录 + 页面摘要」带进来。
+ * 只拼提示词，不据此放宽权限：写动作仍由用户身份与 allowWrite 开关决定。
+ */
+export function parseCopilot(raw: unknown): {
+  block: string;
+  allowWrite: boolean;
+} | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const source = raw as Record<string, unknown>;
+  const moduleName = text(source.module).trim().slice(0, 40);
+  if (!moduleName) return null;
+  const label = text(source.moduleLabel).trim().slice(0, 60) || moduleName;
+  const recordId = text(source.recordId).trim().slice(0, 64);
+  const recordLabel = text(source.recordLabel).trim().slice(0, 120);
+  const summary = text(source.context).slice(0, 4000);
+  const block = [
+    `【当前页面】用户在「${label}」工作区${recordLabel ? `，正在看：${recordLabel}` : ''}${recordId ? `（编号 ${recordId}）` : ''}。`,
+    summary ? `页面摘要：\n${summary}` : '',
+    '回答优先结合当前页面与记录；用户没要求跨模块时不要扩展到别的模块。',
+    '要改数据前先说明动作与影响，再调用工具；当前轮是否允许写动作由系统开关决定，被拒时如实告诉用户。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return { block, allowWrite: source.allowWrite === true };
+}
+
 function persona(
   displayName: string,
   memoryBlock: string,
@@ -73,6 +121,7 @@ function persona(
   skillsScoped = false,
   libraryScoped = false,
   pluginsScoped = false,
+  hardwareBlock = '',
 ) {
   const lines = [
     `你是本站在「工作台」栏目里的 Agent，服务对象是登录账号 ${displayName || '（未命名）'}。`,
@@ -107,6 +156,15 @@ function persona(
   }
   if (connectors.trim()) {
     lines.push('', '【已启用的 MCP 连接器】', connectors);
+  }
+  if (hardwareBlock.trim()) {
+    lines.push(
+      '',
+      '【智能硬件工具】（名字以 hw__ 开头，派发到该账号绑定的硬件设备；与 mcp__ 连接器并列）',
+      hardwareBlock,
+      '读工具可直接调用；写工具（改设备状态/下发指令）只有本人已在「智能硬件 → MCP」勾选授权才会真正执行，未授权或无人值守时只返回草案——不要把草案说成已执行。',
+      '设备离线或工具报错时把情况如实告诉用户，不要假装调用成功。',
+    );
   }
   if (libraryBlock.trim()) {
     lines.push(
@@ -162,6 +220,15 @@ export class ContentAgentService {
     private readonly engine: ContentAgentEngine,
     private readonly tools: AgentToolContext,
   ) {}
+
+  /**
+   * 站内 Agent 可见的硬件工具（hw__ 前缀）：从硬件服务的 MCP 描述符里筛出动态工具，
+   * 元工具（list_hardware_*）不进 Agent 清单。写动作的授权闸在硬件服务内部执行。
+   */
+  async hardwareToolSpecs(user: CurrentUser): Promise<HardwareMcpTool[]> {
+    const descriptors = await this.tools.hardware.mcpDescriptors(user.userId);
+    return descriptors.filter((item) => item.name.startsWith('hw__'));
+  }
 
   private shapeConversation(row: {
     id: number;
@@ -337,12 +404,16 @@ export class ContentAgentService {
     return this.experts.list(user);
   }
 
-  /** 「数字分身」页签：按登录账号的多个人设；长期记忆仍共用一套。 */
+  /** 「数字分身」页签：按登录账号的多个人设；共用记忆 + 分身私有记忆。 */
   private shapePersona(row: {
     id: number;
     name: string;
     style: string;
     persona: string;
+    spaceId: number;
+    libraryIds: unknown;
+    channelId: number;
+    model: string;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -351,6 +422,10 @@ export class ContentAgentService {
       name: row.name,
       style: row.style,
       persona: row.persona,
+      spaceId: row.spaceId,
+      libraryIds: numericIds(row.libraryIds, 50),
+      channelId: row.channelId,
+      model: row.model,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -388,7 +463,19 @@ export class ContentAgentService {
         `人设设定最多 ${CONTENT_AGENT_PERSONA_MAX} 字`,
       );
     }
-    return { name, style, persona };
+    const spaceRaw = Number(body.spaceId ?? 0);
+    const channelRaw = Number(body.channelId ?? 0);
+    const libraryIds = numericIds(body.libraryIds, 50);
+    return {
+      name,
+      style,
+      persona,
+      spaceId: Number.isInteger(spaceRaw) && spaceRaw > 0 ? spaceRaw : 0,
+      channelId:
+        Number.isInteger(channelRaw) && channelRaw > 0 ? channelRaw : 0,
+      model: text(body.model).trim().slice(0, 128),
+      ...(body.libraryIds !== undefined ? { libraryIds } : {}),
+    };
   }
 
   async createPersona(user: CurrentUser, body: Record<string, unknown>) {
@@ -459,11 +546,16 @@ export class ContentAgentService {
         '数字分身不存在或已被删除',
       );
     }
-    // 会话退回「自动」；历史专题大厅楼层的署名快照不动
+    // 会话退回「自动」；分身私有记忆一并清掉，共用记忆与历史署名快照不动
+    await this.memory.clear(user, persona.id);
     await this.prisma.$transaction([
       this.prisma.contentAgentConversation.updateMany({
         where: { userId: user.userId, personaId: persona.id },
         data: { personaId: 0, personaName: '' },
+      }),
+      this.prisma.contentAgentAssistantChannel.updateMany({
+        where: { userId: user.userId, personaId: persona.id },
+        data: { personaId: 0 },
       }),
       this.prisma.contentAgentPersona.delete({ where: { id: persona.id } }),
     ]);
@@ -552,12 +644,12 @@ export class ContentAgentService {
     return this.plugins.importZip(user, bytes, originalName);
   }
 
-  async memories(user: CurrentUser) {
-    return this.memory.list(user);
+  async memories(user: CurrentUser, personaId?: unknown) {
+    return this.memory.list(user, personaId);
   }
 
   async saveMemories(user: CurrentUser, body: Record<string, unknown>) {
-    return this.memory.replace(user, body.content);
+    return this.memory.replace(user, body);
   }
 
   /**
@@ -657,15 +749,21 @@ export class ContentAgentService {
     const personaRaw = Number(body.personaId ?? -1);
     const personaId =
       Number.isInteger(personaRaw) && personaRaw >= 0 ? personaRaw : undefined;
-    const turn = await this.composeTurn(user, conversation, {
-      skillIds: body.skillIds,
-      pluginIds,
-      libraryIds: body.libraryIds,
-      connectorIds,
-      references,
-      personaId,
-    });
-    const model = text(body.model).trim();
+    // 嵌入式副驾：带上当前模块/记录/页面摘要；协作流程不参与
+    const copilot = parseCopilot(body.copilot);
+    // 多分身协同：勾了 2–3 个分身时按「主分身起草 → 其余复核 → 主分身汇总」跑
+    const collaborateIds = numericIds(body.personaIds, 3);
+    const collaborateRows =
+      mode === 'text' && collaborateIds.length >= 2
+        ? (
+            await this.prisma.contentAgentPersona.findMany({
+              where: { userId: user.userId, id: { in: collaborateIds } },
+            })
+          ).sort(
+            (a, b) =>
+              collaborateIds.indexOf(a.id) - collaborateIds.indexOf(b.id),
+          )
+        : [];
     const controller = new AbortController();
     const runId = this.runIdOf(body.runId);
     this.running.set(runId, {
@@ -674,39 +772,80 @@ export class ContentAgentService {
       controller,
     });
     try {
-      const result = await runWithAgentScope(
-        {
-          connectorIds,
-          mailboxIds: [],
+      const scopeBase = {
+        connectorIds,
+        mailboxIds: [] as number[],
+        pluginIds,
+        trigger: 'chat' as const,
+      };
+      // 单一分身的常规回合；协同流程会拿它跑「起草 / 复核 / 汇总」多轮
+      const runOnce = async (
+        targetPersonaId: number | undefined,
+        extraSystem: string | undefined,
+        allowWrite: boolean,
+        emitEvent: (event: EngineEvent) => Promise<void>,
+      ) => {
+        const turn = await this.composeTurn(user, conversation, {
+          skillIds: body.skillIds,
           pluginIds,
-          trigger: 'chat',
-          // 对话里用户就在屏幕前，下一步不对可以立刻叫停：写动作按已勾选的权限执行
-          allowWrite: true,
-        },
-        () =>
-          this.engine.run({
-            user,
-            token,
-            model,
-            channelId,
-            system: turn.system,
-            history: turn.history,
-            references: turn.references,
-            connectorTools: turn.connectorTools,
-            mode,
-            imageChannelId,
-            imageModel: imageModel || undefined,
-            videoChannelId,
-            videoModel: videoModel || undefined,
-            videoUpscaleResolution,
-            imageSize,
-            videoResolution,
-            videoDuration,
-            libraryIds: turn.libraryIds,
-            signal: controller.signal,
-            emit: (event: EngineEvent) => emit(event.type, { ...event }),
-          }),
-      );
+          libraryIds: body.libraryIds,
+          connectorIds,
+          references,
+          personaId: targetPersonaId,
+          extraSystem,
+        });
+        // 分身绑了默认渠道/模型时兜底：本轮没显式选才用，显式选择优先
+        const effectiveChannelId =
+          channelId ??
+          (turn.personaChannelId > 0 ? turn.personaChannelId : undefined);
+        const effectiveModel = text(body.model).trim() || turn.personaModel;
+        const result = await runWithAgentScope(
+          {
+            ...scopeBase,
+            allowWrite,
+            personaId: turn.personaId,
+            spaceId: turn.personaSpaceId,
+          },
+          () =>
+            this.engine.run({
+              user,
+              token,
+              model: effectiveModel,
+              channelId: effectiveChannelId,
+              system: turn.system,
+              history: turn.history,
+              references: turn.references,
+              connectorTools: turn.connectorTools,
+              mode,
+              imageChannelId,
+              imageModel: imageModel || undefined,
+              videoChannelId,
+              videoModel: videoModel || undefined,
+              videoUpscaleResolution,
+              imageSize,
+              videoResolution,
+              videoDuration,
+              libraryIds: turn.libraryIds,
+              signal: controller.signal,
+              emit: emitEvent,
+            }),
+        );
+        return result;
+      };
+      const result =
+        collaborateRows.length >= 2
+          ? await this.collaborate(
+              runOnce,
+              (value) => emit('notice', { text: value }),
+              (event) => emit(event.type, { ...event }),
+              collaborateRows,
+            )
+          : await runOnce(
+              personaId,
+              copilot?.block,
+              copilot ? copilot.allowWrite : true,
+              (event) => emit(event.type, { ...event }),
+            );
       const saved = await this.prisma.contentAgentMessage.create({
         data: {
           conversationId: conversation.id,
@@ -744,6 +883,74 @@ export class ContentAgentService {
       if (this.running.get(runId)?.controller === controller)
         this.running.delete(runId);
     }
+  }
+
+  /**
+   * 多分身协同：主分身起草 → 其余分身各自复核 → 主分身汇总成最终答复。
+   * 起草与复核都按只读跑（allowWrite=false），只有最终答复放开写动作，
+   * 避免协同过程里重复改数据；某位分身失败时跳过它，不打断整轮。
+   */
+  private async collaborate(
+    runOnce: (
+      personaId: number | undefined,
+      extraSystem: string | undefined,
+      allowWrite: boolean,
+      emitEvent: (event: EngineEvent) => Promise<void>,
+    ) => Promise<EngineResult>,
+    notice: (textValue: string) => Promise<void>,
+    emitFinal: (event: EngineEvent) => Promise<void>,
+    rows: PersonaRow[],
+  ): Promise<EngineResult> {
+    const [primary, ...secondaries] = rows;
+    const silent = () => Promise.resolve();
+    await notice(`多分身协同：${primary.name} 先起草…`);
+    const draft = await runOnce(
+      primary.id,
+      [
+        '【多分身协同】本轮由多位数字分身会诊。',
+        '请先以你的身份独立起草一版完整答复，稍后会有其他分身补充与纠错。',
+      ].join('\n'),
+      false,
+      silent,
+    );
+    const notes: string[] = [];
+    for (const row of secondaries) {
+      await notice(`多分身协同：${row.name} 正在复核…`);
+      try {
+        const review = await runOnce(
+          row.id,
+          [
+            '【多分身协同】本轮由多位数字分身会诊。',
+            `主分身「${primary.name}」的初稿如下：`,
+            draft.text.slice(0, 6000),
+            '请以你的身份指出遗漏、错误与更合适的做法，输出要点（不要整篇重写；本轮不要执行任何写动作）。',
+          ].join('\n\n'),
+          false,
+          silent,
+        );
+        notes.push(`【${row.name}的意见】\n${review.text.slice(0, 4000)}`);
+      } catch (error) {
+        notes.push(
+          `【${row.name}】复核失败：${
+            error instanceof BusinessException
+              ? error.message
+              : (error as Error)?.message || '执行失败'
+          }`,
+        );
+      }
+    }
+    await notice(`多分身协同：${primary.name} 汇总成最终答复…`);
+    return runOnce(
+      primary.id,
+      [
+        '【多分身协同】请综合成最终答复。',
+        `你的初稿：\n${draft.text.slice(0, 6000)}`,
+        ...notes,
+        '要求：采纳正确的补充与纠错，删除被证伪的内容；不要向用户暴露这份协同说明，直接给最终答案。',
+      ].join('\n\n'),
+      true,
+      emitFinal,
+    );
   }
 
   /** 每轮对话的标识：前端自带一个，缺失时生成一个，只做 Map 键用。 */
@@ -832,31 +1039,40 @@ export class ContentAgentService {
     const libraryIds = [
       ...new Set([...numericIds(options.libraryIds, 50), ...mailboxLibraries]),
     ];
-    const turn = await runWithAgentScope(scope, () =>
-      this.composeTurn(user, conversation, {
-        skillIds: options.skillIds,
-        pluginIds: options.pluginIds,
-        libraryIds,
-        connectorIds: scope.connectorIds,
-        references,
-        personaId: options.personaId,
-      }),
-    );
-    const result = await runWithAgentScope(scope, () =>
-      this.engine.run({
-        user,
-        token,
-        model: text(options.model).trim(),
-        channelId: options.channelId,
-        system: turn.system,
-        history: turn.history,
-        references: turn.references,
-        connectorTools: turn.connectorTools,
-        mode: 'text',
-        libraryIds: turn.libraryIds,
-        signal: options.signal || new AbortController().signal,
-        emit: async () => {},
-      }),
+    const turn = await this.composeTurn(user, conversation, {
+      skillIds: options.skillIds,
+      pluginIds: options.pluginIds,
+      libraryIds,
+      connectorIds: scope.connectorIds,
+      references,
+      personaId: options.personaId,
+    });
+    // 分身绑了默认渠道/模型时兜底：任务本身显式配置的优先
+    const effectiveChannelId =
+      options.channelId ??
+      (turn.personaChannelId > 0 ? turn.personaChannelId : undefined);
+    const effectiveModel = text(options.model).trim() || turn.personaModel;
+    const result = await runWithAgentScope(
+      {
+        ...scope,
+        personaId: turn.personaId,
+        spaceId: turn.personaSpaceId,
+      },
+      () =>
+        this.engine.run({
+          user,
+          token,
+          model: effectiveModel,
+          channelId: effectiveChannelId,
+          system: turn.system,
+          history: turn.history,
+          references: turn.references,
+          connectorTools: turn.connectorTools,
+          mode: 'text',
+          libraryIds: turn.libraryIds,
+          signal: options.signal || new AbortController().signal,
+          emit: async () => {},
+        }),
     );
     const saved = await this.prisma.contentAgentMessage.create({
       data: {
@@ -892,7 +1108,7 @@ export class ContentAgentService {
         userId: user.userId,
         role: 'user',
         content,
-        references: references as never,
+        references: toJsonInput(references),
       },
     });
     if (priorUserMessages === 0 && conversation.expertId > 0) {
@@ -906,8 +1122,14 @@ export class ContentAgentService {
     }
   }
 
-  /** 单个分身的提示块：风格 + 人设，只影响语气与表达方式。 */
-  private personaBlock(row: { name: string; style: string; persona: string }) {
+  /** 单个分身的提示块：风格 + 人设；挂了知识范围时一并声明。 */
+  private personaBlock(row: {
+    name: string;
+    style: string;
+    persona: string;
+    spaceId?: number;
+    libraryIds?: unknown;
+  }) {
     const style = CONTENT_AGENT_STYLES.find((item) => item.key === row.style);
     const personaText = stripInvisible(row.persona || '');
     const block = [
@@ -916,6 +1138,11 @@ export class ContentAgentService {
     ];
     if (style) block.push(`【回复风格：${style.label}】`, style.prompt);
     if (personaText) block.push('【人设设定】（用户自己写的）', personaText);
+    if (row.spaceId || numericIds(row.libraryIds, 50).length) {
+      block.push(
+        '【知识范围】该分身绑定了默认知识空间/资料库，本轮知识检索默认只在这个范围内进行；用户明确要求查范围外资料时再说明并让用户切换。',
+      );
+    }
     return block;
   }
 
@@ -954,6 +1181,8 @@ export class ContentAgentService {
       references: AgentReference[];
       /** 本轮指定的分身（覆盖会话上的选择）；0＝自动 */
       personaId?: number;
+      /** 多分身协同等场景追加到系统提示的段落 */
+      extraSystem?: string;
     },
   ) {
     // 输入区 + 浮层里勾选的技能：只把这几条当本轮可用技能；没勾＝全部启用中的技能
@@ -963,12 +1192,29 @@ export class ContentAgentService {
       options.pluginIds !== undefined
         ? numericIds(options.pluginIds, 30)
         : numericIds(currentAgentScope()?.pluginIds, 30);
-    // 输入区「+ → 资料库」里勾选的资料：本轮只在其中检索与精读
-    const libraryIds = numericIds(options.libraryIds, 50);
     const connectorScope =
       options.connectorIds !== undefined
         ? numericIdsWithZero(options.connectorIds, 20)
         : currentAgentScope()?.connectorIds;
+    // 分身先定：私有记忆与默认资料范围都要按它算
+    const personas = await this.prisma.contentAgentPersona.findMany({
+      where: { userId: user.userId },
+      orderBy: { id: 'asc' },
+      take: CONTENT_AGENT_PERSONA_MAX_COUNT,
+    });
+    const wantedId = options.personaId ?? conversation.personaId ?? 0;
+    const chosen =
+      wantedId > 0
+        ? personas.find((item) => item.id === wantedId) || null
+        : personas.length === 1
+          ? personas[0]
+          : null;
+    // 本轮在「+ → 资料库」里勾了就以本轮为准；没勾才用分身绑定的默认资料库
+    const turnLibraryIds = numericIds(options.libraryIds, 50);
+    const personaLibraryIds = chosen ? numericIds(chosen.libraryIds, 50) : [];
+    const libraryIds = turnLibraryIds.length
+      ? turnLibraryIds
+      : personaLibraryIds;
     // 这些读取彼此独立：一次并发取齐，避免串行等远端库
     const [
       historyRows,
@@ -978,8 +1224,8 @@ export class ContentAgentService {
       pluginSummaries,
       connectorTools,
       libraryInfo,
-      personas,
       expert,
+      hardwareTools,
     ] = await Promise.all([
       this.prisma.contentAgentMessage.findMany({
         where: {
@@ -991,21 +1237,18 @@ export class ContentAgentService {
         orderBy: { id: 'desc' },
         take: HISTORY_MESSAGES,
       }),
-      this.memory.promptBlock(user.userId),
+      // 共用记忆永远注入；选定分身时再叠它自己的私有记忆
+      this.memory.promptBlock(user.userId, chosen?.id ?? 0),
       this.memory.recentOperations(user.userId),
       this.skills.promptSummaries(user.userId, skillIds),
       this.plugins.promptSummaries(user.userId, pluginIds),
       this.connectors.toolSpecs(user, connectorScope),
       this.tools.library.promptBlock(user.userId, libraryIds),
-      // 数字分身：指定分身就用它；0＝自动，把全部分身交给模型按本轮语义自选
-      this.prisma.contentAgentPersona.findMany({
-        where: { userId: user.userId },
-        orderBy: { id: 'asc' },
-        take: CONTENT_AGENT_PERSONA_MAX_COUNT,
-      }),
       conversation.expertId
         ? this.experts.promptOf(conversation.expertId)
         : Promise.resolve(null),
+      // 硬件工具读不到（未上架/无设备）时只跳过这一类，不拖垮整轮装配
+      this.hardwareToolSpecs(user).catch(() => [] as HardwareMcpTool[]),
     ]);
     const history = historyRows.reverse().map((row) => ({
       role: row.role as 'user' | 'assistant',
@@ -1014,6 +1257,19 @@ export class ContentAgentService {
     const connectorNames = [
       ...new Set(connectorTools.map((spec) => spec.connectorName)),
     ].join('、');
+    // 硬件工具借道 connectorTools 发布给模型（引擎按名字派发，hw__ 在 runAgentTool 里分流到硬件服务）；
+    // connectorNames 仍只统计真实连接器，硬件单独成段，不混进「MCP 连接器」清单。
+    const hardwareSpecs: ConnectorToolSpec[] = hardwareTools.map((tool) => ({
+      name: tool.name,
+      connectorId: 0,
+      connectorName: '智能硬件',
+      remoteName: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
+    const hardwareBlock = hardwareTools
+      .map((tool) => `${tool.name}：${tool.description}`)
+      .join('\n');
     const baseSystem = persona(
       user.username,
       memoryBlock,
@@ -1025,20 +1281,15 @@ export class ContentAgentService {
       skillIds.length > 0,
       libraryInfo.scoped,
       pluginIds.length > 0,
+      hardwareBlock,
     );
     const parts = [baseSystem];
-    const wantedId = options.personaId ?? conversation.personaId ?? 0;
-    const chosen =
-      wantedId > 0
-        ? personas.find((item) => item.id === wantedId) || null
-        : personas.length === 1
-          ? personas[0]
-          : null;
     if (chosen) {
       parts.push('', ...this.personaBlock(chosen));
     } else if (personas.length > 1) {
       parts.push('', ...this.autoPersonaBlock(personas));
     }
+    if (options.extraSystem) parts.push('', options.extraSystem);
     if (expert) {
       parts.push(
         '',
@@ -1051,10 +1302,16 @@ export class ContentAgentService {
     return {
       system: parts.join('\n'),
       history,
-      connectorTools,
+      connectorTools: [...connectorTools, ...hardwareSpecs],
       skillIds,
       libraryIds,
       references: options.references,
+      /** 本轮生效的分身与其默认执行模型（对话未另选渠道/模型时兜底） */
+      personaId: chosen?.id ?? 0,
+      personaName: chosen?.name ?? '',
+      personaChannelId: chosen?.channelId ?? 0,
+      personaModel: chosen?.model ?? '',
+      personaSpaceId: chosen?.spaceId ?? 0,
     };
   }
 }

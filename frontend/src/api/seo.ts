@@ -1,0 +1,104 @@
+import { endpoints } from "@enterprise/contracts";
+import { endpoint } from "./endpoint";
+
+/** SEO 工作台：三层数据源（自有抓取免费 / DataForSEO 用户自带 Key / 系统 LLM 计积分）。
+ *  无 Key 不造假数据；凭据只落密文，接口与页面都不回显。 */
+export const seoApi = {
+  // 站点档案
+  listProjects: endpoint(endpoints.Seo_listProjects),
+  createProject: endpoint(endpoints.Seo_createProject),
+  updateProject: endpoint(endpoints.Seo_updateProject),
+  removeProject: endpoint(endpoints.Seo_removeProject),
+  overview: endpoint(endpoints.Seo_overview),
+  // 数据源设置
+  settings: endpoint(endpoints.Seo_settings),
+  saveProvider: endpoint(endpoints.Seo_saveProvider),
+  clearProvider: endpoint(endpoints.Seo_clearProvider),
+  testProvider: endpoint(endpoints.Seo_testProvider),
+  // 站点体检
+  startAudit: endpoint(endpoints.Seo_startAudit),
+  listAudits: endpoint(endpoints.Seo_listAudits),
+  getAudit: endpoint(endpoints.Seo_getAudit),
+  explainAudit: endpoint(endpoints.Seo_explainAudit),
+  // 关键词
+  researchKeywords: endpoint(endpoints.Seo_researchKeywords),
+  saveKeywords: endpoint(endpoints.Seo_saveKeywords),
+  listKeywords: endpoint(endpoints.Seo_listKeywords),
+  removeKeyword: endpoint(endpoints.Seo_removeKeyword),
+  clusterKeywords: endpoint(endpoints.Seo_clusterKeywords),
+  listClusters: endpoint(endpoints.Seo_listClusters),
+  // GSC
+  importGsc: endpoint(endpoints.Seo_importGsc),
+  listGscImports: endpoint(endpoints.Seo_listGscImports),
+  gscAnalysis: endpoint(endpoints.Seo_gscAnalysis),
+  // 排名跟踪
+  createTracker: endpoint(endpoints.Seo_createTracker),
+  listTrackers: endpoint(endpoints.Seo_listTrackers),
+  updateTracker: endpoint(endpoints.Seo_updateTracker),
+  removeTracker: endpoint(endpoints.Seo_removeTracker),
+  listRankKeywords: endpoint(endpoints.Seo_listRankKeywords),
+  addRankKeywords: endpoint(endpoints.Seo_addRankKeywords),
+  removeRankKeyword: endpoint(endpoints.Seo_removeRankKeyword),
+  estimateRankCost: endpoint(endpoints.Seo_estimateRankCost),
+  runRankCheck: endpoint(endpoints.Seo_runRankCheck),
+  rankHistory: endpoint(endpoints.Seo_rankHistory),
+  // 竞品
+  competitorOverview: endpoint(endpoints.Seo_competitorOverview),
+  competitorPages: endpoint(endpoints.Seo_competitorPages),
+  // 外链分析
+  backlinksOverview: endpoint(endpoints.Seo_backlinksOverview),
+  backlinksProfile: endpoint(endpoints.Seo_backlinksProfile),
+  backlinksHistory: endpoint(endpoints.Seo_backlinksHistory),
+  // 外链建设
+  discoverProspects: endpoint(endpoints.Seo_discoverProspects),
+  listProspects: endpoint(endpoints.Seo_listProspects),
+  addProspect: endpoint(endpoints.Seo_addProspect),
+  extractContact: endpoint(endpoints.Seo_extractContact),
+  draftOutreach: endpoint(endpoints.Seo_draftOutreach),
+  updateProspect: endpoint(endpoints.Seo_updateProspect),
+  removeProspect: endpoint(endpoints.Seo_removeProspect),
+  pushProspectsToMail: endpoint(endpoints.Seo_pushProspectsToMail),
+  // 本地 SEO
+  createLocalTracker: endpoint(endpoints.Seo_createLocalTracker),
+  listLocalTrackers: endpoint(endpoints.Seo_listLocalTrackers),
+  removeLocalTracker: endpoint(endpoints.Seo_removeLocalTracker),
+  estimateLocalCost: endpoint(endpoints.Seo_estimateLocalCost),
+  runLocalCheck: endpoint(endpoints.Seo_runLocalCheck),
+  localGrid: endpoint(endpoints.Seo_localGrid),
+  // Google 同步
+  googleSettings: endpoint(endpoints.Seo_googleSettings),
+  saveGoogleClient: endpoint(endpoints.Seo_saveGoogleClient),
+  googleAuthUrl: endpoint(endpoints.Seo_googleAuthUrl),
+  googleCallback: endpoint(endpoints.Seo_googleCallback),
+  connectGoogle: endpoint(endpoints.Seo_connectGoogle),
+  disconnectGoogle: endpoint(endpoints.Seo_disconnectGoogle),
+  syncGoogle: endpoint(endpoints.Seo_syncGoogle),
+  ga4Rows: endpoint(endpoints.Seo_ga4Rows),
+  // 结构化数据
+  generateSchema: endpoint(endpoints.Seo_generateSchema),
+  validateSchema: endpoint(endpoints.Seo_validateSchema),
+  // IndexNow
+  setupIndexnow: endpoint(endpoints.Seo_setupIndexnow),
+  verifyIndexnow: endpoint(endpoints.Seo_verifyIndexnow),
+  submitIndexnow: endpoint(endpoints.Seo_submitIndexnow),
+  indexnowHistory: endpoint(endpoints.Seo_indexnowHistory),
+  // 百度提交
+  baiduCredential: endpoint(endpoints.Seo_baiduCredential),
+  saveBaiduCredential: endpoint(endpoints.Seo_saveBaiduCredential),
+  submitBaidu: endpoint(endpoints.Seo_submitBaidu),
+  baiduHistory: endpoint(endpoints.Seo_baiduHistory),
+  // 程序化页面
+  programmaticPreview: endpoint(endpoints.Seo_programmaticPreview),
+  programmaticGenerate: endpoint(endpoints.Seo_programmaticGenerate),
+  programmaticRuns: endpoint(endpoints.Seo_programmaticRuns),
+  programmaticPages: endpoint(endpoints.Seo_programmaticPages),
+  programmaticExport: endpoint(endpoints.Seo_programmaticExport),
+  // 报告
+  generateReport: endpoint(endpoints.Seo_generateReport),
+  listReports: endpoint(endpoints.Seo_listReports),
+  shareReport: endpoint(endpoints.Seo_shareReport),
+  // 研究日志
+  researchLog: endpoint(endpoints.Seo_researchLog),
+  // 程序化页面来源：多维表格（账号归属，列表已带回列与行数）
+  tables: endpoint(endpoints.DataTable_list),
+};

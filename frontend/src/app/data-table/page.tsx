@@ -2,6 +2,7 @@
 
 import { App, ConfigProvider, Skeleton } from "antd";
 import { useCallback, useEffect, useState } from "react";
+import { AiCopilot } from "@/components/ai-copilot";
 import { Notice, PageHero } from "@/components/ui/panel";
 import { DataTableApiGuideButton } from "./_components/api-guide";
 import { TableCards } from "./_components/table-cards";
@@ -69,6 +70,20 @@ export default function DataTablePage() {
       ) : (
         <TableCards tables={tables} onOpen={setSelectedId} onChanged={onChanged} />
       )}
+      <AiCopilot
+        module="data_table"
+        moduleLabel="多维表格"
+        recordId={selected ? `table-${selected.id}` : undefined}
+        recordLabel={selected?.name}
+        context={
+          selected
+            ? `表格：${selected.name}；列：${selected.fields
+                .map((field) => `${field.name}（${field.fieldKey}）`)
+                .join("、")}`
+            : `当前共有 ${tables.length} 张表`
+        }
+        suggestions={["这张表适合怎么分析", "帮我写一行数据"]}
+      />
     </ConfigProvider>
   );
 }

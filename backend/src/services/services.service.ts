@@ -12,6 +12,7 @@ import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import {
   CATEGORY_LABELS,
+  MARKETPLACE_DOMAINS,
   PLATFORM_DIRECT_DOMAINS,
   SERVICE_PUBLISH_CATEGORY_BY_DOMAIN,
 } from '../common/constants';
@@ -129,9 +130,13 @@ export class ServicesService {
   }
   async create(user: CurrentUser, body: Record<string, unknown>, token = '') {
     const module = this.requireModule(body.domain);
-    // 财税 / 供销 / 出海的「服务发布」自 2026-09-26 起走平台直连看板（`/enterprise/market/<板块>/services`，
-    // 本系统零落库）：这些板块再写本地台账就成了任何看板都读不到的孤行。
-    if (PLATFORM_DIRECT_DOMAINS.includes(module.domain)) {
+    // 平台直连板块里「尚未并入服务市集」的那一块（当前只剩出海，服务界面未开）：写本地台账
+    // 就成了没有栏目可读的孤行。财税 / 供销自 2026-11-09 起并入「服务市集」（读本地台账 +
+    // 公开池），不再拦截。
+    if (
+      PLATFORM_DIRECT_DOMAINS.includes(module.domain) &&
+      !MARKETPLACE_DOMAINS.includes(module.domain)
+    ) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
         `${module.label}的服务发布走平台直连接口，本系统不写本地台账`,

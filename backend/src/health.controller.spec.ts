@@ -1,8 +1,10 @@
 import { HealthController } from './health.controller';
+import type { PrismaService } from './prisma/prisma.service';
+import { stub } from '../test/doubles';
 
 describe('HealthController', () => {
   it('returns the enterprise liveness envelope', () => {
-    const controller = new HealthController({} as never);
+    const controller = new HealthController(stub<PrismaService>());
     expect(controller.health()).toEqual({
       code: 0,
       message: 'ok',

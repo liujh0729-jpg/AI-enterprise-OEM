@@ -196,7 +196,7 @@ export function RowPanel({
       render: (_: unknown, row: DataTableRow) => (
         <Space size={6} wrap>
           {can.update || can.delete ? (
-            <Button.Group>
+            <Space.Compact>
               {can.update ? (
                 <Button onClick={() => openEdit(row)}>
                   改
@@ -207,7 +207,7 @@ export function RowPanel({
                   删
                 </Button>
               ) : null}
-            </Button.Group>
+            </Space.Compact>
           ) : null}
           <OaLaunchButton target="DATA_TABLE_ROW" targetId={`${table.id}:${row.id}`} />
         </Space>

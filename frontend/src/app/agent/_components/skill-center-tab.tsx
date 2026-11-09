@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { SkillHubDetail, SkillHubSkill } from "@enterprise/contracts";
 import { skillHubApi } from "@/api/skillhub";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import { ToolCard, ToolCardGrid } from "@/components/ui/tool-card";
 
 const SEARCH_PAGE_SIZE = 20;
@@ -85,8 +86,7 @@ function SkillCards({
           key={`${skill.namespaceHandle}:${skill.slug}`}
           icon={
             skill.iconUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element -- 技能图标是外部站直链，不走图片优化
-              <img
+              <RawImg
                 src={skill.iconUrl}
                 alt=""
                 width={18}
@@ -363,7 +363,9 @@ function SkillDetailPanel({
     try {
       const skill = await skillHubApi.install({ params: { slug } });
       onMessage(
-        `已安装并启用技能「${skill?.name || slug}」，可在「我的技能」里查看`,
+        skill?.enabled
+          ? `已安装并启用技能「${skill.name || slug}」，可在「我的技能」里查看`
+          : `已安装技能「${skill?.name || slug}」，AI 审查通过；请在「我的技能」确认权限后启用`,
       );
       onInstalled();
     } catch (caught) {
@@ -503,7 +505,7 @@ function SkillDetailPanel({
         ) : null}
 
         <div className="text-12 muted">
-          「下载」只把技能包保存到本地；「下载并安装」会自动上传技能包到本账号并启用，安装后即可在 Agent 对话中按技能办事。
+          「下载」只把技能包保存到本地；「下载并安装」会自动上传技能包到本账号，先经 AI 安全审查，通过后入「我的技能」。声明了权限的技能需在「我的技能」里确认权限后才能启用。
         </div>
       </div>
     </Panel>

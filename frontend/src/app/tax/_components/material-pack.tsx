@@ -2,6 +2,8 @@
 import { useOperationMutation } from "@/query/business";
 import { presentMutationError } from "@/query/errors";
 import { taxApi } from "@/api/tax";
+import { aiApi, type AiTaxCheck } from "@/api/ai";
+import { AiList, AiResultModal } from "@/components/ai-result";
 
 import {
   BankOutlined,
@@ -171,6 +173,32 @@ export function MaterialPackPanel() {
   };
   /** 发票 OCR 识别结果：预填「＋ 添加发票」表单后立即清空 */
   const [pendingInvoice, setPendingInvoice] = useState<EditorRow | null>(null);
+  const [aiCheck, setAiCheck] = useState<AiTaxCheck | null>(null);
+  const [aiCheckOpen, setAiCheckOpen] = useState(false);
+  const [aiCheckLoading, setAiCheckLoading] = useState(false);
+
+  const runAiCheck = async () => {
+    if (!pack) {
+      message.warning("请先录入材料再体检");
+      return;
+    }
+    const text = JSON.stringify(pack.payload || {});
+    if (text.length < 10) {
+      message.warning("材料还是空的，先逐条录入员工、发票或流水");
+      return;
+    }
+    setAiCheckOpen(true);
+    setAiCheckLoading(true);
+    setAiCheck(null);
+    try {
+      setAiCheck(await aiApi.taxCheck({ body: { text, region: "中国" } }));
+    } catch (error) {
+      presentMutationError(error, (text) => message.error(text));
+      setAiCheckOpen(false);
+    } finally {
+      setAiCheckLoading(false);
+    }
+  };
 
   const rowsOf = (section: Section) => pack?.payload?.[section] || [];
 
@@ -251,6 +279,9 @@ export function MaterialPackPanel() {
               style={{ width: 130 }}
               onChange={setPeriod}
             />
+            {pack ? (
+              <Button onClick={() => void runAiCheck()}>AI 材料体检</Button>
+            ) : null}
             {pack ? (
               <Button
                 type="primary"
@@ -335,6 +366,23 @@ export function MaterialPackPanel() {
         onUpdate={(rowId, patch) => updateRow("bank", rowId, patch)}
         onRemove={(rowId) => removeRow("bank", rowId)}
       />
+
+      <AiResultModal
+        open={aiCheckOpen}
+        title="AI 材料体检"
+        loading={aiCheckLoading}
+        mode={aiCheck?.mode}
+        model={aiCheck?.model}
+        onClose={() => setAiCheckOpen(false)}
+      >
+        {aiCheck ? (
+          <>
+            <div>{aiCheck.summary}</div>
+            <AiList title="发现的问题" items={aiCheck.issues} />
+            <AiList title="建议" items={aiCheck.suggestions} />
+          </>
+        ) : null}
+      </AiResultModal>
     </>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { App, Button, Checkbox, Input, Pagination, Select, Space, Table, Tag } from "antd";
+import { App, Badge, Button, Checkbox, Input, Pagination, Select, Space, Table, Tag } from "antd";
 import type { TableProps } from "antd";
 import {
+  ApiOutlined,
   SearchOutlined,
   StarFilled,
   UploadOutlined,
@@ -10,6 +11,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { communityApi } from "@/api/community";
 import { EmptyState, Notice, Panel, PillTabs } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import type {
   CommunityCategory,
   CommunityCategoryRow,
@@ -50,8 +52,7 @@ function Cover({ row }: { row: CommunityWorkflowCard }) {
       }}
     >
       {row.covers.length ? (
-        // eslint-disable-next-line @next/next/no-img-element -- 本站 OSS 封面，尺寸不固定，用原生 img 免配 domains
-        <img
+        <RawImg
           src={row.covers[0]}
           alt={row.title}
           loading="lazy"
@@ -232,8 +233,7 @@ export function CommunityBoard({
     if (view !== "runs" && view !== "drafts") void loadList(view, 1);
     else if (view === "runs") void loadRuns();
     else void loadDrafts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, sort, runnableOnly, favoriteOnly, group]);
+  }, [view, loadList, loadRuns, loadDrafts]);
 
   /** 我的产物页：有进行中的作业才轮询，全部落终态即停。 */
   useEffect(() => {
@@ -323,6 +323,18 @@ export function CommunityBoard({
     },
   ];
 
+  const connectButton = (
+    <Badge dot={!credential?.connected} offset={[-4, 4]}>
+      <Button
+        icon={<ApiOutlined />}
+        type={credential?.connected ? "default" : "primary"}
+        onClick={onConnect}
+      >
+        {credential?.connected ? `已连接 ${credential.keyMask}` : "连接 Comfy Cloud"}
+      </Button>
+    </Badge>
+  );
+
   return (
     <>
       {isBrowse ? (
@@ -375,15 +387,18 @@ export function CommunityBoard({
             </Space>
           }
           extra={
-            <Button
-              icon={<UploadOutlined />}
-              onClick={() => {
-                setEditing(null);
-                setPublishOpen(true);
-              }}
-            >
-              发布工作流
-            </Button>
+            <Space size={8}>
+              {connectButton}
+              <Button
+                icon={<UploadOutlined />}
+                onClick={() => {
+                  setEditing(null);
+                  setPublishOpen(true);
+                }}
+              >
+                发布工作流
+              </Button>
+            </Space>
           }
         >
           {credential && !credential.connected ? (
@@ -461,15 +476,18 @@ export function CommunityBoard({
         <Panel
           title="我的发布"
           extra={
-            <Button
-              icon={<UploadOutlined />}
-              onClick={() => {
-                setEditing(null);
-                setPublishOpen(true);
-              }}
-            >
-              发布工作流
-            </Button>
+            <Space size={8}>
+              {connectButton}
+              <Button
+                icon={<UploadOutlined />}
+                onClick={() => {
+                  setEditing(null);
+                  setPublishOpen(true);
+                }}
+              >
+                发布工作流
+              </Button>
+            </Space>
           }
         >
           <div className="text-12 muted" style={{ marginBottom: 10 }}>

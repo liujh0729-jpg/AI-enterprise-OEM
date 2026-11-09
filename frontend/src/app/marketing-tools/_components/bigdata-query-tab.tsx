@@ -112,8 +112,7 @@ export function BigdataQueryTab({
     setSettings(result.data);
     if (result.message) message.error(result.message);
     return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset, message]);
+  }, [api, message]);
 
   const reloadTasks = useCallback(async () => {
     const result = await api.tasks();
@@ -126,8 +125,7 @@ export function BigdataQueryTab({
     }
     setTasksLoading(false);
     return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset]);
+  }, [api]);
 
   const reloadTableOptions = useCallback(async () => {
     setTableOptionsLoading(true);
@@ -135,8 +133,7 @@ export function BigdataQueryTab({
     setTableOptions(result.data);
     setTableOptionsLoading(false);
     return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset]);
+  }, [api]);
 
   useEffect(() => {
     void reloadSettings();
@@ -160,8 +157,7 @@ export function BigdataQueryTab({
       setModels(modelResult.data?.models || []);
       setModelsError(modelResult.message);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadSettings, reloadTasks, reloadTableOptions]);
+  }, [api, reloadSettings, reloadTasks, reloadTableOptions]);
 
   // 设置读回来后同步草稿：切数据集、保存成功或读取失败回滚时都回到服务端真实值
   useEffect(() => {

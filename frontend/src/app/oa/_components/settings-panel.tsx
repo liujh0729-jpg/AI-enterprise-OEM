@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Button, InputNumber, Select, Space, Switch } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { oaApi } from "@/api/oa";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
@@ -73,10 +73,9 @@ export function SettingsPanel({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const orgQuery: OaOrgQuery = orgQueryOf(org);
-  const { orgType, orgUserId } = orgQuery;
+  const orgQuery: OaOrgQuery = useMemo(() => orgQueryOf(org), [org]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const next = await oaApi.settings({ query: orgQuery });
@@ -90,12 +89,11 @@ export function SettingsPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [orgQuery]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在组织切换时重新取设置
-  }, [orgType, orgUserId]);
+  }, [load]);
 
   const members: OaMember[] = data?.members || [];
 

@@ -272,3 +272,28 @@ export async function streamSse(
     reader?.releaseLock();
   }
 }
+
+/**
+ * 表单直传第三方签名地址（OSS PostObject）：字节不经过本站网关，也不套业务信封。
+ * 只有拿到服务端 presign 签名的地方才用，失败由调用方决定是否回落服务器中转。
+ */
+export async function uploadFormTo(
+  url: string,
+  body: FormData,
+  timeoutMs = 300000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      method: "POST",
+      body,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("直传超时，请重试或换个网络");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}

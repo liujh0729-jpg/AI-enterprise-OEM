@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { DataTableService } from '../data-table/data-table.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { toJsonInput } from '../common/json-input';
 import { BiScopeService, BI_ROLE_LABELS } from './bi.scope';
 import { BiQueryService } from './bi.query.service';
 import { BiChartService } from './bi.chart.service';
@@ -53,7 +54,12 @@ export class BiSettingsService {
   async saveSettings(user: CurrentUser, body: Record<string, unknown>) {
     const ctx = await this.scope.requireMember(user);
     this.scope.assertAdmin(ctx);
-    const data = {
+    const data: {
+      defaultTextChannelId?: number;
+      defaultTextModel?: string;
+      maxRows?: number;
+      queryTimeoutMs?: number;
+    } = {
       defaultTextChannelId:
         body.defaultTextChannelId === undefined
           ? undefined
@@ -80,7 +86,7 @@ export class BiSettingsService {
         maxRows: data.maxRows || 10000,
         queryTimeoutMs: data.queryTimeoutMs || 30000,
       },
-      update: data as never,
+      update: data,
     });
     return this.settings(user);
   }
@@ -219,7 +225,7 @@ export class BiSettingsService {
       datasetId: Number(body.datasetId) || 0,
       term,
       definition: text(body.definition).slice(0, 1000),
-      synonyms: (Array.isArray(body.synonyms) ? body.synonyms : []) as never,
+      synonyms: toJsonInput(Array.isArray(body.synonyms) ? body.synonyms : []),
       enabled: body.enabled === undefined ? true : Boolean(body.enabled),
     };
     const id = Number(body.id) || 0;

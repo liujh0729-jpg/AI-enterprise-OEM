@@ -13,6 +13,11 @@ import {
   maskEmail,
   requirePositiveId,
 } from './aliyun-mail.service';
+import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityService } from '../identity/identity.service';
+import type { AliyunMailCrypto } from './aliyun-mail-crypto';
+import type { DataTableService } from '../data-table/data-table.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 邮件推送的本地口径单测：不连阿里云、不连库，用桩件验证
@@ -87,10 +92,10 @@ function setup(
     ),
   };
   const service = new AliyunMailService(
-    prisma as never,
-    identity as never,
-    crypto as never,
-    dataTable as never,
+    stub<PrismaService>(prisma),
+    stub<IdentityService>(identity),
+    stub<AliyunMailCrypto>(crypto),
+    stub<DataTableService>(dataTable),
   );
   const listsMock = jest
     .spyOn(DirectMailClient.prototype, 'listReceivers')

@@ -53,7 +53,9 @@ for (const identity of ["ENTERPRISE_USER", "SERVICE_PROVIDER", "PROVIDER_STAFF"]
     for (const path of ["/tax", "/overseas", "/marketing", "/supply", "/flex", "/logistics", "/smart", "/ip", "/legal", "/asset"]) {
       assert.ok(paths.includes(path), path);
     }
-    assert.equal(paths.includes("/staff"), identity === "SERVICE_PROVIDER");
+    // 服务商本人是「团队管理」入口；职员/代理人以「申请加入服务商」视角进入本页，管理员身份亦如此。
+    // 企业用户（即使主体为个人）在当前身份下不进本页。
+    assert.equal(paths.includes("/staff"), identity !== "ENTERPRISE_USER");
   });
 }
 

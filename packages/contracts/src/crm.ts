@@ -381,6 +381,8 @@ const orderRow = z
     customerName: z.string(),
     contractId: z.number(),
     contractNumber: z.string(),
+    /** 审批通过后自动立项的回写 id（0＝未立项） */
+    projectId: z.number(),
     amount: money,
     stageId: z.number(),
     stageName: z.string(),

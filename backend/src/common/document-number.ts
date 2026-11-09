@@ -143,14 +143,13 @@ export async function allocateNo(
       );
       value = Number(rows[0]?.value);
     }
-    if (!Number.isFinite(value) || value <= 0) throw new Error('单据编号分配失败');
+    if (!Number.isFinite(value) || value <= 0)
+      throw new Error('单据编号分配失败');
     return `${head}${String(value).padStart(4, '0')}`;
   };
   // 根客户端走独立事务锁定单连接；已是事务客户端则直接复用。
   const transactable = db as Pick<Prisma.TransactionClient, '$queryRaw'> & {
     $transaction?: (fn: typeof run) => Promise<string>;
   };
-  return transactable.$transaction
-    ? transactable.$transaction(run)
-    : run(db);
+  return transactable.$transaction ? transactable.$transaction(run) : run(db);
 }

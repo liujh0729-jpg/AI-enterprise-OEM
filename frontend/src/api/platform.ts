@@ -13,35 +13,14 @@ export interface SiteConfig {
   footerLinks: { label: string; url: string }[];
   /** AIPDD 推荐码（管理员配置，用于新用户注册引导拉新送算力） */
   aipddReferralCode?: string;
-  /** 被隐藏的业务服务菜单路径（管理员配置，仅控制菜单显示） */
-  businessMenuHidden?: string[];
-  /** 被隐藏的「开放集成」菜单路径（如 /developer/docs、/developer/mcp），默认全部可见 */
-  integrationMenuHidden?: string[];
-  /** 「AI增值服务」分组是否对用户隐藏，默认可见（false） */
-  aiServicesHidden?: boolean;
+  /** 被隐藏的用户侧菜单路径（管理员配置，仅控制菜单显示）：站内以 / 开头，外链存完整 URL */
+  hiddenMenuPaths?: string[];
+  /** 被隐藏的「业务服务」板块页签（管理员配置，仅控制展示）：token = `<板块>:<角色>`，角色 demand＝需求信息 / services＝服务市集 */
+  hiddenBoardTabs?: string[];
   /** 默认语言码（zh-CN / en / vi / ja / ar / fr / es / ru）：管理员配置，新用户首次进站按此语言展示 */
   defaultLanguage?: string;
   /** 站点对外地址（协议 + 域名，可带端口）：MCP / API 接入端点、回调地址、分享链接等绝对地址都跟它走；留空按当前访问域名推导 */
   siteUrl?: string;
-}
-export interface ProviderSyncStatus {
-  mode: string;
-  lastSyncAt: string;
-  lastResult: string;
-  lastError: string;
-  lastCount: number;
-}
-export interface ProviderDisplayRow {
-  id: number;
-  aiworkinProviderId: string;
-  name: string;
-  categoryKeys: string[];
-  region: string;
-  intro: string;
-  visible: boolean;
-  sortWeight: number;
-  adminNote: string;
-  syncedAt: string;
 }
 
 const siteSchema = apiEnvelope(
@@ -52,51 +31,11 @@ const siteSchema = apiEnvelope(
     icpRecord: z.string(),
     footerLinks: z.array(z.object({ label: z.string(), url: z.string() })),
     aipddReferralCode: z.string().optional(),
-    businessMenuHidden: z.array(z.string()).optional(),
-    integrationMenuHidden: z.array(z.string()).optional(),
-    aiServicesHidden: z.boolean().optional(),
+    hiddenMenuPaths: z.array(z.string()).optional(),
+    hiddenBoardTabs: z.array(z.string()).optional(),
     defaultLanguage: z.string().optional(),
     siteUrl: z.string().optional(),
   }),
-);
-const syncSchema = apiEnvelope(
-  z.object({
-    mode: z.string(),
-    lastSyncAt: z.string(),
-    lastResult: z.string(),
-    lastError: z.string(),
-    lastCount: z.number(),
-  }),
-);
-const providerRowSchema = apiEnvelope(
-  z.object({
-    id: z.number(),
-    aiworkinProviderId: z.string(),
-    name: z.string(),
-    categoryKeys: z.array(z.string()),
-    region: z.string(),
-    intro: z.string(),
-    visible: z.boolean(),
-    sortWeight: z.number(),
-    adminNote: z.string(),
-    syncedAt: z.string(),
-  }),
-);
-const providerListFinal = apiEnvelope(
-  z.array(
-    z.object({
-      id: z.number(),
-      aiworkinProviderId: z.string(),
-      name: z.string(),
-      categoryKeys: z.array(z.string()),
-      region: z.string(),
-      intro: z.string(),
-      visible: z.boolean(),
-      sortWeight: z.number(),
-      adminNote: z.string(),
-      syncedAt: z.string(),
-    }),
-  ),
 );
 
 async function unwrap<T>(
@@ -123,31 +62,6 @@ export const platformApi = {
       ...options,
       method: "PUT",
       body,
-    }),
-  providers: (options?: HttpOptions) =>
-    unwrap(providerListFinal, `${ADMIN}/providers/display`, options),
-  updateProvider: (
-    id: number,
-    body: { visible?: boolean; sortWeight?: number; adminNote?: string },
-    options?: HttpOptions,
-  ) =>
-    unwrap(providerRowSchema, `${ADMIN}/providers/display/${id}`, {
-      ...options,
-      method: "PUT",
-      body,
-    }),
-  syncStatus: (options?: HttpOptions) =>
-    unwrap(syncSchema, `${ADMIN}/providers/sync-status`, options),
-  setSyncMode: (mode: "MANUAL" | "SCHEDULED", options?: HttpOptions) =>
-    unwrap(syncSchema, `${ADMIN}/providers/sync-mode`, {
-      ...options,
-      method: "PUT",
-      body: { mode },
-    }),
-  syncNow: (options?: HttpOptions) =>
-    unwrap(syncSchema, `${ADMIN}/providers/sync-now`, {
-      ...options,
-      method: "POST",
     }),
 };
 

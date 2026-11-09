@@ -36,6 +36,17 @@ export type InvoiceRequestInput = {
   items?: InvoiceLineInput[];
   [key: string]: unknown;
 };
+/** 列表/详情的装饰行：在原行基础上归一化明细与金额，其余列仍可按记录读取。 */
+export type InvoiceDecoratedRow = {
+  items: InvoiceLineInput[];
+  amount: number;
+  tax: number;
+  staffName: string;
+  requesterName: string;
+  statusLabel: string;
+  canReview: boolean;
+  [key: string]: unknown;
+};
 /**
  * 开发票申请（需求 6.4）：**企业申请开票 → 财税承办人/财务专员审核 → 走企享云自动开票**。
  * 与「申报计划」同构：企业是发起方，服务商侧只由**承办人**审核与开具；
@@ -193,7 +204,10 @@ export class InvoiceService {
     );
     return this.decorateRows(user, rows);
   }
-  private async decorateRows(user: CurrentUser, rows: InvoiceRequest[]) {
+  private async decorateRows(
+    user: CurrentUser,
+    rows: InvoiceRequest[],
+  ): Promise<InvoiceDecoratedRow[]> {
     const names = await this.staffNames(rows.map((row) => row.staffUserId));
     const requesterNames = await this.staffNames(
       rows.map((row) => row.requestedBy),
@@ -709,7 +723,11 @@ export class InvoiceService {
   private linesOf(value: unknown): InvoiceLineInput[] {
     return Array.isArray(value) ? (value as InvoiceLineInput[]) : [];
   }
-  private asJson(row: Record<string, unknown>) {
+  private asJson(row: Record<string, unknown>): Record<string, unknown> & {
+    items: InvoiceLineInput[];
+    amount: number;
+    tax: number;
+  } {
     return {
       ...row,
       items: this.linesOf(row.items),

@@ -139,14 +139,21 @@ export default function ModelSettingsPage() {
         .filter((id) => id >= 0),
     );
     for (const channelId of used) void loadModels(channelId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在首次载入设置时预取
-  }, [settings]);
+  }, [settings, draft, loadModels]);
 
   const channelOptions = useMemo(
     () =>
       (settings?.channels || []).map((channel) => ({
         value: channel.id,
-        label: channel.id === 0 ? "AIPDD（内置）" : channel.name,
+        label:
+          channel.id === 0
+            ? "AIPDD（内置）"
+            : channel.id === -1
+              ? "LocalAPI（本站模型广场，免 Key）"
+              : channel.available
+                ? channel.name
+                : `${channel.name}（${channel.unavailableReason || "不可用"}）`,
+        disabled: !channel.available,
       })),
     [settings],
   );
@@ -253,6 +260,7 @@ export default function ModelSettingsPage() {
       if (!result) throw new Error("连通测试没有返回结果");
       if (result.ok) message.success(result.message);
       else message.warning(result.message);
+      if (editing?.id) await reload();
     } catch (caught) {
       message.error((caught as Error).message || "连通测试失败");
     } finally {
@@ -263,7 +271,7 @@ export default function ModelSettingsPage() {
   const saveChannel = async () => {
     setSavingChannel(true);
     try {
-      await contentApi.saveChannel({
+      const saved = await contentApi.saveChannel({
         body: {
           id: editing?.id || 0,
           provider: form.provider,
@@ -276,6 +284,20 @@ export default function ModelSettingsPage() {
       setModalOpen(false);
       message.success("渠道已保存");
       setModels({});
+      // 保存后立刻用已落库的凭据校验一次：通过才会被允许选为默认模型
+      if (saved?.id) {
+        try {
+          const checked = await contentApi.testChannel({
+            body: { id: saved.id, provider: saved.provider },
+          });
+          if (checked?.ok) message.success(checked.message);
+          else message.warning(checked?.message || "连通校验未通过");
+        } catch (caught) {
+          message.warning(
+            (caught as Error).message || "连通校验未通过，渠道暂不可选",
+          );
+        }
+      }
       await reload();
     } catch (caught) {
       message.error((caught as Error).message || "渠道保存失败");
@@ -296,8 +318,9 @@ export default function ModelSettingsPage() {
   };
 
   const aipdd = settings?.aipdd;
+  // 0 是 AIPDD、-1 是 LocalAPI，两者都是内置虚拟渠道，只有正数 id 才是用户自建渠道
   const customChannels = (settings?.channels || []).filter(
-    (channel) => channel.id !== 0,
+    (channel) => channel.id > 0,
   );
 
   return (
@@ -370,6 +393,17 @@ export default function ModelSettingsPage() {
                 </div>
               </div>
 
+              <div style={{ border: "1px solid var(--line, #f0f0f0)", borderRadius: 10, padding: "12px 14px" }}>
+                <Space size={8} wrap>
+                  <Tag color="geekblue">LocalAPI</Tag>
+                  <span className="muted text-12">本站模型广场 · 免 Key</span>
+                  <Tag color="green">可直接选择</Tag>
+                </Space>
+                <div className="text-12 muted" style={{ marginTop: 6 }}>
+                  使用本站「模型广场」统一上架的模型，不需要你生成任何 API Key；每次调用按目录价扣积分，余额不足会被拒绝。
+                </div>
+              </div>
+
               {customChannels.map((channel) => (
                 <div key={channel.id} style={{ border: "1px solid var(--line, #f0f0f0)", borderRadius: 10, padding: "12px 14px" }}>
                   <div
@@ -387,6 +421,11 @@ export default function ModelSettingsPage() {
                       <span className="text-12">
                         {channel.keyMasked ? `Key ${channel.keyMasked}` : "未保存 Key"}
                       </span>
+                      {channel.verified ? (
+                        <Tag color="green">已校验</Tag>
+                      ) : (
+                        <Tag color="orange">未校验</Tag>
+                      )}
                       {channel.provider === "volcengine" ? (
                         <span className="text-12">
                           {channel.asrKeyMasked
@@ -396,6 +435,26 @@ export default function ModelSettingsPage() {
                       ) : null}
                     </Space>
                     <Space size={4}>
+                      <Button
+                        icon={<ApiOutlined aria-hidden />}
+                        onClick={async () => {
+                          try {
+                            const checked = await contentApi.testChannel({
+                              body: { id: channel.id, provider: channel.provider },
+                            });
+                            if (!checked) throw new Error("连通测试没有返回结果");
+                            if (checked.ok) message.success(checked.message);
+                            else message.warning(checked.message);
+                            await reload();
+                          } catch (caught) {
+                            message.error(
+                              (caught as Error).message || "连通测试失败",
+                            );
+                          }
+                        }}
+                      >
+                        测试连通
+                      </Button>
                       <Button onClick={() => openChannelModal(channel)}>
                         编辑
                       </Button>

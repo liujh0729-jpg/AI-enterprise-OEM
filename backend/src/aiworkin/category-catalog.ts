@@ -367,6 +367,20 @@ export function marketplacePoolScope(
     ? 'parent'
     : 'leaf';
 }
+/**
+ * 二级类目 → 公开池过滤用的一级类目 key（平台 `GET /market/listings?category=` 只收一级类目）。
+ * 供需市场跨板块选了一个叶子类目时，用它的父类目收窄公开池；平台未收录该一级类目
+ * （`poolFilterable === false`，如「咨询服务」）时返回 undefined，改由本地按叶子精确过滤。
+ */
+export function poolCategoryKey(subCategoryId: string): string | undefined {
+  const leaf = leafById(subCategoryId);
+  if (!leaf) return undefined;
+  const parentKey = leaf.key.split('.')[0];
+  const filterable = MODULE_CATEGORIES.some(
+    (item) => item.parentKey === parentKey && item.poolFilterable !== false,
+  );
+  return filterable ? parentKey : undefined;
+}
 export function findModuleCategory(
   domain: string,
 ): MarketCategoryModule | undefined {
@@ -392,6 +406,29 @@ export function leafById(id: string): MarketCategoryLeaf | undefined {
 /** 模块默认二级类目（表单未选时使用）。 */
 export function defaultSubCategoryId(domain: string) {
   return moduleCategory(domain).children[0].id;
+}
+/**
+ * 供需市场（跨板块）的二级类目校验：需求 / 服务可以挂在任一业务板块的发布出口下，
+ * 因此只要求命中所镜像的模块二级类目，不按单一板块收窄。
+ * `DISPLAY_ONLY_LEAF_SEEDS` 只用于列表展示，不作为发布出口。
+ */
+export function hubSubCategoryId(value: unknown) {
+  const raw = text(value || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) {
+    throw new BusinessException(ErrorCode.BAD_REQUEST, '请选择二级类目');
+  }
+  const hit = MODULE_CATEGORIES.flatMap((item) => item.children).find(
+    (child) => child.id === raw,
+  );
+  if (!hit) {
+    throw new BusinessException(
+      ErrorCode.BAD_REQUEST,
+      '二级类目不属于任何业务板块，请重新选择',
+    );
+  }
+  return hit.id;
 }
 /** 按模块校验并归一化 subcategoryId；只允许该模块自己的二级类目（未选时取模块默认）。 */
 export function requireSubCategoryId(domain: string, value: unknown) {

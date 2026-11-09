@@ -4,6 +4,7 @@ import { Button, Input, InputNumber, Select, Space, Upload } from "antd";
 import { DeleteOutlined, PictureOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { useState } from "react";
 import { uploadCommunityInput } from "@/api/community";
+import { RawImg } from "@/components/ui/raw-img";
 import type { CommunitySlot } from "@enterprise/contracts";
 
 export type SlotValues = Record<string, string | number | null>;
@@ -144,8 +145,7 @@ export function SlotFields({
             ) : slot.type === "image" ? (
               typeof value === "string" && value ? (
                 <div>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- 本站 OSS 直链，尺寸不固定，用原生 img 免配置域名白名单 */}
-                  <img
+                  <RawImg
                     src={value}
                     alt={slot.label}
                     style={{
@@ -169,7 +169,7 @@ export function SlotFields({
                 <Upload
                   accept="image/*"
                   showUploadList={false}
-                  beforeUpload={(file) => uploadImage(slot, file as unknown as File)}
+                  beforeUpload={(file) => uploadImage(slot, file)}
                 >
                   <Button
                     icon={<PictureOutlined />}

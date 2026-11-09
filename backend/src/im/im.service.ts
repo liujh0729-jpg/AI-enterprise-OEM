@@ -11,6 +11,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { OrgStaffService } from '../org-staff/org-staff.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import {
   FeishuClient,
   WecomClient,
@@ -68,6 +69,24 @@ export class ImService {
   ) {}
 
   // ---------- 组织与权限 ----------
+
+  /**
+   * 飞书应用凭据（知识库「飞书文档导入」复用）：取一条启用中的飞书连接器的解密凭据；
+   * 未配置返回 null（调用方如实报错，不编造）。组织仅一个企业/服务商部署，取最早一条即可。
+   */
+  async feishuAppCredentials(): Promise<{
+    appId: string;
+    appSecret: string;
+  } | null> {
+    const row = await this.prisma.imConnector.findFirst({
+      where: { provider: 'FEISHU', status: 'active' },
+      orderBy: { id: 'asc' },
+    });
+    if (!row || !row.appId || !row.appSecretEnc) return null;
+    const secret = this.secrets(row);
+    if (!secret.appId || !secret.appSecret) return null;
+    return { appId: secret.appId, appSecret: secret.appSecret };
+  }
 
   /** 我所属的全部组织：本人在职的机构 + 本人企业 / 服务商。 */
   private async myOrgs(user: CurrentUser) {
@@ -905,8 +924,8 @@ export class ImService {
         data: {
           objectKey,
           direction,
-          config: (body.config || {}) as never,
-          fieldMap: (body.fieldMap || {}) as never,
+          config: toJsonInput(body.config ?? {}),
+          fieldMap: toJsonInput(body.fieldMap ?? {}),
           enabled:
             body.enabled === undefined ? exist.enabled : Boolean(body.enabled),
         },
@@ -926,14 +945,14 @@ export class ImService {
         module,
         objectKey,
         direction,
-        config: (body.config || {}) as never,
-        fieldMap: (body.fieldMap || {}) as never,
+        config: toJsonInput(body.config ?? {}),
+        fieldMap: toJsonInput(body.fieldMap ?? {}),
         enabled: body.enabled === undefined ? true : Boolean(body.enabled),
       },
       update: {
         direction,
-        config: (body.config || {}) as never,
-        fieldMap: (body.fieldMap || {}) as never,
+        config: toJsonInput(body.config ?? {}),
+        fieldMap: toJsonInput(body.fieldMap ?? {}),
       },
     });
     return this.shapeBinding(saved);
@@ -1352,12 +1371,12 @@ export class ImService {
       where: { connectorId: row.id },
       create: {
         connectorId: row.id,
-        rules: rules as never,
-        quietHours: (body.quietHours || {}) as never,
+        rules: toJsonInput(rules),
+        quietHours: toJsonInput(body.quietHours ?? {}),
       },
       update: {
-        rules: rules as never,
-        quietHours: (body.quietHours || {}) as never,
+        rules: toJsonInput(rules),
+        quietHours: toJsonInput(body.quietHours ?? {}),
       },
     });
     return {
@@ -1486,10 +1505,10 @@ export class ImService {
         module: 'APPROVAL',
         objectKey: templateKey,
         direction: 'PUSH',
-        config: { externalTemplateId } as never,
+        config: toJsonInput({ externalTemplateId }),
       },
       update: {
-        config: { externalTemplateId } as never,
+        config: toJsonInput({ externalTemplateId }),
         enabled: true,
       },
     });
@@ -1661,7 +1680,7 @@ export class ImService {
         eventId: input.eventId,
         objectType: input.objectType,
         objectId: input.objectId,
-        payload: input.payload as never,
+        payload: toJsonInput(input.payload),
       },
     });
     return { id: created.id, objectId: created.objectId, duplicate: false };

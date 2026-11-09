@@ -12,11 +12,21 @@ export type EnterpriseRoute = {
   routes?: EnterpriseRoute[];
 };
 
+export type AdminGroupKey = "people" | "operation" | "billing" | "capability" | "system";
+
+export type AdminGroup = {
+  key: AdminGroupKey;
+  name: string;
+  icon: string;
+};
+
 export type AdminSection = {
   key: string;
   name: string;
   icon: string;
   desc: string;
+  /** 侧栏大分类（平台数据总览并入高管驾驶舱，所有板块都归属分组）。 */
+  group: AdminGroupKey;
 };
 
 /**
@@ -25,136 +35,218 @@ export type AdminSection = {
  */
 export const ADMIN_PATH_PREFIX = "/admin";
 
+/** 侧栏大分类，顺序即菜单顺序；板块顺序由 `ADMIN_SECTIONS` 内的排列决定。 */
+export const ADMIN_GROUPS: AdminGroup[] = [
+  { key: "people", name: "用户与服务商", icon: "peoples" },
+  { key: "operation", name: "业务运营监管", icon: "audit" },
+  { key: "billing", name: "计费与商品", icon: "pay-circle" },
+  { key: "capability", name: "能力与安全", icon: "safety" },
+  { key: "system", name: "系统与内容", icon: "setting" },
+];
+
 export const ADMIN_SECTIONS: AdminSection[] = [
-  {
-    key: "overview",
-    name: "总览",
-    icon: "dashboard",
-    desc: "平台数据总览、待办审核与服务商服务类型分布。",
-  },
   {
     key: "users",
     name: "注册用户",
     icon: "team",
     desc: "本系统已识别的全部账号：用户名、昵称、邮箱、账号状态。",
+    group: "people",
   },
   {
     key: "enterprises",
     name: "企业用户",
     icon: "bank",
     desc: "已通过企业信息认证的用户（企业 / 个体工商户主体）。",
+    group: "people",
   },
   {
     key: "provider-applications",
     name: "服务商备案",
     icon: "file-done",
     desc: "服务商备案申请审核：通过后自动获得服务商角色，即可开展对应类目的业务服务。",
+    group: "people",
   },
   {
     key: "providers",
     name: "服务商管理",
     icon: "peoples",
     desc: "已通过备案的服务商与其服务类型资质：可逐项停用 / 恢复（通过即代表该类目资源可对外展示；停用则其资源同步下线并拦截该类型新建业务）。",
-  },
-  {
-    key: "flex",
-    name: "灵活用工",
-    icon: "team",
-    desc: "「灵工发薪」板块的平台级启停（默认启用；资源由服务商备案通过即展示，无需资源级平台审核）。",
-  },
-  {
-    key: "contracts",
-    name: "签约监管",
-    icon: "contract",
-    desc: "全部签约台账：企业、服务商、类目、期限与状态；平台管理员可解除生效中的签约。",
-  },
-  {
-    key: "supply",
-    name: "供销网络监管",
-    icon: "network",
-    desc: "服务站、商品订货与服务预约单的全平台监管总览。",
+    group: "people",
   },
   {
     key: "capabilities",
     name: "服务商能力开通",
     icon: "bolt",
     desc: "服务商提交的财税自动化付费开通申请审核；企业维度的开通 / 关闭与企享云账号匹配统一在「财税管理」处理。",
+    group: "people",
   },
   {
-    key: "tax-admin",
-    name: "财税管理",
-    icon: "audit",
-    desc: "企享云报税 API Key 账号池与税号匹配：新增账号、给企业税号匹配账号，并审核服务商提交的付费开通申请。",
+    key: "flex",
+    name: "灵活用工",
+    icon: "team",
+    desc: "「灵工发薪」板块的平台级启停（默认启用；资源由服务商备案通过即展示，无需资源级平台审核）。",
+    group: "operation",
   },
   {
-    key: "geo",
-    name: "GEO管理设置",
-    icon: "search",
-    desc: "监管每周 GEO 自动采集任务量：本周计划 / 实际完成（含周日未跑完顺延次日）与逐项目明细。采集平台 API Key 由每个账号在「营销工具 → GEO-AI引擎优化」里配自己的，后台看不到也不能替别人配置。",
+    key: "contracts",
+    name: "签约监管",
+    icon: "contract",
+    desc: "全部签约台账：企业、服务商、类目、期限与状态；平台管理员可解除生效中的签约。",
+    group: "operation",
+  },
+  {
+    key: "supply",
+    name: "供销网络监管",
+    icon: "network",
+    desc: "服务站、商品订货与服务预约单的全平台监管总览。",
+    group: "operation",
   },
   {
     key: "marketing-livecode",
     name: "活码监管",
     icon: "qrcode",
     desc: "全平台活码清单：归属账号、当前入口域名与累计扫码；发现违规内容可下架，落地页立即显示「链接已停用」。",
+    group: "operation",
   },
   {
     key: "community",
     name: "创意社区",
     icon: "audit",
     desc: "社区工作流审核与推荐，推荐后给发布者积分（规则可配）。",
+    group: "operation",
+  },
+  {
+    key: "video-templates",
+    name: "视频模版社区",
+    icon: "play",
+    desc: "视频模版社区的平台级开关：是否补充展示 AIworkin 平台模版、手动 / 定时同步策略与最近一次同步结果。",
+    group: "operation",
+  },
+  {
+    key: "tax-admin",
+    name: "财税管理",
+    icon: "audit",
+    desc: "企享云报税 API Key 账号池与税号匹配：新增账号、给企业税号匹配账号，并审核服务商提交的付费开通申请。",
+    group: "operation",
+  },
+  {
+    key: "geo",
+    name: "GEO管理设置",
+    icon: "search",
+    desc: "监管每周 GEO 自动采集任务量：本周计划 / 实际完成（含周日未跑完顺延次日）与逐项目明细。采集平台 API Key 由每个账号在「营销工具 → GEO-AI引擎优化」里配自己的，后台看不到也不能替别人配置。",
+    group: "operation",
   },
   {
     key: "points",
     name: "积分与充值",
     icon: "pay-circle",
     desc: "汇率与充值档位、注册/邀请奖励、赠送限额与风控；模块价目与用量、账户调整与充值订单。",
+    group: "billing",
   },
   {
-    key: "provider-display",
-    name: "服务商展示与同步",
-    icon: "shop",
-    desc: "数据源在 AIworkin、展示权在本系统：同步策略（手动 / 定时）、立即同步、逐项展示开关与排序权重。",
+    key: "model-plaza",
+    name: "模型广场",
+    icon: "appstore",
+    desc: "模型广场的平台上架目录与上游通道：维护模型名称、厂商、计费单价与可用端点，从上游一键拉取差异并上架；用户侧按量扣分，对外提供 OpenAI 兼容网关。",
+    group: "billing",
+  },
+  {
+    key: "entitlements",
+    name: "权益配额",
+    icon: "credential",
+    desc: "套餐目录与配额项：定义每个套餐包含的席位 / 存储 / 调用额度，并给组织分配套餐查看当前权益与已用量。",
+    group: "billing",
+  },
+  {
+    key: "features",
+    name: "功能治理",
+    icon: "safety",
+    desc: "功能目录开关（关闭即拦菜单与接口）、Agent 出网黑名单与沙箱硬上限、技能/插件审查台账与人工放行。",
+    group: "capability",
+  },
+  {
+    key: "skill-generator",
+    name: "生成 Skill",
+    icon: "robot",
+    desc: "勾选本系统 MCP 业务域与动作，调用模型逐个生成根目录带 SKILL.md 的技能包；下载后可发布到 SkillHub 获取流量。目录随 MCP 接口自动增长。",
+    group: "capability",
+  },
+  {
+    key: "publish-review",
+    name: "发布审核",
+    icon: "safety",
+    desc: "配置阿里云内容安全的 AccessKey 与审核场景：发布需求、发布服务必选，社群发帖、发布简历可选；命中违规直接阻断发布并记入审核台账，上游故障降级放行。",
+    group: "capability",
+  },
+  {
+    key: "usage",
+    name: "使用埋点",
+    icon: "chart",
+    desc: "产品使用埋点的启停与保留天数、近 N 天事件汇总与明细；关闭后前端停止上报，已有数据按保留策略清理。",
+    group: "capability",
+  },
+  {
+    key: "hardware",
+    name: "智能硬件",
+    icon: "chip",
+    desc: "硬件型号目录、开发包版本（SDK / 固件上传、下载量）与型号默认 API / MCP 工具维护；用户接入的设备与自建工具在用户侧「智能硬件」栏目。",
+    group: "capability",
+  },
+  {
+    key: "terms",
+    name: "条款版本",
+    icon: "file-done",
+    desc: "服务条款 / 隐私政策等文档的版本发布：可要求修订后重新接受，用户接受行为逐条留痕。",
+    group: "system",
+  },
+  {
+    key: "changelog",
+    name: "更新日志",
+    icon: "horn",
+    desc: "产品更新日志：按版本、分类、发布状态维护，已发布条目同步展示在帮助中心。",
+    group: "system",
   },
   {
     key: "settings",
     name: "系统设置",
     icon: "setting",
-    desc: "文件存储（OSS）、AIPDD 平台 Key（基础数据）、平台级参数与站点设置：各板块以页签切换，站点设置保存后前端读取即时生效。企享云报税 API Key 与税号匹配统一在「财税管理」。",
+    desc: "文件存储（OSS）、AIPDD 平台 Key（基础数据）、平台级参数、站点设置与首页设置：各板块以页签切换，保存后前端读取即时生效。首页设置维护官网落地页的文案、图片与板块显隐（顶部只有注册 / 登录，页脚 ICP 读站点设置）。企享云报税 API Key 与税号匹配统一在「财税管理」。",
+    group: "system",
   },
 ];
 
 export const adminRoute: EnterpriseRoute = {
   path: "/",
   routes: [
-    { path: "/", name: "高管驾驶舱", icon: "dashboard" },
-    {
-      type: "group",
-      name: "平台管理",
-      icon: "setting",
-      routes: ADMIN_SECTIONS.map((item) => ({
+    { path: "/dashboard", name: "高管驾驶舱", icon: "dashboard" },
+    ...ADMIN_GROUPS.map((group) => ({
+      type: "group" as const,
+      name: group.name,
+      icon: group.icon,
+      routes: ADMIN_SECTIONS.filter((item) => item.group === group.key).map((item) => ({
         path: `${ADMIN_PATH_PREFIX}/${item.key}`,
         name: item.name,
         icon: item.icon,
       })),
-    },
+    })),
   ],
 };
 
 /**
  * 高管驾驶舱独立置顶，菜单按当前身份筛选。
- * 顺序：工作台 → 业务服务 → 商务人脉（商务社交 / 招聘） → 管理设置 → 开放集成 → AI增值服务。
+ * 顺序：工作台 → 业务服务 → 商务人脉（商务社交 / 招聘） → 管理设置 → 开放集成（含智能硬件子菜单） → AI增值服务。
  */
 export const enterpriseRoute: EnterpriseRoute = {
   path: "/",
   routes: [
-    { path: "/", name: "高管驾驶舱", icon: "dashboard" },
+    { path: "/dashboard", name: "高管驾驶舱", icon: "dashboard" },
     {
       type: "group",
       name: "工作台",
       icon: "chip",
       routes: [
         { path: "/agent", name: "Agent", icon: "robot" },
+        { path: "/kb", name: "知识库", icon: "book" },
         { path: "/workbuddy", name: "Workbuddy 企业云", icon: "robot" },
         { path: "/data-table", name: "多维表格", icon: "table" },
         { path: "/rpa", name: "RPA自动化", icon: "play" },
@@ -171,6 +263,7 @@ export const enterpriseRoute: EnterpriseRoute = {
           routes: [
             { path: "/content", name: "内容创作小工具", icon: "play" },
             { path: "/community", name: "创意社区", icon: "apps" },
+            { path: "/content/video-templates", name: "视频模版", icon: "play" },
           ],
         },
         { path: "/marketing-tools", name: "营销工具", icon: "horn" },
@@ -181,6 +274,9 @@ export const enterpriseRoute: EnterpriseRoute = {
         { path: "/oa", name: "OA", icon: "file-done" },
         { path: "/okr", name: "OKR计划", icon: "target" },
         { path: "/service-desk", name: "AI客服", icon: "peoples" },
+        { path: "/hrm", name: "HR工作台", icon: "peoples" },
+        { path: "/project", name: "项目管理", icon: "file-done" },
+        { path: "/erp", name: "进销存", icon: "shop" },
         { path: "/app-center", name: "应用中心", icon: "appstore" },
         { path: "/question-hall", name: "专题大厅", icon: "peoples" },
       ],
@@ -201,6 +297,7 @@ export const enterpriseRoute: EnterpriseRoute = {
         { path: "/legal", name: "法律服务", icon: "bank", domain: "legal" },
         { path: "/think-tank", name: "智库服务", icon: "read", domain: "think-tank" },
         { path: "/asset", name: "资产交易", icon: "asset", domain: "asset" },
+        { path: "/market", name: "供需市场", icon: "shop" },
       ],
     },
     /** 商务人脉成组（紧靠业务服务之后、管理设置之前）：商务社交与招聘各自一个入口。 */
@@ -232,9 +329,22 @@ export const enterpriseRoute: EnterpriseRoute = {
       icon: "api",
       routes: [
         { path: "/developer/keys", name: "API Key 管理", icon: "key" },
+        { path: "/model-plaza", name: "模型广场", icon: "appstore" },
         { path: "/model-settings", name: "模型设置", icon: "setting" },
-        { path: "/developer/docs", name: "API 文档", icon: "book" },
-        { path: "/developer/mcp", name: "MCP Server", icon: "api" },
+        { path: "/developer/api-mcp-skill", name: "API-MCP-Skill", icon: "book" },
+        { path: "/developer/mechanisms", name: "平台机制", icon: "api" },
+        /** 智能硬件整组收进「开放集成」作子菜单（三级结构），页面地址不变。 */
+        {
+          type: "group",
+          name: "智能硬件",
+          icon: "chip",
+          routes: [
+            { path: "/hardware", name: "硬件广场", icon: "appstore" },
+            { path: "/hardware/devices", name: "添加硬件", icon: "chip" },
+            { path: "/hardware/mcp", name: "硬件MCP", icon: "api" },
+            { path: "/hardware/api", name: "硬件API", icon: "book" },
+          ],
+        },
       ],
     },
     {
@@ -258,41 +368,52 @@ export const enterpriseRoute: EnterpriseRoute = {
  * 「当前账号」的自助配置，挂在平台后台里容易被误读成平台级设置（平台级配置统一在「系统设置」的
  * 企享云 / OSS / AIPDD 平台 Key 与站点设置页签里）。管理员要用这两页请切到企业 / 个人身份，
  * 只隐藏菜单入口，直接访问链接不受影响。
+ * 智能硬件子菜单（广场 / 我的设备 / 自建工具 / 授权）同属账号视角，管理员侧一并隐藏，
+ * 平台级硬件维护在 /admin 的「智能硬件」板块。
  */
-const ADMIN_HIDDEN_INTEGRATION_PATHS = ["/developer/keys", "/model-settings"];
+const ADMIN_HIDDEN_INTEGRATION_PATHS = [
+  "/developer/keys",
+  "/model-plaza",
+  "/model-settings",
+  "/hardware",
+  "/hardware/devices",
+  "/hardware/mcp",
+  "/hardware/api",
+];
+
+/**
+ * 站点级菜单显隐：递归剔除被隐藏的菜单项（路径即菜单里的 path，外链为完整 URL）。
+ * 只过滤菜单项，不动分组本身——子项全被隐藏的分组留空，交给下游按「空组不留菜单」剔除。
+ */
+function applyHiddenMenuPaths(
+  routes: EnterpriseRoute[],
+  hidden: Set<string>,
+): EnterpriseRoute[] {
+  return routes
+    .filter((route) => !(route.path && hidden.has(route.path)))
+    .map((route) =>
+      route.routes ? { ...route, routes: applyHiddenMenuPaths(route.routes, hidden) } : route,
+    );
+}
 
 /**
  * 只用当前身份组织菜单；具备其他身份不会混入其管理入口。
  * 平台管理员侧栏只拼「平台管理」后台板块与工具菜单，不含「管理设置」分组（身份与资质 / 积分中心 / 我的邀请属个人账户视角），
  * 也不含「开放集成」里的账户级自助入口（见 ADMIN_HIDDEN_INTEGRATION_PATHS）。
- * 三个站点级显隐参数均来自后台「站点设置」，只控制菜单显示，直接访问链接不受影响：
- * - `hiddenBusinessPaths`：隐藏的业务服务菜单路径，全部隐藏后该分组自动消失；
- * - `hiddenIntegrationPaths`：隐藏的「开放集成」菜单路径（如 /developer/docs、/developer/mcp）；
- * - `hideAiServices`：「AI增值服务」分组整组隐藏。
+ * `hiddenMenuPaths` 来自后台「站点设置 → 用户侧菜单显隐」，覆盖前台侧栏每一条菜单（含驾驶舱入口与「AI增值服务」外链），
+ * 对管理员与普通用户一致生效：只控制菜单显示，直接访问链接不受影响，某分组内全部隐藏后该分组自动消失。
  */
 export function navigationFor(
   me: EnterpriseMe | null,
-  hiddenBusinessPaths: string[] = [],
-  hiddenIntegrationPaths: string[] = [],
-  hideAiServices = false,
+  hiddenMenuPaths: string[] = [],
 ): EnterpriseRoute {
   if (!me) return { path: "/", routes: [] };
   const identity = me.currentIdentity;
-  const hiddenBusiness = new Set(hiddenBusinessPaths);
-  const hiddenIntegration = new Set(hiddenIntegrationPaths);
-  // 先做站点级显隐（对管理员与普通用户一致生效），再交给身份分支组织菜单。
-  const routes = enterpriseRoute.routes!
-    .filter((route) => !(hideAiServices && route.name === "AI增值服务"))
-    .map((route) =>
-      route.name === "开放集成"
-        ? {
-            ...route,
-            routes: route.routes!.filter(
-              (child) => !hiddenIntegration.has(child.path || ""),
-            ),
-          }
-        : route,
-    );
+  // 先做站点级显隐（对所有身份一致），再交给身份分支组织菜单。
+  // 历史配置把驾驶舱入口写作「/」，首页独立后驾驶舱移到「/dashboard」，旧开关继续生效。
+  const hidden = new Set(hiddenMenuPaths);
+  if (hidden.has("/")) hidden.add("/dashboard");
+  const routes = applyHiddenMenuPaths(enterpriseRoute.routes!, hidden);
   const management = routes.find((route) => route.name === "管理设置")!;
   const tools = routes
     .filter((route) => route.name === "AI增值服务" || route.name === "开放集成")
@@ -306,9 +427,7 @@ export function navigationFor(
         route.name === "开放集成"
           ? {
               ...route,
-              routes: route.routes!.filter(
-                (child) => !adminHiddenIntegration.has(child.path || ""),
-              ),
+              routes: applyHiddenMenuPaths(route.routes!, adminHiddenIntegration),
             }
           : route,
       )
@@ -330,11 +449,7 @@ export function navigationFor(
           return {
             ...route,
             // 个人主体也进财税/出海：只锁办理动作（签约/申报/账套/发布需求），浏览与服务商名录照常
-            routes: route.routes!.filter(
-              (child) =>
-                isDomainOpened(opened, child.domain) &&
-                !hiddenBusiness.has(child.path || ""),
-            ),
+            routes: route.routes!.filter((child) => isDomainOpened(opened, child.domain)),
           };
         }
         if (route === management) {
@@ -363,7 +478,8 @@ export const PAGE_META: Record<
   string,
   { title: string; description: string }
 > = {
-  "/": { title: "高管驾驶舱", description: "身份与资质、我的待办与业务台账。" },
+  "/": { title: "官网首页", description: "企业服务操作系统：一个账号连接企业全生命周期。" },
+  "/dashboard": { title: "高管驾驶舱", description: "身份与资质、我的待办与业务台账。" },
   "/help": {
     title: "帮助中心",
     description:
@@ -409,6 +525,11 @@ export const PAGE_META: Record<
     description:
       "发布企业内或公开的专题讨论：企业内由本组织与签约/承办伙伴的职员参与，公开对所有登录账号开放；发起人可结案（AI 总结全部发言与回复的回复）、重新结案、关闭或删除，发言可选本人或数字分身署名。",
   },
+  "/kb": {
+    title: "知识库",
+    description:
+      "公共知识库与知识图谱底座：资料投进知识空间后编译为可溯源的 wiki 页面，[[链接]] 自动长出图谱，混合检索与带引用问答随写随可用；支持消费者绑定、Agent 操作记忆提炼与上下文回流，未配置大模型时全链路走规则式回落。",
+  },
   "/social": {
     title: "商务社交",
     description:
@@ -417,7 +538,7 @@ export const PAGE_META: Record<
   "/hiring": {
     title: "招聘",
     description:
-      "本地闭环的招聘专区（移植 SNS 招聘专区）：发布全职/兼职/实习等岗位，进招聘广场信息流供全站浏览与站内私信对接，本系统不做简历投递。本地发布免费、无需绑定 APIKey；已绑定 AIPDD APIKey 时可将岗位同步为 AIworkin 的用工需求（类目固定取平台「灵活用工」子树）并镜像上游状态。",
+      "本地闭环的招聘专区（移植 SNS 招聘专区）：发布全职/兼职/实习等岗位，进招聘广场信息流供全站浏览与站内私信对接。本地发布免费、无需绑定 APIKey；已绑定 AIPDD APIKey 时可将岗位同步为 AIworkin 的用工需求（类目固定取平台「灵活用工」子树）并镜像上游状态。另有「AI 简历代投」（求职者视角）：维护求职画像与简历、按岗位打分匹配、生成优化简历；投递先落为待确认，必须本人在界面确认后发出，并跟踪面试 / Offer 漏斗。",
   },
   "/invite": {
     title: "我的邀请",
@@ -447,7 +568,7 @@ export const PAGE_META: Record<
   "/marketing-tools": {
     title: "营销工具",
     description:
-      "十一个营销工具，首屏每个工具一张卡片、点卡片进入使用：达人建联（按类目 / 平台 / 粉丝数筛选达人并查看联系方式）、阿里云智能外呼（把多维表格名单映射导入阿里云智能外呼任务组）、阿里云邮件推送（把多维表格的联系人同步到阿里云收件人列表）、GEO-AI引擎优化（品牌在 AI 问答中的可见度报告与选题池，另含按语言与付费/免费筛选的发稿平台推荐与 GEO 建站入口，新窗口打开 AIworkin GEO 独立站看板）、Google 潜客线索挖掘（与 AI 对话明确挖掘条件，线索逐批写入多维表格）、企业数据 / 全球贸易大数据 / 全球商务人士大数据 / 全球达人大数据 / 全球POI大数据（各自独立：自然语言提数据需求，AI 解析后查询并逐批写入各自的多维表格）、AI销售管理-SalesBuddy（外部网站，点卡片新窗口打开 salesbuddy.top）。",
+      "十九个营销工具，首屏每个工具一张卡片、点卡片进入使用：达人建联（按类目 / 平台 / 粉丝数筛选达人并查看联系方式）、阿里云智能外呼（把多维表格名单映射导入阿里云智能外呼任务组）、阿里云邮件推送（把多维表格的联系人同步到阿里云收件人列表）、GEO-AI引擎优化（品牌在 AI 问答中的可见度报告与选题池，另含按语言与付费/免费筛选的发稿平台推荐与 GEO 建站入口，新窗口打开 AIworkin GEO 独立站看板）、SEO 优化（传统搜索引擎侧工作台：站点体检、关键词研究与聚类、排名跟踪、竞品洞察、外链分析与建设、本地 SEO 网格、程序化页面、结构化数据与收录提交、SEO 报告；三层数据源——自有抓取免费、DataForSEO 你自带 Key 你付费、系统 AI 计积分，无 Key 不造假数据）、营销技能库（内容 / 社媒 / 邮件 / SEO / 广告 / 调研 / 销售七类技能与品牌上下文，填参数即可运行，结果沉淀为内容资产，支持渠道连接与定时任务）、多平台内容分发、问卷设计与调研、活码引流、腾讯企点三件套、Google 潜客线索挖掘、企业数据 / 全球贸易大数据 / 全球商务人士大数据 / 全球达人大数据 / 全球POI大数据（各自独立：自然语言提数据需求，AI 解析后查询并逐批写入各自的多维表格）、AI销售管理-SalesBuddy（外部网站，点卡片新窗口打开 salesbuddy.top）。",
   },
   "/contracts": {
     title: "签约管理",
@@ -498,6 +619,11 @@ export const PAGE_META: Record<
     title: "资产交易",
     description: "资产租售与居间服务 · 需求消息通道。",
   },
+  "/market": {
+    title: "供需市场",
+    description:
+      "跨板块的公开供需市场：需求与服务各一个页签，默认读 AIworkin 平台公开池（发布同步平台挂单并落本地台账、记回内容 ID）；服务商身份可切「我发布的」读本系统台账。",
+  },
   "/identity": {
     title: "身份与资质",
     description: "用户信息提交即生效；服务商备案需审核；职员需绑定或挂靠。",
@@ -505,6 +631,21 @@ export const PAGE_META: Record<
   "/staff": {
     title: "职员/代理人管理",
     description: "团队概览、挂靠审批与在职职员。",
+  },
+  "/project": {
+    title: "项目管理",
+    description:
+      "项目、任务与工时闭环：项目主档、成员与里程碑、迭代与任务依赖、工时流水与周表审批；成员复用组织「职员/代理人」，AI 只做任务拆解建议与项目健康度评估，写入由人确认。",
+  },
+  "/erp": {
+    title: "进销存",
+    description:
+      "中小企业进销存：商品与变体、分类与仓库、库存流水与调拨、采购单与入库、应收应付与收付款、报销、税率与价格策略；附带 AI 库存/采购/应收/现金流洞察，缺模型 Key 时规则式产出。",
+  },
+  "/developer/mechanisms": {
+    title: "平台机制",
+    description:
+      "事件 Outbox 与 Webhook 订阅、CSV 导入与按模块导出、报表目录与规则引擎、公开分享、OIDC 身份源、附件共享策略，以及飞书 / 企微通讯录、考勤与消息同步。",
   },
   "/service-desk": {
     title: "AI客服",
@@ -531,25 +672,30 @@ export const PAGE_META: Record<
     description:
       "官方 Comfy Cloud 的工作流市场：按分类挑现成的图像 / 视频 / 音频 / 3D / 文本工作流，填参数即可在站内直接运行，跑的是你自己绑定的 Comfy Cloud API Key 与订阅积分（本站不代付算力，免费套餐不含 API 访问）；产物会自动转存进本站对象存储并登记进数字资产。也可以把工作流发布上来，审核通过并被推荐进市场后获得积分奖励。",
   },
+  "/content/video-templates": {
+    title: "视频模版社区",
+    description:
+      "视频模版市场：按使用量 / 最新 / 最多收藏排序与关键词查找；发布样片、参考图与提示词即可上架，查看配方可设积分（被查看即给发布者积分）。点「使用模版生成」把提示词与参考图带到生成器，选择自己的视频模型直接出片，成片自动登记进数字资产。",
+  },
   "/assets": {
     title: "数字资产管理",
     description:
       "与 AIPDD 数字资产完全同步：按文件 / 图片 / 视频 / 音频查询、打标签，也可以直接上传资产（上传即登记到平台，本地不存副本）。",
   },
-    "/model-settings": {
+    "/model-plaza": {
+    title: "模型广场",
+    description:
+      "平台统一上架的可用模型目录：按输入/输出分别标价（图像/语音按次），支持在线试用、查看我的调用用量与成本，并给出 OpenAI 兼容接入地址与 API Key 管理入口。",
+  },
+  "/model-settings": {
     title: "模型设置",
     description:
       "Agent 与内容创作共用的模型配置：AIPDD 内置渠道直接用「API Key 管理」里的 sk- Key，也可接入其他 OpenAI 兼容网关与火山 AI MediaKit，并为每种类型选定默认模型。",
   },
-  "/developer/docs": {
-    title: "API 文档",
+  "/developer/api-mcp-skill": {
+    title: "API-MCP-Skill",
     description:
-      "本系统实际对外提供的接口清单：由契约层派生，与 MCP 服务端 list_operations、OpenAPI 文档同源。",
-  },
-  "/developer/mcp": {
-    title: "MCP Server",
-    description:
-      "本系统对外发布的 MCP 服务端：Codex、Claude Desktop、Cursor、自研脚本和 Workbuddy 用同一把 API Key 连进来，用户只给指令，服务端先分析本账号的智能体记忆再按授权自动执行本站动作。",
+      "开放集成的统一入口：Skill 页签列出平台管理员生成的技能包，点开即可下载；MCP Server 页签给出接入地址、鉴权与工具清单；API 页签是本系统对外接口、渠道与错误码总览。",
   },
   "/admin": {
     title: "平台管理后台",

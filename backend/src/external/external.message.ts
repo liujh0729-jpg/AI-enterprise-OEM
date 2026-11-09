@@ -305,7 +305,7 @@ function taxLines(
           item: '应纳税（费）额',
           basis: '申报表单值',
           rate: '—',
-          amount: calcTaxAmount(taxType, form as Record<string, number>),
+          amount: calcTaxAmount(taxType, form),
         },
       ];
   }

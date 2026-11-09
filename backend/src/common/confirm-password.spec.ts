@@ -1,5 +1,7 @@
 import * as bcrypt from 'bcryptjs';
 import { assertSensitivePassword } from './confirm-password';
+import type { PrismaService } from '../prisma/prisma.service';
+import { stub } from '../../test/doubles';
 
 /**
  * 放权限的开关为什么要验密、验到什么程度：
@@ -10,7 +12,10 @@ const HASH = bcrypt.hashSync('hunter2-hunter', 4);
 
 function prismaWith(account: { passwordHash: string; status: string } | null) {
   const findUnique = jest.fn().mockResolvedValue(account);
-  return { prisma: { account: { findUnique } } as never, findUnique };
+  return {
+    prisma: stub<PrismaService>({ account: { findUnique } }),
+    findUnique,
+  };
 }
 
 describe('assertSensitivePassword', () => {

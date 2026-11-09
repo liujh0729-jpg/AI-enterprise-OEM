@@ -320,3 +320,41 @@ export async function streamRequest(
     throw new TransportError('network', '上游连接失败');
   }
 }
+
+/**
+ * 逐行解析 SSE（OpenAI 与 Anthropic 都是 `data: {json}` 行）；遇到 [DONE] 提前结束。
+ * 全系统唯一的 SSE 行解析（Agent 引擎与模型网关共用），单块坏数据不打断整轮。
+ */
+export async function readSse(
+  body: ReadableStream<Uint8Array> | null,
+  onData: (payload: Record<string, unknown>) => void,
+): Promise<void> {
+  if (!body) return;
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index = buffer.indexOf('\n');
+      while (index >= 0) {
+        const line = buffer.slice(0, index).trim();
+        buffer = buffer.slice(index + 1);
+        index = buffer.indexOf('\n');
+        if (!line || line.startsWith(':')) continue;
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') return;
+        try {
+          onData(JSON.parse(payload) as Record<string, unknown>);
+        } catch {
+          // 单块坏数据不打断整轮
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}

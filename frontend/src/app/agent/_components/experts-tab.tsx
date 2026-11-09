@@ -198,7 +198,7 @@ export function AgentExpertsTab({
         okText="生成专家"
         cancelText="取消"
         confirmLoading={creating}
-        maskClosable={!creating}
+        mask={{ closable: !creating }}
         width={640}
       >
         <div style={{ display: "grid", gap: 10 }}>

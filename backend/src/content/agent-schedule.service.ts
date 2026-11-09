@@ -12,6 +12,8 @@ import { CurrentUser } from '../auth/current-user';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { ContentAgentExpertService } from './agent-experts.service';
 import { ContentAgentService, parseReferences } from './agent.service';
 
@@ -424,7 +426,7 @@ export class ContentAgentScheduleService {
 
   async update(user: CurrentUser, id: string, body: Record<string, unknown>) {
     const existing = await this.ownedSchedule(user, id);
-    const data: Record<string, unknown> = {};
+    const data: Prisma.ContentAgentScheduleUncheckedUpdateInput = {};
     if (body.title !== undefined) {
       const title = text(body.title).trim().slice(0, TITLE_MAX);
       if (!title) {
@@ -454,7 +456,7 @@ export class ContentAgentScheduleService {
     if (body.scheduleType !== undefined) {
       const schedule = this.readSchedule(body);
       data.scheduleType = String(schedule.scheduleType);
-      data.scheduleConfig = schedule.scheduleConfig ?? {};
+      data.scheduleConfig = toJsonInput(schedule.scheduleConfig ?? {});
       data.scheduledAt = schedule.scheduledAt ?? null;
     }
     if (body.expertId !== undefined) {
@@ -466,16 +468,16 @@ export class ContentAgentScheduleService {
       data.personaId = persona?.id || 0;
     }
     if (body.skillIds !== undefined) {
-      data.skillIds = idList(body.skillIds, SKILL_REFS_MAX);
+      data.skillIds = toJsonInput(idList(body.skillIds, SKILL_REFS_MAX));
     }
     if (body.pluginIds !== undefined) {
-      data.pluginIds = idList(body.pluginIds, SKILL_REFS_MAX);
+      data.pluginIds = toJsonInput(idList(body.pluginIds, SKILL_REFS_MAX));
     }
     if (body.libraryIds !== undefined) {
-      data.libraryIds = idList(body.libraryIds, LIBRARY_REFS_MAX);
+      data.libraryIds = toJsonInput(idList(body.libraryIds, LIBRARY_REFS_MAX));
     }
     if (body.references !== undefined) {
-      data.references = parseReferences(body.references);
+      data.references = toJsonInput(parseReferences(body.references));
     }
     if (body.connectorIds !== undefined || body.mailboxIds !== undefined) {
       const connectorIds =
@@ -487,8 +489,8 @@ export class ContentAgentScheduleService {
           ? idList(body.mailboxIds, MAILBOX_REFS_MAX)
           : idList(existing.mailboxIds, MAILBOX_REFS_MAX);
       await this.validateRefs(user, connectorIds, mailboxIds);
-      data.connectorIds = connectorIds;
-      data.mailboxIds = mailboxIds;
+      data.connectorIds = toJsonInput(connectorIds);
+      data.mailboxIds = toJsonInput(mailboxIds);
     }
     if (body.channelId !== undefined) {
       data.channelId = this.channelIdOf(body.channelId);
@@ -526,7 +528,7 @@ export class ContentAgentScheduleService {
     }
     const row = await this.prisma.contentAgentSchedule.update({
       where: { id: existing.id },
-      data: data as never,
+      data,
     });
     await this.identity.audit(
       user.userId,

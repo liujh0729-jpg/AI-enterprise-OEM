@@ -8,6 +8,7 @@ import {
   titleOfWorkflowFile,
   uiToApi,
 } from './community-comfy-convert';
+import { stub } from '../../test/doubles';
 
 /**
  * 迁移转换器的口径单测：钉住「宁可不跑、也不猜着转」这条底线。
@@ -78,6 +79,9 @@ function sdWorkflow() {
   };
 }
 
+/** `sdWorkflow()` 里 nodes 的元素类型（源文件未导出 UiNode，按推断取）。 */
+type UiNode = ReturnType<typeof sdWorkflow>['nodes'][number];
+
 describe('uiToApi', () => {
   it('核心节点图能机械转换成 API 格式，seed 的 control 值不占位', () => {
     const result = uiToApi(sdWorkflow());
@@ -101,11 +105,11 @@ describe('uiToApi', () => {
 
   it('核心表外的节点一律判失败（不猜 widget 顺序）', () => {
     const workflow = sdWorkflow();
-    workflow.nodes[1] = {
+    workflow.nodes[1] = stub<UiNode>({
       id: 2,
       type: 'SomeCustomNode',
       widgets_values: ['x'],
-    } as never;
+    });
     const result = uiToApi(workflow);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain('核心节点表');
@@ -123,10 +127,10 @@ describe('uiToApi', () => {
 
   it('被静音的节点不提交；被它喂输入的图整图放弃', () => {
     const workflow = sdWorkflow();
-    workflow.nodes[0] = {
+    workflow.nodes[0] = stub<UiNode>({
       ...workflow.nodes[0],
       mode: 2,
-    } as never;
+    });
     const result = uiToApi(workflow);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain('静音');
@@ -134,11 +138,11 @@ describe('uiToApi', () => {
 
   it('widget 数量对不上时判失败，不产出缺字段的图', () => {
     const workflow = sdWorkflow();
-    workflow.nodes[0] = {
+    workflow.nodes[0] = stub<UiNode>({
       id: 1,
       type: 'CheckpointLoaderSimple',
       widgets_values: ['a', 'b'],
-    } as never;
+    });
     const result = uiToApi(workflow);
     expect(result.ok).toBe(false);
   });

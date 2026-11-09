@@ -5,7 +5,7 @@ import { taxApi } from "@/api/tax";
 
 import { InboxOutlined, SolutionOutlined } from "@ant-design/icons";
 import { App, Button, Checkbox, Space, Table } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ContactEditModal,
   type ContactEditTarget,
@@ -74,8 +74,8 @@ export function MaterialDetail({
     null,
   );
 
-  const items = data?.analysis?.tax_items || [];
-  const declared = data?.decls || [];
+  const items = useMemo(() => data?.analysis?.tax_items || [], [data]);
+  const declared = useMemo(() => data?.decls || [], [data]);
   // 默认勾选「尚未生成申报单」的税种：已提报的无需重复生成
   useEffect(() => {
     setPicked(
@@ -85,8 +85,7 @@ export function MaterialDetail({
         )
         .map((item) => item.tax_type),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.id, data?.analysis?.at, declared.length]);
+  }, [items, declared]);
 
   const canProvide =
     Boolean(currentUserId) &&

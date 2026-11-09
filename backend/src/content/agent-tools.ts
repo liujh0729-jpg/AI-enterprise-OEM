@@ -1,4 +1,7 @@
 import { CurrentUser } from '../auth/current-user';
+import { BusinessException } from '../common/business.exception';
+import { ErrorCode } from '../common/error-code';
+import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ContentAgentConnectorService } from './agent-connectors.service';
 import { currentAgentScope } from './agent-scope';
@@ -9,8 +12,14 @@ import type {
 import { ContentAgentMemoryService } from './agent-memory.service';
 import { ContentAgentPluginService } from './agent-plugins.service';
 import { ContentAgentSkillService } from './agent-skills.service';
+import {
+  runBusinessTool,
+  type AgentBusinessContext,
+} from './agent-business-tools';
+import type { RetrieveInput, RetrieveResult } from '../kb/kb-retrieve.service';
 import type { ModelOverrides } from './content-media.service';
 import { ContentMediaService } from './content-media.service';
+import type { HardwareService } from '../hardware/hardware.service';
 
 export type AgentToolContext = {
   media: ContentMediaService;
@@ -20,6 +29,22 @@ export type AgentToolContext = {
   connectors: ContentAgentConnectorService;
   library: ContentAgentLibraryService;
   prisma: PrismaService;
+  /** 运行期护栏的审计出口（拦截/熔断要留证） */
+  identity: IdentityService;
+  /** 统一 RAG 出口（AI 底座 §4.2 kb_retrieve）：知识空间/资料库/帮助中心一次查完，任意板块共用 */
+  retrieve: (
+    user: CurrentUser,
+    input: RetrieveInput,
+  ) => Promise<RetrieveResult>;
+  /** 首批业务动作工具（AI 底座 §4.3）：以登录人身份调各模块真实服务 */
+  business: AgentBusinessContext;
+  /** 智能硬件工具（hw__ 前缀）：派发到硬件服务，写动作仍走三层授权闸 */
+  hardware: HardwareService;
+  /** 会话/产出沉淀到知识库：写一篇 wiki 页；没人指定空间就进账号的智能记忆库 */
+  writeKbPage: (
+    user: CurrentUser,
+    input: { title: string; content: string; spaceId?: number },
+  ) => Promise<{ id: number; spaceId: number; title: string }>;
 };
 
 export type AgentReference = {
@@ -233,6 +258,40 @@ export const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'kb_retrieve',
+      description:
+        '跨模块知识检索（统一 RAG 出口）：一次查询用户的知识空间 + 资料库 + 帮助中心，返回带出处引用的片段。用户问「我们的知识库/帮助文档里怎么规定的」「公司资料里有没有关于 X 的说法」这类问题先用本工具；只需要查资料库片段时才用 search_library。返回片段已按相关度排序并给出处（知识页/资料名/帮助主题），作答时引用出处。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description:
+              '一句完整的问题或检索意图，例如「报销流程需要哪些材料」',
+          },
+          sources: {
+            type: 'array',
+            items: { type: 'string', enum: ['kb', 'library', 'help'] },
+            description:
+              '可选：限定检索来源；不传就三源全开（kb=知识空间，library=资料库，help=帮助中心）',
+          },
+          space_ids: {
+            type: 'array',
+            items: { type: 'integer' },
+            description: '可选：限定知识空间编号；不传按当前绑定空间',
+          },
+          top_k: {
+            type: 'integer',
+            description: '可选：每个来源最多召回几条（1~20），默认 8',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'read_library',
       description:
         '精读资料库里的原文：用 node_id 读某个片段全文，用 item_id 读整篇资料（超长会截断）。作答时标注出处（《资料名》+ 标题路径）。',
@@ -282,6 +341,27 @@ export const AGENT_TOOLS = [
           content: { type: 'string', description: '完整的 Markdown 正文' },
         },
         required: ['name', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'save_to_kb',
+      description:
+        '把本轮结论、纪要或整理好的知识沉淀成一页知识库（wiki）页面，之后可被检索与问答引用。用户说「沉淀到知识库 / 存进知识空间 / 整理成一页」时调用；正文请写完整的 Markdown。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '页面标题' },
+          content: { type: 'string', description: '完整的 Markdown 正文' },
+          space_id: {
+            type: 'integer',
+            description:
+              '可选：目标知识空间编号；不传则用分身绑定的空间或账号的智能记忆库',
+          },
+        },
+        required: ['title', 'content'],
       },
     },
   },
@@ -386,6 +466,19 @@ export async function runAgentTool(
     if (name.startsWith('mcp__')) {
       return await context.connectors.callTool(actor.user, name, args);
     }
+    if (name.startsWith('hw__')) {
+      const result = await context.hardware.mcpCall(
+        actor.user.userId,
+        name,
+        args,
+      );
+      const text = result.content.map((item) => item.text).join('\n');
+      return {
+        text: text || (result.isError ? '硬件工具调用失败' : '硬件工具已执行'),
+      };
+    }
+    const business = await runBusinessTool(name, args, context.business, actor);
+    if (business) return business;
     if (name === 'generate_image') {
       const prompt = readString(args, 'prompt');
       if (!prompt) return { text: '缺少 prompt，无法生成图片' };
@@ -494,8 +587,40 @@ export async function runAgentTool(
     if (name === 'save_memory') {
       const note = readString(args, 'note');
       if (!note) return { text: '没有可保存的内容' };
-      const result = await context.memory.append(actor.user, note);
+      const result = await context.memory.append(
+        actor.user,
+        note,
+        currentAgentScope()?.personaId || 0,
+      );
       return { text: result.added ? '已记住' : '这条记忆已经存在，跳过' };
+    }
+    if (name === 'save_to_kb') {
+      // 沉淀是写动作：无人值守的定时任务 / 助理默认不放开
+      if (currentAgentScope()?.allowWrite !== true) {
+        return {
+          text: '这一轮按无人值守执行，不允许写知识库；请在对话里由用户确认后再沉淀。',
+        };
+      }
+      const title = readString(args, 'title');
+      const content = readString(args, 'content');
+      if (!title) return { text: '缺少 title：请给要沉淀的页面起个标题' };
+      if (!content) return { text: '缺少 content：没有可沉淀的正文' };
+      const requested = Number(args.space_id || 0);
+      const scoped = currentAgentScope()?.spaceId || 0;
+      const spaceId =
+        Number.isInteger(requested) && requested > 0
+          ? requested
+          : scoped > 0
+            ? scoped
+            : undefined;
+      const page = await context.writeKbPage(actor.user, {
+        title,
+        content,
+        spaceId,
+      });
+      return {
+        text: `已沉淀到知识库：${page.title}（页面编号 ${page.id}，空间编号 ${page.spaceId}）`,
+      };
     }
     if (name === 'search_library') {
       const question = readString(args, 'question');
@@ -527,6 +652,60 @@ export async function runAgentTool(
           ...(result.note ? [result.note] : []),
           ...lines,
           '以上是片段。需要原文细节就调用 read_library 按 node_id 精读，再综合作答并在句子后标注出处。',
+        ].join('\n\n'),
+      };
+    }
+    if (name === 'kb_retrieve') {
+      const query = readString(args, 'query');
+      if (!query) {
+        return { text: '缺少 query：请把要查的内容写成一句完整的问题' };
+      }
+      const sources = Array.isArray(args.sources)
+        ? args.sources
+            .map(String)
+            .filter((item) => ['kb', 'library', 'help'].includes(item))
+        : undefined;
+      const spaceIds = Array.isArray(args.space_ids)
+        ? args.space_ids
+            .map(Number)
+            .filter((item) => Number.isInteger(item) && item > 0)
+        : undefined;
+      // 本轮没另选空间时，分身绑定的默认知识空间生效
+      const scopedSpace = currentAgentScope()?.spaceId || 0;
+      const effectiveSpaceIds = spaceIds?.length
+        ? spaceIds
+        : scopedSpace > 0
+          ? [scopedSpace]
+          : undefined;
+      const topK = Number(args.top_k || 0);
+      const result = await context.retrieve(actor.user, {
+        query,
+        sources: sources?.length
+          ? (sources as ('kb' | 'library' | 'help')[])
+          : undefined,
+        spaceIds: effectiveSpaceIds,
+        libraryIds: actor.libraryIds,
+        topK: Number.isInteger(topK) && topK > 0 ? topK : undefined,
+      });
+      if (!result.snippets.length) {
+        return {
+          text: '知识空间、资料库和帮助中心里都没有查到相关内容；可以换个问法，或先把资料收进知识库/资料库。',
+        };
+      }
+      const lines = result.snippets.map(
+        (item, index) =>
+          `${index + 1}. [${item.source === 'kb' ? '知识库' : item.source === 'library' ? '资料库' : '帮助中心'}] ${item.title}（相关度 ${item.score}）\n${item.text}`,
+      );
+      return {
+        text: [
+          `检索问题：${query}`,
+          ...(result.spaces.length
+            ? [
+                `检索范围：${result.spaces.map((s) => s.name).join('、')} + 资料库 + 帮助中心`,
+              ]
+            : []),
+          ...lines,
+          '作答时在句子后标注 [编号] 引用，出处不明就说明。',
         ].join('\n\n'),
       };
     }
@@ -586,7 +765,7 @@ export async function runAgentTool(
         reason: readString(args, 'reason'),
       });
       return {
-        text: `改写草稿已生成（草稿编号 ${draft.id}，位置：${draft.nodePath}），还没有写进正文。请告诉用户到「智能体记忆 → 资料库 → 待确认改写」里接受或放弃。`,
+        text: `改写草稿已生成（待审编号 ${draft.id}，位置：${draft.nodePath}），还没有写进正文。请告诉用户到「知识库 → 记忆」的待确认改写里接受或放弃。`,
       };
     }
     if (name === 'publish_to_library') {
@@ -708,6 +887,15 @@ export async function runAgentTool(
     }
     return { text: `未知工具：${name}` };
   } catch (error) {
+    // 安全护栏的拦截必须中止本轮，不能被「工具执行失败」的兜底吞掉
+    if (
+      error instanceof BusinessException &&
+      (error.errorCode === ErrorCode.AGENT_SECURITY_BLOCKED ||
+        error.errorCode === ErrorCode.SKILL_SECURITY_REJECTED ||
+        error.errorCode === ErrorCode.SKILL_PERMISSIONS_UNCONFIRMED)
+    ) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : '工具执行失败';
     return { text: `工具执行失败：${message}` };
   }

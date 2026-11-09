@@ -32,6 +32,7 @@ import {
 } from "@enterprise/contracts";
 import { contentApi, uploadContentMedia } from "@/api/content";
 import { Notice, PageHero, Panel } from "@/components/ui/panel";
+import { RawImg } from "@/components/ui/raw-img";
 import { ToolCard, ToolCardGrid } from "@/components/ui/tool-card";
 import { DomesticPdpTab } from "./_components/domestic-pdp-tab";
 import { DramaAgentGuide } from "./_components/drama-agent-guide";
@@ -138,7 +139,7 @@ export default function ContentPage() {
       .catch(() => setMediaKitReady(null));
   }, []);
 
-  const visibleTools = tools.filter((tool) => !tool.mediaKit || mediaKitReady !== false);
+  const visibleTools = tools.filter((tool) => !tool.hidden && !(tool.mediaKit && mediaKitReady === false));
 
   return (
     <div>
@@ -310,8 +311,7 @@ function ContentToolPanel({ tool }: { tool: ContentTool }) {
         // 读不到模型清单时保留空选择，提交会被拦下
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 按工具槽位初始化一次
-  }, [tool.key]);
+  }, [slotTypes, loadSlotModels]);
 
   const loadJobs = useCallback(async () => {
     setLoadingJobs(true);
@@ -780,8 +780,7 @@ function JobResult({ job, compact }: { job: ContentJob; compact?: boolean }) {
           style={{ maxWidth: compact ? 320 : 560, borderRadius: 8 }}
         />
       ) : url && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url) ? (
-        // eslint-disable-next-line @next/next/no-img-element -- 远端直链，不走图片优化
-        <img src={url} alt="生成结果" style={{ maxWidth: compact ? 200 : 480, borderRadius: 8 }} />
+        <RawImg src={url} alt="生成结果" style={{ maxWidth: compact ? 200 : 480, borderRadius: 8 }} />
       ) : url && /\.(mp3|wav|m4a)(\?|$)/i.test(url) ? (
         <audio src={url} controls style={{ width: compact ? 320 : 480 }} />
       ) : null}

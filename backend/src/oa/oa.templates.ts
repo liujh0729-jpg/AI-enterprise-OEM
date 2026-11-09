@@ -6,10 +6,10 @@ import type {
   OaTemplateSummary,
 } from '@enterprise/contracts';
 import { OA_TEMPLATE_CATEGORY_LABELS } from '@enterprise/contracts';
-import { Prisma } from '../../generated/prisma';
 import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import { toJsonInput } from '../common/json-input';
 import { PrismaService } from '../prisma/prisma.service';
 import type { OaContext } from './oa.scope';
 import {
@@ -586,27 +586,24 @@ export class OaTemplateService {
     const missing = BUILTIN_TEMPLATES.filter((item) => !keys.has(item.key));
     if (!missing.length) return;
     await this.prisma.oaTemplate.createMany({
-      data: missing.map(
-        (item) =>
-          ({
-            orgType: ctx.orgType,
-            orgUserId: ctx.orgUserId,
-            key: item.key,
-            name: item.name,
-            category: item.category,
-            description: item.description,
-            icon: item.icon,
-            numberPrefix: item.numberPrefix,
-            fieldsSchema: item.fields,
-            flowSchema: item.flow,
-            linkageSchema: item.linkage,
-            version: 1,
-            builtin: true,
-            enabled: true,
-            sortOrder: item.sortOrder,
-            createdBy: ctx.actorId,
-          }) as unknown as Prisma.OaTemplateCreateManyInput,
-      ),
+      data: missing.map((item) => ({
+        orgType: ctx.orgType,
+        orgUserId: ctx.orgUserId,
+        key: item.key,
+        name: item.name,
+        category: item.category,
+        description: item.description,
+        icon: item.icon,
+        numberPrefix: item.numberPrefix,
+        fieldsSchema: toJsonInput(item.fields),
+        flowSchema: toJsonInput(item.flow),
+        linkageSchema: toJsonInput(item.linkage),
+        version: 1,
+        builtin: true,
+        enabled: true,
+        sortOrder: item.sortOrder,
+        createdBy: ctx.actorId,
+      })),
     });
   }
 
@@ -697,9 +694,9 @@ export class OaTemplateService {
       description: asString(body.description, 200),
       icon: asString(body.icon, 40),
       numberPrefix: (asString(body.numberPrefix, 8) || 'OA').toUpperCase(),
-      fieldsSchema: fields as unknown as object,
-      flowSchema: flow as unknown as object,
-      linkageSchema: linkage as unknown as object,
+      fieldsSchema: toJsonInput(fields),
+      flowSchema: toJsonInput(flow),
+      linkageSchema: toJsonInput(linkage),
       enabled: body.enabled === undefined ? true : Boolean(body.enabled),
       sortOrder: int(body.sortOrder, 0),
     };

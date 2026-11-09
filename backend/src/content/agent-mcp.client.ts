@@ -498,6 +498,21 @@ class StreamableHttp {
     );
     return flattenCall(result);
   }
+
+  /** 与 `callTool` 同链路，但回原始 result（保留 structuredContent），供内部业务解析。 */
+  async callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) {
+    return this.send(
+      'tools/call',
+      { name, arguments: args },
+      100,
+      CALL_TIMEOUT,
+      signal,
+    );
+  }
 }
 
 /** 旧版 HTTP+SSE：GET 流上先收 `endpoint` 事件，之后消息 POST 到该地址、响应从流里回来。 */
@@ -689,6 +704,19 @@ class LegacySse {
     return flattenCall(result);
   }
 
+  async callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) {
+    return this.send(
+      'tools/call',
+      { name, arguments: args },
+      CALL_TIMEOUT,
+      signal,
+    );
+  }
+
   close() {
     this.closed = true;
     this.closeStream?.();
@@ -726,6 +754,18 @@ export class McpClient {
     return this.http
       ? this.http.callTool(name, args, signal)
       : this.sse!.callTool(name, args, signal);
+  }
+
+  /** 回原始 result（含 structuredContent）；业务侧自解析用。 */
+  async callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) {
+    await this.connect(signal);
+    return this.http
+      ? this.http.callToolRaw(name, args, signal)
+      : this.sse!.callToolRaw(name, args, signal);
   }
 
   close() {

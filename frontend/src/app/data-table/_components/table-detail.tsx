@@ -9,6 +9,8 @@ import { App, Button, Space, Tag } from "antd";
 import { useState } from "react";
 import { GrantPanel } from "./grant-panel";
 import { RowPanel } from "./row-panel";
+import { ViewPanel } from "./view-panel";
+import { AiPanel } from "./ai-panel";
 import { TableSettingsButton } from "./settings-panel";
 import { tableApi, type DataTableTable } from "./common";
 
@@ -75,6 +77,10 @@ export function TableDetail({
 
       {table.owner ? <GrantPanel table={table} onChanged={refresh} /> : null}
       <RowPanel table={table} reloadKey={reloadKey} onChanged={refresh} />
+      {table.can.read ? (
+        <ViewPanel table={table} reloadKey={reloadKey} />
+      ) : null}
+      {table.can.read ? <AiPanel table={table} /> : null}
     </>
   );
 }

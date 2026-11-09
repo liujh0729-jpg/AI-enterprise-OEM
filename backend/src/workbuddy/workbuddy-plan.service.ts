@@ -1,4 +1,5 @@
 import { Prisma, type WorkbuddyPlan } from '../../generated/prisma';
+import { toJsonInput } from '../common/json-input';
 import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
@@ -870,11 +871,11 @@ export class WorkbuddyPlanService {
         sessionId,
         status,
         ...(status === 'running' ? {} : { finishedAt: new Date() }),
-        output: {
+        output: toJsonInput({
           a2aTaskId: remoteId || null,
           state: state || null,
           result,
-        } as unknown as Prisma.InputJsonValue,
+        }),
         lastError:
           status === 'failed' ? shorten(state || 'Agent 返回失败状态') : '',
       },
@@ -922,7 +923,7 @@ export class WorkbuddyPlanService {
           where: { id: task.id },
           data: {
             status,
-            output: output as unknown as Prisma.InputJsonValue,
+            output: toJsonInput(output),
             ...(status === 'running' ? {} : { finishedAt: new Date() }),
             lastError:
               status === 'failed' ? shorten(state || 'Agent 返回失败状态') : '',

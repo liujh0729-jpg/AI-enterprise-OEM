@@ -12,7 +12,7 @@ import type {
   ContentDigitalAsset,
 } from "@enterprise/contracts";
 import { endpoint } from "./endpoint";
-import { http, streamSse } from "./http";
+import { http, streamSse, uploadFormTo } from "./http";
 
 export const contentApi = {
   settings: endpoint(endpoints.Content_settings),
@@ -79,10 +79,30 @@ export const contentApi = {
   digitalAssets: endpoint(endpoints.Content_digitalAssets),
   digitalAssetLabels: endpoint(endpoints.Content_digitalAssetLabels),
   tagDigitalAsset: endpoint(endpoints.Content_tagDigitalAsset),
+  deleteDigitalAsset: endpoint(endpoints.Content_deleteDigitalAsset),
+  extractDigitalAsset: endpoint(endpoints.Content_extractDigitalAsset),
+  autoTagDigitalAsset: endpoint(endpoints.Content_autoTagDigitalAsset),
+  similarDigitalAssets: endpoint(endpoints.Content_similarDigitalAssets),
+  moderateDigitalAsset: endpoint(endpoints.Content_moderateDigitalAsset),
+  presignDigitalAsset: endpoint(endpoints.Content_presignDigitalAsset),
+  registerDigitalAsset: endpoint(endpoints.Content_registerDigitalAsset),
   sharedAssets: endpoint(endpoints.Content_sharedAssets),
   shareTargets: endpoint(endpoints.Content_shareTargets),
   shareAsset: endpoint(endpoints.Content_shareAsset),
   unshareAsset: endpoint(endpoints.Content_unshareAsset),
+  // 视频模版社区
+  videoTemplates: endpoint(endpoints.VideoTemplate_list),
+  videoTemplate: endpoint(endpoints.VideoTemplate_detail),
+  viewVideoTemplate: endpoint(endpoints.VideoTemplate_view),
+  publishVideoTemplate: endpoint(endpoints.VideoTemplate_publish),
+  removeVideoTemplate: endpoint(endpoints.VideoTemplate_remove),
+  favoriteVideoTemplate: endpoint(endpoints.VideoTemplate_favorite),
+  unfavoriteVideoTemplate: endpoint(endpoints.VideoTemplate_unfavorite),
+  rateVideoTemplate: endpoint(endpoints.VideoTemplate_rate),
+  generateVideoTemplate: endpoint(endpoints.VideoTemplate_generate),
+  videoTemplateAdminSettings: endpoint(endpoints.VideoTemplateAdmin_settings),
+  saveVideoTemplateAdminSettings: endpoint(endpoints.VideoTemplateAdmin_saveSettings),
+  syncVideoTemplateAdmin: endpoint(endpoints.VideoTemplateAdmin_sync),
 };
 
 const uploadResultSchema = z.object({
@@ -170,6 +190,17 @@ export function streamAgentMessage(
     connectorIds?: number[];
     /** 本轮用的数字分身（0＝自动；不传＝沿用会话上记住的那个） */
     personaId?: number;
+    /** 多分身协作：传 2–3 个分身 id，先各自起草再互相评审，最后由第一位汇总 */
+    personaIds?: number[];
+    /** 嵌入式副驾：当前模块 / 记录 / 页面摘要；allowWrite=false 时业务写工具会被拒绝 */
+    copilot?: {
+      module: string;
+      moduleLabel?: string;
+      recordId?: string;
+      recordLabel?: string;
+      context?: string;
+      allowWrite?: boolean;
+    };
     /** 本轮标识：同一会话可以并发多轮，停止按这个键只停对应那一轮 */
     runId?: string;
     onEvent: (event: { event: string; data: string }) => void;
@@ -197,6 +228,10 @@ export function streamAgentMessage(
         libraryIds: options.libraryIds || [],
         connectorIds: options.connectorIds || [],
         personaId: options.personaId ?? -1,
+        personaIds: options.personaIds || [],
+        copilot: options.copilot
+          ? { ...options.copilot, allowWrite: options.copilot.allowWrite === true }
+          : undefined,
         runId: options.runId || "",
       },
       signal: options.signal,
@@ -231,4 +266,42 @@ export async function uploadDigitalAsset(
   );
   if (!result.data.data) throw new Error("资产上传没有返回结果");
   return result.data.data;
+}
+
+/**
+ * 浏览器直传：先取 OSS 表单签名，把字节直接传进桶，再登记台账（服务端会 stat 核对）。
+ * 桶没配 CORS / 未启用 OSS 时抛错，由调用方回落服务器中转上传。
+ */
+export async function uploadDigitalAssetDirect(
+  file: File,
+  meta: { type: string; name?: string; labels?: string[] },
+): Promise<ContentDigitalAsset> {
+  const presign = await contentApi.presignDigitalAsset({
+    body: {
+      filename: file.name,
+      type: meta.type,
+      size: file.size,
+    },
+  });
+  if (!presign) throw new Error("直传签名没有返回结果，已改用服务器上传");
+  const form = new FormData();
+  for (const [key, value] of Object.entries(presign.fields)) {
+    form.append(key, value);
+  }
+  form.append("file", file);
+  const response = await uploadFormTo(presign.url, form);
+  if (!response.ok) {
+    throw new Error(`直传失败（HTTP ${response.status}），已改用服务器上传`);
+  }
+  const asset = await contentApi.registerDigitalAsset({
+    body: {
+      key: presign.key,
+      filename: file.name,
+      name: meta.name,
+      type: meta.type,
+      labels: meta.labels,
+    },
+  });
+  if (!asset) throw new Error("直传登记没有返回结果");
+  return asset;
 }

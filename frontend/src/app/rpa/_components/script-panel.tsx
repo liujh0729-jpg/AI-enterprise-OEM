@@ -379,7 +379,7 @@ export function ScriptPanel({
       key: "actions",
       width: 190,
       render: (_, row) => (
-        <Button.Group>
+        <Space.Compact>
           <Button onClick={() => void view(row)}>
             查看
           </Button>
@@ -389,7 +389,7 @@ export function ScriptPanel({
           <Button danger onClick={() => remove(row)}>
             删
           </Button>
-        </Button.Group>
+        </Space.Compact>
       ),
     },
   ];

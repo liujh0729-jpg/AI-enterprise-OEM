@@ -122,14 +122,14 @@ export function ComfyConnectModal({
         以密文存在本站数据库里，任何页面都不会再显示明文。
       </Notice>
       <Steps
-        direction="vertical"
+        orientation="vertical"
         size="small"
         current={status?.connected ? 4 : 0}
         style={{ margin: "16px 0 8px" }}
         items={[
           {
             title: "注册 Comfy Cloud 账号",
-            description: (
+            content: (
               <span className="text-12">
                 打开{" "}
                 <a href="https://platform.comfy.org" target="_blank" rel="noreferrer">
@@ -141,7 +141,7 @@ export function ComfyConnectModal({
           },
           {
             title: "开通付费订阅（免费套餐不含 API 访问）",
-            description: (
+            content: (
               <span className="text-12">
                 API 调用需要付费的 Comfy Cloud 订阅，套餐决定并发与每月可跑的积分量：
                 <a href={status?.pricingUrl || "https://www.comfy.org/pricing"} target="_blank" rel="noreferrer">
@@ -153,7 +153,7 @@ export function ComfyConnectModal({
           },
           {
             title: "创建 API Key",
-            description: (
+            content: (
               <span className="text-12">
                 在 platform.comfy.org 的「API Keys」里点{" "}
                 <Tag>+ New</Tag> 创建；<b>密钥只在创建成功那一刻显示一次</b>，当时没存就只能重建一把。
@@ -162,7 +162,7 @@ export function ComfyConnectModal({
           },
           {
             title: "粘贴到下面并保存",
-            description: (
+            content: (
               <span className="text-12">
                 保存时本站会立刻拿它打一次上游探活，通过了才算连接成功；探活失败也会记下原因，
                 方便你判断是 Key 错了还是订阅没生效。

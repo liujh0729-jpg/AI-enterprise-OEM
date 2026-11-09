@@ -54,7 +54,7 @@ $pub2 = Invoke-RestMethod "$base/api/site-config"
 Check 'restored to original siteUrl' ($pub2.data.siteUrl -eq $origin) (J $pub2.data)
 
 Write-Host '== S10 frontend pages using site base render 200 =='
-foreach ($path in @('/developer/mcp', '/developer/docs', '/admin/site', '/marketing-tools', '/service-desk', '/data-table', '/agent', '/staff', '/invite')) {
+foreach ($path in @('/developer/api-mcp-skill', '/admin/site', '/marketing-tools', '/service-desk', '/data-table', '/agent', '/staff', '/invite')) {
   try {
     $resp = Invoke-WebRequest -Uri ("http://127.0.0.1:15890" + $path) -UseBasicParsing -TimeoutSec 40
     Check ("page " + $path) ($resp.StatusCode -eq 200) $resp.StatusCode

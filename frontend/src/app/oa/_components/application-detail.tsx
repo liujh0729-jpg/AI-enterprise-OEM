@@ -314,7 +314,7 @@ export function ApplicationDetail({
   if (!app) {
     return (
       <Panel title="单据详情">
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={12} style={{ width: "100%" }}>
           <Button onClick={onBack}>返回列表</Button>
           {error ? <Notice variant="error">{error}</Notice> : <EmptyState text="单据不存在或不在当前组织" />}
         </Space>
@@ -328,7 +328,7 @@ export function ApplicationDetail({
   );
   const preReviewEnabled = Boolean(activeStep?.aiPreReviewEnabled);
   return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={12} style={{ width: "100%" }}>
       <Panel
         title={`${app.number} · ${app.title}`}
         titleExtra={<ApplicationStatusTag status={app.status} label={app.statusLabel} />}
@@ -584,7 +584,7 @@ export function ApplicationDetail({
       </Panel>
 
       <Panel title="评论">
-        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={8} style={{ width: "100%" }}>
           <Input.TextArea
             rows={3}
             maxLength={1000}
@@ -615,7 +615,7 @@ export function ApplicationDetail({
         onOk={() => void submitAction()}
       >
         {action ? (
-          <Space direction="vertical" size={10} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={10} style={{ width: "100%" }}>
             <div className="muted text-12">{ACTION_HINT[action]}</div>
             {ACTION_META[action].pick !== "none" ? (
               <div>

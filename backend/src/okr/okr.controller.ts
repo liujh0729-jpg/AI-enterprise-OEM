@@ -1,9 +1,15 @@
 import { CurrentUser } from '../auth/current-user';
+import { OkrBriefService } from './okr-brief.service';
+import { OkrDecompositionService } from './okr-decomposition.service';
 import { OkrService } from './okr.service';
 
 /** OKR 控制器：与契约 Okr_* 一一对应，只做参数透传。 */
 export class OkrController {
-  constructor(private readonly service: OkrService) {}
+  constructor(
+    private readonly service: OkrService,
+    private readonly briefs: OkrBriefService,
+    private readonly decompositions: OkrDecompositionService,
+  ) {}
 
   overview(user: CurrentUser, query: Record<string, unknown>) {
     return this.service.overview(user, query);
@@ -163,5 +169,77 @@ export class OkrController {
 
   settingsSave(user: CurrentUser, body: Record<string, unknown>) {
     return this.service.settingsSave(user, body);
+  }
+
+  // ---------- 目标书（OKR 2.0） ----------
+
+  briefList(user: CurrentUser, query: Record<string, unknown>) {
+    return this.briefs.list(user, query);
+  }
+
+  briefGet(user: CurrentUser, id: string) {
+    return this.briefs.get(user, id);
+  }
+
+  briefSave(user: CurrentUser, body: Record<string, unknown>) {
+    return this.briefs.save(user, body);
+  }
+
+  briefRemove(user: CurrentUser, id: string) {
+    return this.briefs.remove(user, id);
+  }
+
+  // ---------- 互动澄清 ----------
+
+  dialogList(user: CurrentUser, id: string) {
+    return this.briefs.dialogList(user, id);
+  }
+
+  dialogSend(user: CurrentUser, id: string, body: Record<string, unknown>) {
+    return this.briefs.dialogSend(user, id, body);
+  }
+
+  // ---------- 拆解方案 ----------
+
+  decompositionList(user: CurrentUser, id: string) {
+    return this.decompositions.list(user, id);
+  }
+
+  decompositionGenerate(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return this.decompositions.generate(user, id, body);
+  }
+
+  decompositionSimulate(user: CurrentUser, id: string) {
+    return this.decompositions.simulate(user, id);
+  }
+
+  decompositionCommit(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return this.decompositions.commit(user, id, body);
+  }
+
+  // ---------- 任务关联与考核 ----------
+
+  taskLinkList(user: CurrentUser, query: Record<string, unknown>) {
+    return this.decompositions.taskLinkList(user, query);
+  }
+
+  taskLinkSave(user: CurrentUser, body: Record<string, unknown>) {
+    return this.decompositions.taskLinkSave(user, body);
+  }
+
+  taskLinkRemove(user: CurrentUser, id: string) {
+    return this.decompositions.taskLinkRemove(user, id);
+  }
+
+  assessmentPreview(user: CurrentUser, query: Record<string, unknown>) {
+    return this.decompositions.assessmentPreview(user, query);
   }
 }

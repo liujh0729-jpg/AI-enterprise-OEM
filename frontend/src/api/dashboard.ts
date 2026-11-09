@@ -11,7 +11,6 @@ import { ipApi } from "./ip";
 import { flexApi } from "./flex";
 import { identityApi } from "./identity";
 import { adminApi } from "./admin";
-import { aiworkinApi } from "./aiworkin";
 
 export const dashboardStats = {
   declarations: taxApi.declarationStats,
@@ -67,29 +66,6 @@ export const dashboardApi = {
       myWork,
       invitations: (applications || []).filter((row) => row.direction === "PROVIDER_INVITE" && row.status === "PENDING"),
       affiliations: (applications || []).filter((row) => row.direction !== "PROVIDER_INVITE"),
-    };
-  },
-  // 平台通道独立取数，慢请求或失败不阻塞本系统的待办和管理统计。
-  async platformSummary(signal: AbortSignal) {
-    const options = { signal };
-    const status = await aiworkinApi.status({}, options);
-    if (!status?.enabled) {
-      return { enabled: false, services: null, demands: null };
-    }
-    const [supply, demand] = await Promise.all([
-      aiworkinApi.myDemands(
-        { query: { page: "1", pageSize: "1", direction: "SUPPLY" } },
-        options,
-      ),
-      aiworkinApi.myDemands(
-        { query: { page: "1", pageSize: "1", direction: "DEMAND" } },
-        options,
-      ),
-    ]);
-    return {
-      enabled: true,
-      services: supply?.total ?? null,
-      demands: demand?.total ?? null,
     };
   },
 };

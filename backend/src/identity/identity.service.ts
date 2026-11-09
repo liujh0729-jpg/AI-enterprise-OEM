@@ -26,6 +26,7 @@ import {
   type IdentitySnapshot,
 } from './identity-snapshot';
 import { UserLookupService } from '../directory/user-lookup.service';
+import { AccountCrypto } from '../account/account-crypto';
 import { OssService } from '../oss/oss.service';
 import { parseAttachmentFiles } from '../oss/attachment-files';
 import { PrismaService } from '../prisma/prisma.service';
@@ -323,6 +324,12 @@ export class IdentityService {
     private readonly users: UserLookupService,
     private readonly oss: OssService,
   ) {}
+
+  /** API Key 明文密文列（AES-256-GCM）的加解密：延后构造，避免未配 EXTERNAL_CRED_KEY 的单测在构造期抛错。 */
+  private apiKeyCrypto: AccountCrypto | null = null;
+  private get keyCrypto(): AccountCrypto {
+    return (this.apiKeyCrypto ??= new AccountCrypto());
+  }
   /**
    * 身份判定：一次请求内同一 userId 只查一轮库（`requireRoles` + `currentIdentity` +
    * `providerContext` 这类组合会重复调用）。缓存只在请求上下文内存活，
@@ -1455,10 +1462,7 @@ export class IdentityService {
     if (!q) return [];
     const rows = await this.prisma.staffProfile.findMany({
       where: {
-        OR: [
-          { realName: { contains: q } },
-          { phone: { contains: q } },
-        ],
+        OR: [{ realName: { contains: q } }, { phone: { contains: q } }],
       },
       take: 20,
     });
@@ -2414,7 +2418,7 @@ export class IdentityService {
     await client.auditLog.create({ data: { userId, action, detail } });
   }
   async listApiKeys(userId: string) {
-    return this.prisma.apiKey.findMany({
+    const rows = await this.prisma.apiKey.findMany({
       where: { userId },
       orderBy: { id: 'desc' },
       select: {
@@ -2424,8 +2428,33 @@ export class IdentityService {
         status: true,
         createdAt: true,
         lastUsedAt: true,
+        pointsQuota: true,
       },
     });
+    const used = await this.pointsUsedByKey(rows.map((row) => row.id));
+    return rows.map((row) => ({
+      ...row,
+      pointsQuota: row.pointsQuota === null ? null : Number(row.pointsQuota),
+      pointsUsed: used.get(row.id) ?? 0,
+    }));
+  }
+  /** 逐 Key 累计已消耗积分（对外调用记账口径：`model_usage_logs.points_cost` 之和）。 */
+  private async pointsUsedByKey(ids: number[]) {
+    const map = new Map<number, number>();
+    if (!ids.length) return map;
+    const rows = await this.prisma.modelUsageLog.groupBy({
+      by: ['apiKeyId'],
+      where: { apiKeyId: { in: ids }, source: 'API' },
+      _sum: { pointsCost: true },
+    });
+    for (const row of rows) {
+      if (row.apiKeyId === null) continue;
+      map.set(
+        row.apiKeyId,
+        Number(Number(row._sum.pointsCost ?? 0).toFixed(4)),
+      );
+    }
+    return map;
   }
   async createApiKey(user: CurrentUser) {
     const plain = `ek_${randomBytes(24).toString('hex')}`;
@@ -2433,6 +2462,7 @@ export class IdentityService {
       data: {
         userId: user.userId,
         keyHash: createHash('sha256').update(plain).digest('hex'),
+        keyCipher: this.keyCrypto.encrypt(plain),
         masked: maskKey(plain),
       },
     });
@@ -2470,12 +2500,76 @@ export class IdentityService {
       where: { id },
       data: {
         keyHash: createHash('sha256').update(plain).digest('hex'),
+        keyCipher: this.keyCrypto.encrypt(plain),
         masked: maskKey(plain),
         status: 'ACTIVE',
       },
     });
     await this.audit(user.userId, 'API_KEY_RESET', `#${id} 旧 Key 已失效`);
     return { id, plainKey: plain, masked: maskKey(plain) };
+  }
+  /**
+   * 设置单个 Key 的积分额度（对外调用累计消耗上限）；`null` = 不限额度。
+   * 额度只约束「模型广场 /v1」的对外调用计费，不改动任何既有扣费口径。
+   */
+  async updateApiKeyQuota(
+    user: CurrentUser,
+    id: number,
+    pointsQuota: number | null,
+  ) {
+    const exist = await this.prisma.apiKey.findFirst({
+      where: { id, userId: user.userId },
+    });
+    if (!exist)
+      throw new BusinessException(ErrorCode.NOT_FOUND, 'API Key 不存在');
+    const quota =
+      pointsQuota === null || pointsQuota === undefined
+        ? null
+        : Number(pointsQuota);
+    if (quota !== null && (!Number.isFinite(quota) || quota <= 0)) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '积分额度需填大于 0 的数字，或设为不限额度',
+      );
+    }
+    await this.prisma.apiKey.update({
+      where: { id },
+      data: { pointsQuota: quota },
+    });
+    await this.audit(
+      user.userId,
+      'API_KEY_QUOTA',
+      `#${id} ${quota === null ? '不限额度' : `${quota} 积分`}`,
+    );
+    return { id, pointsQuota: quota };
+  }
+  /** 回读本人 Key 明文（供「复制 API Key」）：只解本人名下、未吊销且已落密文的 Key。 */
+  async revealApiKey(user: CurrentUser, id: number) {
+    const row = await this.prisma.apiKey.findFirst({
+      where: { id, userId: user.userId },
+    });
+    if (!row)
+      throw new BusinessException(ErrorCode.NOT_FOUND, 'API Key 不存在');
+    if (row.status !== 'ACTIVE') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该 Key 已吊销，无法复制',
+      );
+    }
+    let plain = '';
+    try {
+      plain = row.keyCipher ? this.keyCrypto.decrypt(row.keyCipher) : '';
+    } catch {
+      plain = '';
+    }
+    if (!plain) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该 Key 创建于早期版本，明文不可回读，请「重置」后再复制',
+      );
+    }
+    await this.audit(user.userId, 'API_KEY_REVEAL', `#${id} ${row.masked}`);
+    return { id, plainKey: plain, masked: row.masked };
   }
   async revokeApiKey(user: CurrentUser, id: number) {
     await this.prisma.apiKey.updateMany({

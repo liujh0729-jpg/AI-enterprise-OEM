@@ -1,6 +1,10 @@
 "use client";
 
-import { EditOutlined, HolderOutlined } from "@ant-design/icons";
+import {
+  EditOutlined,
+  HolderOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import { App, Button, Checkbox, Form, Input, Modal, Select, Space, Tag } from "antd";
 import { useState } from "react";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
@@ -12,6 +16,7 @@ import {
   tableApi,
   type DataTableField,
   type DataTableTable,
+  type FieldAi,
 } from "./common";
 
 type FieldForm = {
@@ -20,6 +25,8 @@ type FieldForm = {
   field_type: string;
   required: boolean;
   choices: string;
+  ai_prompt: string;
+  ai_sources: string[];
 };
 
 const EMPTY_FORM: FieldForm = {
@@ -28,6 +35,8 @@ const EMPTY_FORM: FieldForm = {
   field_type: "text",
   required: false,
   choices: "",
+  ai_prompt: "",
+  ai_sources: [],
 };
 
 /**
@@ -47,9 +56,22 @@ export function FieldPanel({
   const [editing, setEditing] = useState<DataTableField | null>(null);
   const [form] = Form.useForm<FieldForm>();
   const [busy, setBusy] = useState(false);
+  const [fillOpen, setFillOpen] = useState(false);
+  const [fillTarget, setFillTarget] = useState<DataTableField | null>(null);
+  const [fillSources, setFillSources] = useState<string[]>([]);
+  const [fillLimit, setFillLimit] = useState(200);
+  const [fillBusy, setFillBusy] = useState(false);
   const [dragKey, setDragKey] = useState<string | null>(null);
 
   const fields = [...table.fields].sort((a, b) => a.sortOrder - b.sortOrder);
+  /** 取材列候选：本表里除目标列以外的列，逐条填列时把它们的值喂给模型。 */
+  const sourceOptions = (excludeKey?: string) =>
+    fields
+      .filter((field) => field.fieldKey !== excludeKey)
+      .map((field) => ({
+        value: field.fieldKey,
+        label: `${field.name}（${field.fieldKey}）`,
+      }));
 
   const openCreate = () => {
     setEditing(null);
@@ -59,23 +81,31 @@ export function FieldPanel({
 
   const openEdit = (field: DataTableField) => {
     setEditing(field);
+    const ai = field.options?.ai;
     form.setFieldsValue({
       name: field.name,
       field_key: field.fieldKey,
       field_type: field.fieldType,
       required: field.required,
       choices: (field.options?.choices || []).join(","),
+      ai_prompt: ai?.prompt || "",
+      ai_sources: ai?.source_keys || [],
     });
     setOpen(true);
   };
 
   const submit = async () => {
     const values = await form.validateFields();
+    const prompt = (values.ai_prompt || "").trim();
+    const ai: FieldAi | null = prompt
+      ? { prompt, source_keys: values.ai_sources || [] }
+      : null;
     const body: Record<string, unknown> = {
       name: values.name.trim(),
       field_type: values.field_type,
       required: values.required,
       choices: parseChoices(values.choices || ""),
+      ai,
     };
     /** 新增免密；修改列走密码确认（与全站改删口径一致）。 */
     if (editing) {
@@ -145,6 +175,51 @@ export function FieldPanel({
     }
   };
 
+  /** 打开 AI 填列：默认取材本表其余列、默认上限 200 行。 */
+  const openFill = (field: DataTableField) => {
+    setFillTarget(field);
+    const preset = field.options?.ai?.source_keys || [];
+    setFillSources(
+      preset.length
+        ? preset
+        : fields
+            .filter((item) => item.fieldKey !== field.fieldKey)
+            .map((item) => item.fieldKey),
+    );
+    setFillLimit(200);
+    setFillOpen(true);
+  };
+
+  const runFill = () => {
+    const target = fillTarget;
+    if (!target) return;
+    request({
+      title: "AI 填列（需密码）",
+      content: `确认用 AI 为「${target.name}」逐条生成值？已有值会被覆盖，最多处理 ${fillLimit} 行。`,
+      okText: "开始生成",
+      onOk: async () => {
+        setFillBusy(true);
+        try {
+          const result = await tableApi.aiFillColumn(table.id, {
+            field_key: target.fieldKey,
+            prompt: target.options?.ai?.prompt,
+            source_keys: fillSources,
+            limit: fillLimit,
+          });
+          setFillOpen(false);
+          message.success(
+            `已更新 ${result.updated} 行${result.skipped ? `，跳过 ${result.skipped} 行` : ""}（${result.mode === "llm" ? `模型 ${result.model}` : "规则兜底"}）`,
+          );
+          await onChanged();
+        } catch (error) {
+          message.error((error as Error).message);
+        } finally {
+          setFillBusy(false);
+        }
+      },
+    });
+  };
+
   return (
     <Panel
       title="列定义"
@@ -175,6 +250,21 @@ export function FieldPanel({
                 {fieldTypeLabel(field.fieldType)}
                 {field.required ? " · 必填" : ""}
               </span>
+              {field.options?.ai?.prompt ? (
+                <Tag color="purple" style={{ marginLeft: 6 }}>
+                  AI
+                </Tag>
+              ) : null}
+              {field.options?.ai?.prompt && table.can.update ? (
+                <Button
+                  type="link"
+                  icon={<ThunderboltOutlined />}
+                  style={{ padding: "0 4px", marginLeft: 6 }}
+                  onClick={() => openFill(field)}
+                >
+                  AI 填列
+                </Button>
+              ) : null}
               <Button
                 type="link"
                 icon={<EditOutlined />}
@@ -249,6 +339,63 @@ export function FieldPanel({
           </Form.Item>
           <Form.Item name="required" valuePropName="checked">
             <Checkbox>必填（录入与机器通道写入都校验）</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="ai_prompt"
+            label="AI 提示词（留空则不是 AI 列）"
+            extra="填了提示词后，这条列可由 AI 逐条生成值；取材列＝把哪些列的值喂给模型做参考"
+          >
+            <Input.TextArea
+              rows={2}
+              maxLength={500}
+              placeholder="如：根据客户名称与行业，写一句 20 字以内的客户画像"
+            />
+          </Form.Item>
+          <Form.Item name="ai_sources" label="AI 取材列">
+            <Select
+              mode="multiple"
+              allowClear
+              options={sourceOptions(editing?.fieldKey)}
+              placeholder="留空则默认取本表其余全部列"
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={fillOpen}
+        title={`AI 填列：${fillTarget?.name ?? ""}`}
+        onCancel={() => setFillOpen(false)}
+        onOk={runFill}
+        okText={fillBusy ? "生成中" : "开始生成"}
+        cancelText="取消"
+        confirmLoading={fillBusy}
+        destroyOnHidden
+      >
+        <p className="text-12 muted">
+          按提示词「{fillTarget?.options?.ai?.prompt || "（未设提示词，将直接拼接取材列）"}」逐条生成；
+          没有可用模型时按取材列做规则兜底。
+        </p>
+        <Form layout="vertical">
+          <Form.Item label="取材列">
+            <Select
+              mode="multiple"
+              allowClear
+              value={fillSources}
+              onChange={setFillSources}
+              options={sourceOptions(fillTarget?.fieldKey)}
+            />
+          </Form.Item>
+          <Form.Item label="处理行数上限">
+            <Select
+              value={fillLimit}
+              onChange={setFillLimit}
+              options={[
+                { value: 50, label: "50 行" },
+                { value: 200, label: "200 行" },
+                { value: 500, label: "500 行" },
+              ]}
+            />
           </Form.Item>
         </Form>
       </Modal>

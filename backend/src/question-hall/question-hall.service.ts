@@ -373,10 +373,7 @@ export class QuestionHallService {
     const keyword = text(query.keyword).trim().slice(0, 120);
     if (keyword) {
       and.push({
-        OR: [
-          { title: { contains: keyword } },
-          { body: { contains: keyword } },
-        ],
+        OR: [{ title: { contains: keyword } }, { body: { contains: keyword } }],
       });
     }
     const mine = text(query.mine).trim();

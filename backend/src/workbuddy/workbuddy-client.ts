@@ -302,7 +302,7 @@ export async function wbCall<T = WbRawResponse>(
     if (!response.ok || envelope.Error) {
       throw fail(action, envelope, response.status);
     }
-    return envelope as unknown as T;
+    return envelope as T;
   } catch (error) {
     if (error instanceof BusinessException) throw error;
     if (error instanceof TransportError && error.kind === 'timeout') {

@@ -32,17 +32,23 @@ const intParam = (raw: string | undefined, name: string): number => {
  * - 本地发布 / 浏览 / 删除：免 APIKey，任何注册用户可用；
  * - 同步发布到 AIworkin / 刷新上游状态：经 upstreamToken 门控，未绑定 Key 直接 403。
  */
-export function registerListingRoutes(app: OpenAPIHono<ApiEnv>, module: ListingModule) {
+export function registerListingRoutes(
+  app: OpenAPIHono<ApiEnv>,
+  module: ListingModule,
+) {
   const service = module.listing;
   const userOf = (c: Context<ApiEnv>): CurrentUser => {
     const user = c.get('user');
     if (!user) throw new BusinessException(ErrorCode.UNAUTHORIZED, '请先登录');
     return user;
   };
-  const json = (c: Context<ApiEnv>, data: unknown, message = 'ok') => c.json(ok(data, message));
+  const json = (c: Context<ApiEnv>, data: unknown, message = 'ok') =>
+    c.json(ok(data, message));
 
   // ---------- 类目字典（供求发布选择器） ----------
-  app.get('/enterprise/social/listings/categories', async (c) => json(c, service.categories()));
+  app.get('/enterprise/social/listings/categories', (c) =>
+    json(c, service.categories()),
+  );
 
   // ---------- 本地发布（免 Key） ----------
   app.post('/enterprise/social/listings', async (c) => {
@@ -52,7 +58,9 @@ export function registerListingRoutes(app: OpenAPIHono<ApiEnv>, module: ListingM
         title: z.string().min(1).max(120),
         description: z.string().min(1).max(20000),
         tags: z.array(z.string().max(30)).max(10).optional(),
-        moneyMode: z.enum(['FIXED', 'STARTING', 'RANGE', 'NEGOTIABLE']).optional(),
+        moneyMode: z
+          .enum(['FIXED', 'STARTING', 'RANGE', 'NEGOTIABLE'])
+          .optional(),
         amountMin: z.number().int().optional(),
         amountMax: z.number().int().optional(),
         province: z.string().max(50).optional(),
@@ -61,7 +69,11 @@ export function registerListingRoutes(app: OpenAPIHono<ApiEnv>, module: ListingM
         subcategoryId: z.string().max(64).optional(),
       })
       .parse(await c.req.json());
-    return json(c, await service.create(userOf(c).userId, body), '已发布到供求广场');
+    return json(
+      c,
+      await service.create(userOf(c).userId, body),
+      '已发布到供求广场',
+    );
   });
   app.get('/enterprise/social/listings', async (c) =>
     json(
@@ -73,12 +85,21 @@ export function registerListingRoutes(app: OpenAPIHono<ApiEnv>, module: ListingM
       }),
     ),
   );
-  app.get('/enterprise/social/listings/mine', async (c) => json(c, await service.mine(userOf(c).userId)));
+  app.get('/enterprise/social/listings/mine', async (c) =>
+    json(c, await service.mine(userOf(c).userId)),
+  );
   app.get('/enterprise/social/listings/:id', async (c) =>
     json(c, await service.detail(intParam(c.req.param('id'), '供求帖'))),
   );
   app.delete('/enterprise/social/listings/:id', async (c) =>
-    json(c, await service.remove(userOf(c).userId, intParam(c.req.param('id'), '供求帖')), '已删除'),
+    json(
+      c,
+      await service.remove(
+        userOf(c).userId,
+        intParam(c.req.param('id'), '供求帖'),
+      ),
+      '已删除',
+    ),
   );
 
   // ---------- 同步发布到 AIworkin（需绑定 Key） ----------
@@ -96,10 +117,27 @@ export function registerListingRoutes(app: OpenAPIHono<ApiEnv>, module: ListingM
       .parse(await c.req.json());
     // 未绑定 AIPDD Key → upstreamToken 抛 403「请先绑定」，本地帖仍保持已发布态。
     const token = await upstreamToken(c);
-    return json(c, await service.publishUpstream(userOf(c).userId, token, intParam(c.req.param('id'), '供求帖'), body), '已同步发布到 AIworkin');
+    return json(
+      c,
+      await service.publishUpstream(
+        userOf(c).userId,
+        token,
+        intParam(c.req.param('id'), '供求帖'),
+        body,
+      ),
+      '已同步发布到 AIworkin',
+    );
   });
   app.post('/enterprise/social/listings/:id/refresh-status', async (c) => {
     const token = await upstreamToken(c);
-    return json(c, await service.refreshStatus(userOf(c).userId, intParam(c.req.param('id'), '供求帖'), token), '状态已刷新');
+    return json(
+      c,
+      await service.refreshStatus(
+        userOf(c).userId,
+        intParam(c.req.param('id'), '供求帖'),
+        token,
+      ),
+      '状态已刷新',
+    );
   });
 }
