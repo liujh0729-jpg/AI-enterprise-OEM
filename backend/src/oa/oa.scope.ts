@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { PrismaService } from '../prisma/prisma.service';
+import type { TenantScopeService } from '../tenant/tenant-scope.service';
 import { asArray, int, jsonObject, roleLabel, statusLabel } from './oa.helpers';
 
 export const OA_BUSINESS_SCOPE = 'OA';
@@ -72,6 +73,7 @@ export class OaScopeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UserLookupService,
+    private readonly tenant?: TenantScopeService,
   ) {}
 
   /** 当前账号可选的组织：自己是主账号的组织排前面，其次是 ACTIVE 成员关系。 */
@@ -160,12 +162,23 @@ export class OaScopeService {
     if (!orgs.length) return null;
     const orgType = text(query.orgType).trim().toUpperCase();
     const orgUserId = text(query.orgUserId).trim();
-    const target =
-      orgType && orgUserId
+    let target: OaOrgOption | undefined;
+    if (orgType && orgUserId) {
+      target = orgs.find(
+        (item) => item.orgType === orgType && item.orgUserId === orgUserId,
+      );
+    } else {
+      // 未显式指定组织时，与 HRM/CRM/BI/OKR 同一口径：优先采用主体切换器选定的组织。
+      const preferred = await this.tenant?.preferred(user.userId);
+      target = preferred
         ? orgs.find(
-            (item) => item.orgType === orgType && item.orgUserId === orgUserId,
+            (item) =>
+              item.orgType === preferred.orgType &&
+              item.orgUserId === preferred.orgUserId,
           )
-        : orgs[0];
+        : undefined;
+      target = target || orgs[0];
+    }
     if (!target) return null;
     const memberRow = await this.prisma.orgStaff.findFirst({
       where: {

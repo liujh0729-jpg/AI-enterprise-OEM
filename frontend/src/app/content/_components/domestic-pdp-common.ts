@@ -5,7 +5,7 @@ import { endpoint } from "@/api/endpoint";
  * 国内电商商品页优化（淘宝/天猫、京东、拼多多、抖音商城、1688）的界面层：
  * 商品简报 → 生成规划（转化诊断 / 购买理由卡 / 风格锁 / 中文文案）→
  * 逐张确认/修改提示词 → 走本系统模型网关出图。
- * 后端：/enterprise/domestic-pdp/*（登录态）；文本与图片都经「内容创作 → 模型设置」的槽位。
+ * 后端：/enterprise/domestic-pdp/*（登录态）；文本与图片都经「模型服务 → 模型设置」的槽位。
  */
 
 export type DomesticPdpMeta = {

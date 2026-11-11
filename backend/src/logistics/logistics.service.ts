@@ -706,12 +706,9 @@ function buildLogisticsDraft(
     replyEmail: row.emailSync === 1 ? row.contactEmail : undefined,
   };
 }
-function decorateLogistics(row: {
-  status: string;
-  messages: unknown;
-  events: unknown;
-  [key: string]: unknown;
-}) {
+function decorateLogistics<
+  T extends { status: string; messages: unknown; events: unknown },
+>(row: T) {
   return {
     ...withCategoryLabels(row),
     messages: asMessages(row.messages),

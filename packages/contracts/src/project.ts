@@ -479,6 +479,17 @@ export const pjCostSummarySchema = z.object({
   budgetHours: z.string(),
   costTotal: z.string(),
   budgetUtilizationPct: z.number(),
+  /** 收入：本项目关联合同额（项目合同优先，其次按客户名匹配在用合同）。 */
+  revenueAmount: z.string(),
+  /** 毛利＝收入 − 已发生成本；利润率为空收入时的 0。 */
+  profitAmount: z.string(),
+  profitRatePct: z.number(),
+  /** 已承诺：成本台账 + 未结算的外部合作（含尚未验收的承诺额）。 */
+  committedAmount: z.string(),
+  /** 已确认：采购入库归集成本 + 已验收外部合作。 */
+  confirmedAmount: z.string(),
+  /** 已支付：采购单已付款 + 已结算外部合作。 */
+  paidAmount: z.string(),
   laborAmount: z.string(),
   materialAmount: z.string(),
   equipmentAmount: z.string(),
@@ -653,6 +664,19 @@ export const projectEndpoints = {
     params: z.object({}),
     query: emptyQuery,
     body: saveProjectBodySchema,
+    response: envelope(pjProjectSchema),
+  },
+  /** 合同签约 → 履约计划：生成本项目 + 交付物 + 回款计划（应收），重复调用返回原项目。 */
+  Pj_createProjectFromContract: {
+    method: "post" as const,
+    path: "/enterprise/project/projects/from-contract",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.object({
+      contractId: z.number().int().positive(),
+      ownerId: z.string().max(64).default(""),
+      targetOutcome: z.string().max(20000).default(""),
+    }),
     response: envelope(pjProjectSchema),
   },
   Pj_removeProject: {
@@ -965,6 +989,41 @@ export const projectEndpoints = {
     query: emptyQuery,
     body: z.object({ id: z.number().int().positive() }),
     response: envelope(z.object({ id: z.number() })),
+  },
+  Pj_purchaseReconciliation: {
+    method: "get" as const,
+    path: "/enterprise/project/purchase-reconciliation",
+    params: z.object({}),
+    query: z.object({
+      onlyIssues: z
+        .union([z.literal("1"), z.literal("0"), z.boolean()])
+        .optional(),
+    }),
+    body: z.undefined(),
+    response: envelope(
+      z.object({
+        list: z.array(
+          z.object({
+            purchaseOrderId: z.number(),
+            orderNo: z.string(),
+            vendorName: z.string(),
+            projectId: z.number(),
+            orderAmount: z.string(),
+            /** 付款义务基准：采购额 + 税额（与入库自动生成的应付同口径）。 */
+            orderTotal: z.string(),
+            orderStatus: z.string(),
+            received: z.boolean(),
+            payableCount: z.number(),
+            payableAmount: z.string(),
+            payablePaid: z.string(),
+            issue: z.string(),
+            issueLabel: z.string(),
+          }),
+        ),
+        total: z.number(),
+        issueCount: z.number(),
+      }),
+    ),
   },
   Pj_projectCost: {
     method: "get" as const,

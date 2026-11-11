@@ -20,18 +20,24 @@ const DEFAULT_SETTINGS = { enabled: false, retentionDays: 90 };
 /** 埋点只收「谁在哪个页面做了什么」，metadata 限长并裁掉疑似敏感键。 */
 const UNSAFE_KEY =
   /pass(word)?|token|secret|credential|phone|email|idcard|bank/i;
+const META_KEY_LIMIT = 32;
 
 const cleanMeta = (value: unknown): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
+  let kept = 0;
   for (const [key, raw] of Object.entries(jsonBlock(value))) {
+    if (kept >= META_KEY_LIMIT) break;
     if (UNSAFE_KEY.test(key)) continue;
-    out[key.slice(0, 48)] =
+    const safeKey = key.slice(0, 48);
+    const safeValue =
       typeof raw === 'string'
         ? raw.slice(0, 120)
         : typeof raw === 'number' || typeof raw === 'boolean'
           ? raw
           : undefined;
-    if (out[key.slice(0, 48)] === undefined) delete out[key.slice(0, 48)];
+    if (safeValue === undefined) continue;
+    if (!(safeKey in out)) kept += 1;
+    out[safeKey] = safeValue;
   }
   return out;
 };
@@ -86,6 +92,16 @@ export class UsageService {
     return data;
   }
 
+  /** 每日留存清理：按当前设置删除超过留存天数的事件。 */
+  async prune(): Promise<number> {
+    const settings = await this.settings();
+    const cutoff = new Date(Date.now() - settings.retentionDays * 86_400_000);
+    const result = await this.prisma.productUsageEvent.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return result.count;
+  }
+
   private async cleanup(retentionDays: number) {
     const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
     await this.prisma.productUsageEvent.deleteMany({
@@ -118,7 +134,7 @@ export class UsageService {
 
   async events(user: CurrentUser, query: Row) {
     this.scope.requirePlatformAdmin(user);
-    const { pageSize, offset } = pageParams(query);
+    const { page, pageSize, offset } = pageParams(query);
     const where = {
       ...(asText(query.event).trim()
         ? { event: asText(query.event).trim() }
@@ -137,7 +153,7 @@ export class UsageService {
       this.prisma.productUsageEvent.count({ where }),
     ]);
     return {
-      items: rows.map((row) => ({
+      list: rows.map((row) => ({
         id: row.id,
         userId: row.userId,
         orgType: row.orgType,
@@ -150,6 +166,8 @@ export class UsageService {
         createdAt: iso(row.createdAt),
       })),
       total,
+      page,
+      pageSize,
     };
   }
 

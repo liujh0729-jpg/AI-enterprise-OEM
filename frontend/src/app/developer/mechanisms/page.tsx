@@ -22,7 +22,7 @@ const TABS = [
 ];
 
 /**
- * 开放集成 → 平台机制：§5.8 横切能力（事件 Outbox/Webhook、导入导出中心、
+ * 管理设置 → 平台机制：§5.8 横切能力（事件 Outbox/Webhook、导入导出中心、
  * 报表目录、规则引擎、公开分享、OIDC 身份源、附件共享策略、飞书/企微同步）。
  */
 export default function MechanismsPage() {

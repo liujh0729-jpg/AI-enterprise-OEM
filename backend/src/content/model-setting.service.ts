@@ -1,8 +1,12 @@
 import {
   CONTENT_CHANNEL_PRESET_LABELS,
+  CONTENT_CHANNEL_PROVIDER_LABELS,
   CONTENT_MEDIA_TYPE_LABELS,
   CONTENT_MEDIA_TYPES,
+  isProviderSupported,
+  type ContentChannelPolicy,
   type ContentMediaType,
+  type ContentModel,
   type ContentModelChannel,
   type ContentModelSlot,
 } from '@enterprise/contracts';
@@ -18,7 +22,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ContentCrypto, maskSecret } from './content-crypto';
 import { DOUBAO_ASR_VARIANTS } from './openspeech.client';
 import { ContentModelCatalogService } from './model-catalog.service';
+import { ContentChannelPolicyService } from './channel-policy.service';
 import { LOCALAPI_CHANNEL_ID, localApiBaseUrl } from '../model-plaza/localapi';
+import {
+  platformModelFor,
+  PLATFORM_CAPABILITIES,
+} from '../model-plaza/platform-defaults.service';
 import {
   aipddBaseUrl,
   assertBaseUrl,
@@ -96,6 +105,23 @@ function plazaModelSlot(row: {
 }
 
 /**
+ * 自定义 OpenAI 兼容渠道的模型兜底：上游没声明 kind 时，按平台为该预设配置的
+ * 模型类型归类；vision 仍算文本模型，只是同时带视觉标记。
+ */
+function applyPresetMediaType(
+  models: ContentModel[],
+  mediaType: ContentMediaType | '',
+) {
+  if (!mediaType) return models;
+  return models.map((model) => {
+    if (model.kind !== 'other') return model;
+    return mediaType === 'vision'
+      ? { ...model, kind: 'text', vision: true }
+      : { ...model, kind: mediaType, vision: false };
+  });
+}
+
+/**
  * 内容创作的模型设置：渠道（AIPDD 内置 / 自定义 OpenAI 兼容 / 火山 MediaKit）+
  * 每种类型的默认模型。
  * AIPDD 的 Key 优先取本账号在模型设置里单独保存的那把，其次「API Key 管理」里的 sk- Key；
@@ -108,6 +134,7 @@ export class ContentModelSettingService {
     private readonly modelKeys: ModelKeyService,
     private readonly crypto: ContentCrypto,
     private readonly catalog: ContentModelCatalogService,
+    private readonly channelPolicy: ContentChannelPolicyService,
   ) {}
 
   /** AIPDD 内置渠道：不单独配 Key，直接用当前用户绑定的 AIPDD APIKey（设计 3.4）。 */
@@ -117,18 +144,21 @@ export class ContentModelSettingService {
 
   private view(
     row: ChannelRow & { verifiedAt?: Date | null },
+    policy?: ContentChannelPolicy,
   ): ContentModelChannel {
     const keyReady = Boolean(row.keyCipher);
     const verified = Boolean(row.verifiedAt);
-    const available = row.enabled && keyReady && verified;
+    const provider =
+      row.provider === 'mediakit'
+        ? 'mediakit'
+        : row.provider === 'volcengine'
+          ? 'volcengine'
+          : 'custom';
+    const supported = isProviderSupported(policy, provider);
+    const available = supported && row.enabled && keyReady && verified;
     return {
       id: row.id,
-      provider:
-        row.provider === 'mediakit'
-          ? 'mediakit'
-          : row.provider === 'volcengine'
-            ? 'volcengine'
-            : 'custom',
+      provider,
       name: row.name,
       baseUrl: row.baseUrl,
       keyMasked: row.keyCipher
@@ -143,16 +173,18 @@ export class ContentModelSettingService {
       available,
       unavailableReason: available
         ? ''
-        : !row.enabled
-          ? '渠道已停用'
-          : !keyReady
-            ? '未配置 API Key'
-            : '尚未通过连通校验，请在渠道里点「测试连通」',
+        : !supported
+          ? '平台管理员已关闭该算力渠道'
+          : !row.enabled
+            ? '渠道已停用'
+            : !keyReady
+              ? '未配置 API Key'
+              : '尚未通过连通校验，请在渠道里点「测试连通」',
     };
   }
 
   async settings(user: CurrentUser, token?: string) {
-    const [rows, slotRows] = await Promise.all([
+    const [rows, slotRows, policy] = await Promise.all([
       this.prisma.contentModelChannel.findMany({
         where: { userId: user.userId },
         orderBy: { id: 'asc' },
@@ -160,10 +192,13 @@ export class ContentModelSettingService {
       this.prisma.contentModelSlot.findMany({
         where: { userId: user.userId },
       }),
+      this.channelPolicy.view(),
     ]);
     const localAipdd = rows.find((row) => row.provider === 'aipdd');
     // AIPDD 不读渠道本地 Key，只看当前用户绑定的 AIPDD APIKey（未绑定即未配置）
     const key = this.modelKeys.status(token);
+    const aipddSupported = isProviderSupported(policy, 'aipdd');
+    const localapiSupported = isProviderSupported(policy, 'localapi');
     const slots: ContentModelSlot[] = CONTENT_MEDIA_TYPES.map((mediaType) => {
       const row = slotRows.find((item) => item.mediaType === mediaType);
       return {
@@ -182,12 +217,14 @@ export class ContentModelSettingService {
           keyMasked: key.keyMasked,
           asrKeyMasked: '',
           preset: 'aipdd',
-          enabled: true,
+          enabled: aipddSupported,
           verified: key.configured,
-          available: key.configured,
-          unavailableReason: key.configured
-            ? ''
-            : '当前账号还没有绑定 AIPDD API Key',
+          available: aipddSupported && key.configured,
+          unavailableReason: !aipddSupported
+            ? '平台管理员已关闭 AIPDD 算力渠道'
+            : key.configured
+              ? ''
+              : '当前账号还没有绑定 AIPDD API Key',
         },
         {
           id: LOCALAPI_CHANNEL_ID,
@@ -197,15 +234,17 @@ export class ContentModelSettingService {
           keyMasked: '',
           asrKeyMasked: '',
           preset: 'localapi',
-          enabled: true,
+          enabled: localapiSupported,
           verified: true,
-          available: true,
-          unavailableReason: '',
+          available: localapiSupported,
+          unavailableReason: localapiSupported
+            ? ''
+            : '平台管理员已关闭该算力渠道',
         },
         ...rows
           .filter((row) => row.provider !== 'aipdd')
           .map((row) =>
-            this.view(row as ChannelRow & { verifiedAt?: Date | null }),
+            this.view(row as ChannelRow & { verifiedAt?: Date | null }, policy),
           ),
       ],
       slots,
@@ -215,6 +254,7 @@ export class ContentModelSettingService {
         keyMasked: key.keyMasked,
         localChannelId: localAipdd?.id || 0,
       },
+      policy,
     };
   }
 
@@ -225,9 +265,16 @@ export class ContentModelSettingService {
   ) {
     const rows = await this.prisma.contentModelChannel.findMany({
       where: { userId: user.userId },
-      select: { id: true, enabled: true, keyCipher: true, verifiedAt: true },
+      select: {
+        id: true,
+        provider: true,
+        enabled: true,
+        keyCipher: true,
+        verifiedAt: true,
+      },
     });
     const aipddKey = this.modelKeys.status(token);
+    const policy = await this.channelPolicy.view();
     const byId = new Map(rows.map((row) => [row.id, row]));
     const rawSlots = Array.isArray(body.slots) ? body.slots : [];
     for (const item of rawSlots) {
@@ -237,6 +284,19 @@ export class ContentModelSettingService {
       const channelId = Number(slot.channelId || 0);
       if (!Number.isInteger(channelId) || channelId < LOCALAPI_CHANNEL_ID) {
         throw new BusinessException(ErrorCode.BAD_REQUEST, '渠道编号无效');
+      }
+      if (
+        (channelId === 0 && !isProviderSupported(policy, 'aipdd')) ||
+        (channelId === LOCALAPI_CHANNEL_ID &&
+          !isProviderSupported(policy, 'localapi'))
+      ) {
+        // 内置虚拟渠道（0=AIPDD / -1=LocalAPI）被平台关闭时不能选作默认模型
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          channelId === 0
+            ? '平台管理员已关闭 AIPDD 算力渠道，不能选作默认模型'
+            : '平台管理员已关闭 LocalAPI 算力渠道，不能选作默认模型',
+        );
       }
       if (channelId === 0 && !aipddKey.configured) {
         throw new BusinessException(
@@ -250,6 +310,21 @@ export class ContentModelSettingService {
           throw new BusinessException(
             ErrorCode.BAD_REQUEST,
             '所选渠道已不存在，请刷新后重选',
+          );
+        }
+        if (
+          !isProviderSupported(
+            policy,
+            channel.provider === 'volcengine'
+              ? 'volcengine'
+              : channel.provider === 'mediakit'
+                ? 'mediakit'
+                : 'custom',
+          )
+        ) {
+          throw new BusinessException(
+            ErrorCode.BAD_REQUEST,
+            '该渠道已被平台管理员关闭，不能选作默认模型',
           );
         }
         if (!channel.enabled || !channel.keyCipher) {
@@ -285,6 +360,22 @@ export class ContentModelSettingService {
         ErrorCode.BAD_REQUEST,
         'LocalAPI 是内置渠道，无需新增；直接在默认模型里选择即可',
       );
+    }
+    const policy = await this.channelPolicy.view();
+    // 平台管理员关闭的算力渠道：既不能新增，也不能改（避免绕过闸门换 Key/地址）
+    if (!isProviderSupported(policy, provider)) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        `平台管理员已关闭「${CONTENT_CHANNEL_PROVIDER_LABELS[provider]}」算力渠道，无法新增或修改`,
+      );
+    }
+    if (provider === 'custom' && Number(body.id || 0) <= 0) {
+      if (!policy.allowCustom) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          '平台管理员已关闭新增自定义 OpenAI 兼容渠道；可继续使用 AIPDD 或 LocalAPI，或联系平台管理员开启后再试',
+        );
+      }
     }
     // 预设只对「自定义 OpenAI 兼容」渠道有意义：OpenAI / Claude / DeepSeek …
     // 决定默认地址和协议（Claude 走 Anthropic 原生 /messages）
@@ -484,6 +575,16 @@ export class ContentModelSettingService {
         void spec;
       }
     }
+    if (target.provider === 'custom') {
+      const mediaType = await this.channelPolicy.presetType(
+        target.preset || '',
+      );
+      return {
+        channelId,
+        baseUrl: result.baseUrl,
+        models: applyPresetMediaType(models, mediaType),
+      };
+    }
     return { channelId, baseUrl: result.baseUrl, models };
   }
 
@@ -607,9 +708,34 @@ export class ContentModelSettingService {
         where: { userId_mediaType: { userId: user.userId, mediaType } },
       });
       if (!slot?.model) {
+        // 个人未配置该类型时继承平台默认模型（完成真实充值 + 管理员已开启才命中）。
+        const platform = await platformModelFor(
+          this.prisma,
+          user.userId,
+          mediaType,
+        ).catch(() => null);
+        if (platform) {
+          return {
+            ...(await this.channelCredentials(
+              user,
+              LOCALAPI_CHANNEL_ID,
+              token,
+              mediaType,
+            )),
+            model: platform.modelKey,
+            channelId: LOCALAPI_CHANNEL_ID,
+          };
+        }
+        const inheritable = (
+          PLATFORM_CAPABILITIES as readonly string[]
+        ).includes(mediaType);
         throw new BusinessException(
           ErrorCode.BAD_REQUEST,
-          `请先在「模型设置」里为「${label}」选择默认模型`,
+          `请先在「模型设置」里为「${label}」选择默认模型${
+            inheritable
+              ? '；完成充值并到账后，未配置的类型也会自动继承平台默认模型'
+              : ''
+          }`,
         );
       }
       return this.resolveTarget(
@@ -651,6 +777,12 @@ export class ContentModelSettingService {
 
   /** MediaKit 凭据（超分/擦除用）：只取启用中的 mediakit 渠道，Key 解密后仅在本进程使用。 */
   async mediakitCredentials(user: CurrentUser) {
+    if (!(await this.channelPolicy.supports('mediakit'))) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '平台管理员已关闭火山 AI MediaKit 算力渠道，暂不能使用超分/擦除',
+      );
+    }
     const channel = await this.prisma.contentModelChannel.findFirst({
       where: { userId: user.userId, provider: 'mediakit', enabled: true },
       orderBy: { id: 'asc' },

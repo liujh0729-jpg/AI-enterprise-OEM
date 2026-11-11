@@ -13,6 +13,8 @@ import { GeoSettingsTab } from "../_components/geo-settings-tab";
 import { ProviderApplicationsTab } from "../_components/provider-applications-tab";
 import { ProvidersManageTab } from "../_components/providers-manage-tab";
 import { SettingsTab } from "../_components/settings-tab";
+import { UpgradeTab } from "../_components/upgrade-tab";
+import { AiCodeTab } from "../_components/ai-code-tab";
 import { TaxAdminTab } from "../_components/tax-admin-tab";
 import { SupplyTab } from "../_components/supply-tab";
 import { EnterprisesTab } from "../_components/enterprises-tab";
@@ -23,8 +25,10 @@ import { UsersTab } from "../_components/users-tab";
 import { LivecodeAdminTab } from "../_components/livecode-admin-tab";
 import { VideoTemplateAdminTab } from "../_components/video-template-admin-tab";
 import { PointsTab } from "../_components/points-tab";
+import { ServicePackagesTab } from "../_components/service-packages-tab";
 import { ModelPlazaAdminTab } from "../_components/model-plaza-admin-tab";
 import { HardwareAdminTab } from "../_components/hardware-admin-tab";
+import { WechatMpTab } from "../_components/wechat-mp-tab";
 import {
   GapsChangelogTab,
   GapsEntitlementsTab,
@@ -34,7 +38,7 @@ import {
 
 /**
  * 平台管理后台板块页（`/admin/<板块>`）：板块由侧栏菜单切换，菜单/顶栏/hero 文案同源于
- * `ADMIN_SECTIONS`；平台数据总览已并入高管驾驶舱，这里只渲染分组下的管理板块。
+ * `ADMIN_SECTIONS`；平台数据总览已并入驾驶舱，这里只渲染分组下的管理板块。
  */
 export default function AdminSectionPage() {
   const params = useParams<{ section: string }>();
@@ -51,7 +55,7 @@ export default function AdminSectionPage() {
   if (!isAdmin) {
     return (
       <Panel title="无访问权限">
-        <EmptyState icon={<LockOutlined aria-hidden />} text="平台管理后台仅平台管理员可访问，请从高管驾驶舱返回首页。" />
+        <EmptyState icon={<LockOutlined aria-hidden />} text="平台管理后台仅平台管理员可访问，请从驾驶舱返回首页。" />
       </Panel>
     );
   }
@@ -85,6 +89,7 @@ export default function AdminSectionPage() {
       {section === "community" ? <CommunityAdminTab /> : null}
       {section === "video-templates" ? <VideoTemplateAdminTab /> : null}
       {section === "points" ? <PointsTab /> : null}
+      {section === "service-packages" ? <ServicePackagesTab /> : null}
       {section === "model-plaza" ? <ModelPlazaAdminTab /> : null}
       {section === "hardware" ? <HardwareAdminTab /> : null}
       {section === "features" ? <FeaturesTab /> : null}
@@ -94,6 +99,9 @@ export default function AdminSectionPage() {
       {section === "usage" ? <GapsUsageTab /> : null}
       {section === "terms" ? <GapsTermsTab /> : null}
       {section === "changelog" ? <GapsChangelogTab /> : null}
+      {section === "upgrade" ? <UpgradeTab /> : null}
+      {section === "ai-code" ? <AiCodeTab /> : null}
+      {section === "wechat-mp" ? <WechatMpTab /> : null}
       {section === "settings" ? <SettingsTab /> : null}
     </>
   );

@@ -11,7 +11,7 @@ export default function NotFound() {
       subTitle="抱歉，你访问的页面不存在。"
       extra={
         <Link href="/">
-          <Button type="primary">返回高管驾驶舱</Button>
+          <Button type="primary">返回驾驶舱</Button>
         </Link>
       }
     />

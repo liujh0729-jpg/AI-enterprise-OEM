@@ -19,7 +19,7 @@ const STEP_ITEMS = [
   {
     title: "为任务准备 API Key",
     content:
-      "AI 任务侧使用全站唯一的那把平台 API Key（「开放集成 → API Key 管理」生成），请求头带 x-api-key。Key 属于哪个账号，就只能看到那个账号名下、且与指定 Workbuddy 账号绑定的 AI 调用账号。",
+      "AI 任务侧使用全站唯一的那把平台 API Key（「模型服务 → API Key 管理」生成），请求头带 x-api-key。Key 属于哪个账号，就只能看到那个账号名下、且与指定 Workbuddy 账号绑定的 AI 调用账号。",
   },
   {
     title: "任务运行时取用",

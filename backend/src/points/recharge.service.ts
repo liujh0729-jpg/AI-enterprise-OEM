@@ -16,6 +16,15 @@ function centsToPoints(cents: number, rate: number) {
   return Number(((cents / 100) * rate).toFixed(4));
 }
 
+/** Prisma 唯一约束冲突（P2002）：并发/重复回调走「已确认」而非报错。 */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as { code?: string }).code === 'P2002'
+  );
+}
+
 /**
  * 微信充值链路：建单锁汇率与档位赠送 → Native/H5 下单 → 回调验签幂等入账 → 查单兜底。
  * 幂等键＝微信 transaction_id（RechargeOrder.transactionId 唯一索引）；重复回调第二次直接吞掉返回成功。
@@ -151,7 +160,16 @@ export class RechargeService {
     return this.settle(txn, rawBody);
   }
 
-  /** 结算：把微信成功交易落到本地单并入账。可被回调与主动查单复用。 */
+  /**
+   * 结算：把微信成功交易落到本地单并入账，是一个**可恢复、可对账**的过程（§12.6）。
+   *
+   * 步骤：① 支付确认（订单置 PAID）② 本金入账 ③ 赠送入账 ④ 资格生效。
+   * 每一步都幂等——支付确认靠 `updateMany({status:{not:'PAID'}})` 与 transactionId 唯一约束；
+   * 本金/赠送靠 point_transactions.idempotency_key 唯一约束。因此回调中断后重入（微信重试、
+   * 主动查单、关单兜底）只补齐缺失的步骤：既不重复入账，也不会「见到 PAID 就认定全部完成」。
+   * 资格＝本金入账的即时副作用（账户转 ACTIVE、累计充值>0），随本金步骤可重入补齐。
+   * 可被回调与主动查单复用。
+   */
   async settle(txn: WechatTransaction, rawPayload: string) {
     const outTradeNo = String(txn.out_trade_no || '');
     if (!outTradeNo)
@@ -161,14 +179,14 @@ export class RechargeService {
     });
     if (!order)
       throw new BusinessException(ErrorCode.NOT_FOUND, '充值订单不存在');
-    if (order.status === 'PAID') {
-      return { orderNo: outTradeNo, status: 'PAID', duplicated: true };
-    }
     if (txn.trade_state !== 'SUCCESS') {
-      await this.prisma.rechargeOrder.update({
-        where: { id: order.id },
-        data: { status: txn.trade_state === 'CLOSED' ? 'CLOSED' : 'FAILED' },
-      });
+      // 已 PAID 的单绝不被后到的失败/关单回调降级。
+      if (order.status !== 'PAID') {
+        await this.prisma.rechargeOrder.update({
+          where: { id: order.id },
+          data: { status: txn.trade_state === 'CLOSED' ? 'CLOSED' : 'FAILED' },
+        });
+      }
       return {
         orderNo: outTradeNo,
         status: 'NOT_SUCCESS',
@@ -179,6 +197,8 @@ export class RechargeService {
     if (!transactionId) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '回调缺少微信交易号');
     }
+    // ① 支付确认：仅在未 PAID 时置位；并发重复回调撞 transactionId 唯一约束同样视为已确认。
+    let confirmed = false;
     try {
       const paid = await this.prisma.rechargeOrder.updateMany({
         where: { id: order.id, status: { not: 'PAID' } },
@@ -191,41 +211,45 @@ export class RechargeService {
             : {}) as Prisma.InputJsonValue,
         },
       });
-      if (paid.count === 0) {
-        return { orderNo: outTradeNo, status: 'PAID', duplicated: true };
-      }
+      confirmed = paid.count > 0;
     } catch (error) {
-      // transactionId 唯一冲突＝并发重复回调，视为已处理
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error as { code?: string }).code === 'P2002'
-      ) {
-        return { orderNo: outTradeNo, status: 'PAID', duplicated: true };
-      }
-      throw error;
+      if (!isUniqueViolation(error)) throw error;
     }
-    // 入账本金 + 赠送
+    // ② 本金 / ③ 赠送：按订单幂等入账（键唯一）；重入时只补齐缺失的那一步。
     const pointsAmount = toNum(order.pointsAmount);
     const bonus = toNum(order.bonusPointsAmount);
-    await this.points.credit(order.userId, 'RECHARGE', pointsAmount, {
-      scene: 'recharge',
-      refType: 'recharge_order',
-      refId: String(order.id),
-      remark: `微信充值 ${order.amountCents / 100} 元`,
-    });
-    if (bonus > 0) {
-      await this.points.credit(order.userId, 'RECHARGE_BONUS', bonus, {
-        scene: 'recharge_bonus',
-        refType: 'recharge_order',
-        refId: String(order.id),
-        remark: '充值档位赠送',
-      });
-    }
-    // 被邀请人首充返奖给邀请人
+    const principal =
+      pointsAmount > 0
+        ? await this.points.credit(order.userId, 'RECHARGE', pointsAmount, {
+            scene: 'recharge',
+            refType: 'recharge_order',
+            refId: String(order.id),
+            remark: `微信充值 ${order.amountCents / 100} 元`,
+            idempotencyKey: `recharge:${order.id}:principal`,
+          })
+        : { applied: false };
+    const bonusCredited =
+      bonus > 0
+        ? await this.points.credit(order.userId, 'RECHARGE_BONUS', bonus, {
+            scene: 'recharge_bonus',
+            refType: 'recharge_order',
+            refId: String(order.id),
+            remark: '充值档位赠送',
+            idempotencyKey: `recharge:${order.id}:bonus`,
+          })
+        : { applied: false };
+    // ④ 资格生效：本金入账已把账户置 ACTIVE、累计充值>0（§12「完成充值」口径），幂等后不重复。
+    // 被邀请人首充返奖给邀请人（自身幂等：按 first_recharge 流水去重）。
     await this.grantInviterFirstRecharge(order);
-    return { orderNo: outTradeNo, status: 'PAID', pointsAmount, bonus };
+    const duplicated =
+      !confirmed && !principal.applied && !bonusCredited.applied;
+    return {
+      orderNo: outTradeNo,
+      status: 'PAID',
+      pointsAmount,
+      bonus,
+      ...(duplicated ? { duplicated: true } : {}),
+    };
   }
 
   /** 首充判定：该用户此前无 PAID 单，则给其邀请人返奖。 */

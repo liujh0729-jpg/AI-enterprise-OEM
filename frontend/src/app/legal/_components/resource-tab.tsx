@@ -6,12 +6,14 @@ import { identityApi } from '@/api/identity';
 
 import { AuditOutlined, BankOutlined, UserAddOutlined } from "@ant-design/icons";
 import { App, Button, Descriptions, Form, Input, Modal, Select } from "antd";
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { LocationFields } from "@/components/location-fields";
 import {
   ResourceLibraryPanel,
   type ResourceLibrarySpec,
 } from "@/components/resource-library";
+import { ServicePackagesPanel } from "@/components/service-packages";
 
 import { useSession } from "@/lib/session";
 import {
@@ -50,7 +52,10 @@ export function ResourceTab({ kind }: { kind: "LAWYER" | "LAW_FIRM" }) {
   const startAffiliate = (row: LawyerResource) => {
     if (!me?.staffProfile) {
       message.warning(
-        "请先选择「职员/代理人」身份并在高管驾驶舱提交个人资料，再申请挂靠",
+        <>
+          请先选择「职员/代理人」身份并在驾驶舱提交个人资料，再申请挂靠{" "}
+          <Link href="/identity?identity=PROVIDER_STAFF">去完善资料</Link>
+        </>,
       );
       return;
     }
@@ -267,6 +272,9 @@ export function ResourceTab({ kind }: { kind: "LAWYER" | "LAW_FIRM" }) {
   return (
     <>
       <ResourceLibraryPanel kind={kind} spec={spec} />
+      {kind === "LAW_FIRM" ? (
+        <ServicePackagesPanel serviceType={SERVICE_TYPE} />
+      ) : null}
       <Modal
         open={Boolean(affiliate)}
         title={`申请挂靠 · ${affiliate?.name || ""}`}

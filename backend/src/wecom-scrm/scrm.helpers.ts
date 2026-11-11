@@ -51,6 +51,8 @@ export const orgOf = (key: OrgKey): HrmOrg => ({
   actorId: '',
   isOwner: false,
   isAdmin: false,
+  roles: [],
+  positions: [],
   department: '',
 });
 

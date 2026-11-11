@@ -94,6 +94,11 @@ export interface SiteSettings {
    * 客服嵌入脚本、活码入口、邀请链接等所有绝对地址都以此为准；留空时前端按当前访问域名推导。
    */
   siteUrl: string;
+  /**
+   * 顶部统一 Chrome 插件入口总开关：关闭后所有用户都看不到入口图标（直链与营销工具内的
+   * 插件使用说明不受影响）；平台未发布插件包时入口同样不展示。
+   */
+  extensionEntryEnabled: boolean;
 }
 
 /**
@@ -129,6 +134,7 @@ export class SiteSettingsService {
         : 'zh-CN',
       // 部署期兜底域名：管理员在后台改过之后以库里的值为准。
       siteUrl: normalizeSiteUrl(process.env.SITE_URL),
+      extensionEntryEnabled: true,
     };
   }
 
@@ -176,6 +182,8 @@ export class SiteSettingsService {
           stored.siteUrl !== undefined
             ? normalizeSiteUrl(stored.siteUrl)
             : base.siteUrl,
+        // 只有管理员显式关过才隐藏；历史配置没有该字段时保持默认展示
+        extensionEntryEnabled: stored.extensionEntryEnabled !== false,
       };
     } catch {
       return base;
@@ -238,6 +246,10 @@ export class SiteSettingsService {
         body.siteUrl !== undefined
           ? normalizeSiteUrl(body.siteUrl).slice(0, 512)
           : current.siteUrl,
+      extensionEntryEnabled:
+        body.extensionEntryEnabled !== undefined
+          ? body.extensionEntryEnabled === true
+          : current.extensionEntryEnabled,
     };
     await this.prisma.systemSetting.upsert({
       where: { key: SiteSettingsService.SITE_KEY },

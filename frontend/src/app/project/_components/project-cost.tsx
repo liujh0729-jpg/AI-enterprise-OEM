@@ -369,6 +369,19 @@ export function PjCostTab({ staff }: { staff: { value: string; label: string }[]
                 value={`${summary.budgetUtilizationPct}%`}
                 hint={`预算工时 ${Number(summary.budgetHours).toFixed(1)}h`}
               />
+              <StatCard label="已确认成本" value={money(summary.confirmedAmount, summary.currency)} hint="采购已入库 + 外部已验收" />
+              <StatCard label="已支付成本" value={money(summary.paidAmount, summary.currency)} hint="采购已付款 + 外部已结算" />
+              <StatCard label="已承诺成本" value={money(summary.committedAmount, summary.currency)} hint="含尚未验收的外部合作" />
+              <StatCard
+                label="收入（合同额）"
+                value={money(summary.revenueAmount, summary.currency)}
+                hint="项目关联合同；无合同按客户名匹配"
+              />
+              <StatCard
+                label="毛利"
+                value={money(summary.profitAmount, summary.currency)}
+                hint={`利润率 ${summary.profitRatePct}%`}
+              />
               <StatCard
                 label="人力成本"
                 value={money(summary.laborAmount, summary.currency)}
@@ -479,6 +492,8 @@ export function PjCostTab({ staff }: { staff: { value: string; label: string }[]
           locale={{ emptyText: "暂无费率" }}
         />
       </Panel>
+
+      <PurchaseReconcilePanel />
 
       <Modal
         open={Boolean(itemEditing)}
@@ -609,5 +624,117 @@ export function PjCostTab({ staff }: { staff: { value: string; label: string }[]
         </Form>
       </Modal>
     </>
+  );
+}
+
+type ReconRow = {
+  purchaseOrderId: number;
+  orderNo: string;
+  vendorName: string;
+  projectId: number;
+  orderAmount: string;
+  orderTotal: string;
+  orderStatus: string;
+  received: boolean;
+  payableCount: number;
+  payableAmount: string;
+  payablePaid: string;
+  issue: string;
+  issueLabel: string;
+};
+
+/** 采购 ↔ 应付对账：找出缺应付、重复挂账、超额付款与先款后货，避免成本口径与付款义务脱节。 */
+function PurchaseReconcilePanel() {
+  const [rows, setRows] = useState<ReconRow[]>([]);
+  const [issueCount, setIssueCount] = useState(0);
+  const [onlyIssues, setOnlyIssues] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await projectApi.purchaseReconciliation({
+        query: { onlyIssues: onlyIssues ? "1" : "0" },
+      });
+      setRows(data?.list || []);
+      setIssueCount(data?.issueCount || 0);
+      setError("");
+    } catch (err) {
+      setError(pjError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [onlyIssues]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const columns: ColumnsType<ReconRow> = [
+    { title: "采购单号", dataIndex: "orderNo", width: 170 },
+    { title: "供应商", dataIndex: "vendorName", render: (v: string) => v || "—" },
+    {
+      title: "采购状态",
+      dataIndex: "orderStatus",
+      width: 110,
+      render: (v: string, row) => `${v}${row.received ? " · 已入库" : ""}`,
+    },
+    {
+      title: "采购额（含税）",
+      dataIndex: "orderAmount",
+      width: 150,
+      render: (v: string, row) => (
+        <div className="text-12">
+          <div>{money(v)}</div>
+          {row.orderTotal !== v ? (
+            <div className="muted">含税 {money(row.orderTotal)}</div>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      title: "应付",
+      key: "payable",
+      width: 200,
+      render: (_: unknown, row) =>
+        row.payableCount ? `${money(row.payableAmount)}（已付 ${money(row.payablePaid)}）` : "未挂应付",
+    },
+    {
+      title: "对账异常",
+      dataIndex: "issueLabel",
+      render: (v: string) => (v ? <Tag color="volcano">{v}</Tag> : <span className="muted">正常</span>),
+    },
+  ];
+
+  return (
+    <Panel
+      title="采购对账"
+      titleExtra={<span className="muted text-12">采购单与应付逐单核对：入库要挂应付，付款不得超过采购额</span>}
+      extra={
+        <PillTabs
+          items={[
+            { key: "issues", label: `仅异常 ${issueCount}` },
+            { key: "all", label: "全部" },
+          ]}
+          value={onlyIssues ? "issues" : "all"}
+          onChange={(key) => setOnlyIssues(key === "issues")}
+          size="small"
+          variant="soft"
+        />
+      }
+    >
+      {error ? <Notice variant="error">{error}</Notice> : null}
+      <Table<ReconRow>
+        rowKey="purchaseOrderId"
+        size="middle"
+        loading={loading}
+        columns={columns}
+        dataSource={rows}
+        scroll={{ x: "max-content" }}
+        pagination={{ pageSize: 20, showSizeChanger: false }}
+        locale={{ emptyText: "暂无采购单" }}
+      />
+    </Panel>
   );
 }

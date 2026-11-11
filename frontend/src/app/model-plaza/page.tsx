@@ -31,6 +31,7 @@ import type {
   MpUsageSummary,
 } from "@enterprise/contracts";
 import { modelPlazaApi } from "@/api/model-plaza";
+import { cardApi, type UsableCard } from "@/api/gaps";
 import {
   EmptyState,
   Notice,
@@ -135,6 +136,7 @@ export default function ModelPlazaPage() {
   const [trialRunning, setTrialRunning] = useState(false);
   const [trialResult, setTrialResult] = useState<MpTrialResult | null>(null);
   const [trialError, setTrialError] = useState("");
+  const [usableCards, setUsableCards] = useState<UsableCard[]>([]);
 
   const loadBase = useCallback(async () => {
     setLoading(true);
@@ -186,6 +188,32 @@ export default function ModelPlazaPage() {
   useEffect(() => {
     void loadBase();
   }, [loadBase]);
+
+  // 可用时长卡单独取：卡接口挂了不影响模型广场主体，最多是少一条「有日卡」提示
+  useEffect(() => {
+    let cancelled = false;
+    void cardApi
+      .usableCards()
+      .then((rows) => {
+        if (!cancelled) setUsableCards(rows ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setUsableCards([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 该模型是否还有可扣的卡额度：零余额也能试，扣费顺序由后端按卡→积分执行。 */
+  const cardOf = useCallback(
+    (model: MpModel) =>
+      usableCards.find(
+        (card) => card.provider === model.provider && card.modelKey === model.modelKey,
+      ) || null,
+    [usableCards],
+  );
+  const trialCard = trial ? cardOf(trial) : null;
 
   useEffect(() => {
     if (tab === "usage") void loadLogs(1);
@@ -263,7 +291,13 @@ export default function ModelPlazaPage() {
       setCatalog((prev) =>
         prev ? { ...prev, balance: result.balance } : prev,
       );
-      message.success(`试用完成，本次消耗 ${points(result.pointsCost)} 积分`);
+      message.success(
+        result.cardDeduct > 0
+          ? `试用完成：本次扣卡 ${result.cardDeduct} ${
+              UNIT_LABEL[trial.billingUnit] || trial.billingUnit
+            }${result.pointsCost > 0 ? `，另扣 ${points(result.pointsCost)} 积分` : "，未产生积分消费"}`
+          : `试用完成，本次消耗 ${points(result.pointsCost)} 积分`,
+      );
     } catch (cause) {
       setTrialError(cause instanceof Error ? cause.message : "试用失败");
     } finally {
@@ -275,6 +309,16 @@ export default function ModelPlazaPage() {
     try {
       await navigator.clipboard.writeText(value);
       message.success("已复制");
+    } catch {
+      message.error("复制失败，请手动选择复制");
+    }
+  };
+
+  /** 外部客户端配置最常复制的就是 Model ID，文案单独说清复制了什么。 */
+  const copyModelId = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      message.success("Model ID 已复制");
     } catch {
       message.error("复制失败，请手动选择复制");
     }
@@ -484,6 +528,7 @@ export default function ModelPlazaPage() {
                 const price = priceCells(model);
                 const chips = tierChips(model);
                 const discounted = hasDiscount(model);
+                const myCard = cardOf(model);
                 return (
                   <button
                     key={model.id}
@@ -506,7 +551,17 @@ export default function ModelPlazaPage() {
                       <span className="mp-card-name">
                         {model.displayName || model.modelKey}
                       </span>
-                      <span className="mp-card-key mono">{model.modelKey}</span>
+                      <span
+                        className="mp-card-key mono"
+                        title="点击复制 Model ID"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void copyModelId(model.modelKey);
+                        }}
+                      >
+                        <span className="mp-card-key-text">{model.modelKey}</span>
+                        <CopyOutlined aria-hidden className="mp-card-key-copy" />
+                      </span>
                     </span>
 
                     <span className="mp-card-tags">
@@ -516,6 +571,13 @@ export default function ModelPlazaPage() {
                       <Tag color={UNIT_TAG_COLOR[model.billingUnit]}>
                         {UNIT_LABEL[model.billingUnit]}
                       </Tag>
+                      {myCard ? (
+                        <Tooltip
+                          title={`${myCard.name}｜剩 ${myCard.quotaLabel}｜到期后未用额度不结转`}
+                        >
+                          <Tag color="gold">有日卡</Tag>
+                        </Tooltip>
+                      ) : null}
                       {discounted ? null : (
                         <span className="mp-card-official">官方价</span>
                       )}
@@ -717,7 +779,8 @@ export default function ModelPlazaPage() {
               </div>
               <Notice variant="info">
                 单 Key 每日调用上限 {connection.dailyLimit} 次（Key 上单独设置的限额优先，0 表示不限）；
-                每次调用按目录价扣积分，余额不足或欠费会被拒绝。
+                每次调用按目录价计费：命中模型且仍有额度的时长卡优先扣卡，卡未覆盖的部分扣积分；
+                两者都不够时才会被拒绝。
               </Notice>
               <div>
                 <div className="text-12 muted" style={{ marginBottom: 6 }}>
@@ -775,7 +838,7 @@ export default function ModelPlazaPage() {
                     ]}
                   />
                 ) : (
-                  <EmptyState text="还没有可用的 API Key，先去「开放集成 → API Key 管理」创建一把。" />
+                  <EmptyState text="还没有可用的 API Key，先去「模型服务 → API Key 管理」创建一把。" />
                 )}
                 <div style={{ marginTop: 10 }}>
                   <Link href="/developer/keys">前往 API Key 管理</Link>
@@ -802,6 +865,19 @@ export default function ModelPlazaPage() {
             <div className="text-12 muted">
               {priceText(trial)}；余额 {catalog ? points(catalog.balance) : "—"} 积分
             </div>
+            {trialCard ? (
+              <Notice variant="success">
+                本模型有可用时长卡「{trialCard.name}」，剩 {trialCard.quotaLabel}。
+                调用优先扣卡额度，卡扣满时不产生积分流水——余额为 0 也能直接试用。
+              </Notice>
+            ) : null}
+            {!trialCard && catalog && catalog.balance <= 0 ? (
+              <Notice variant="warn">
+                积分余额不足，且本模型没有可用时长卡。可在「积分中心 → 兑换订单」用积分兑换日卡或直接购买，
+                激活后立即恢复调用；
+                <Link href="/points">前往积分中心</Link>
+              </Notice>
+            ) : null}
             <div>
               <div className="text-12 muted" style={{ marginBottom: 4 }}>
                 系统提示（可选）
@@ -860,7 +936,17 @@ export default function ModelPlazaPage() {
                 <div className="text-12 muted" style={{ marginBottom: 4 }}>
                   返回结果 · 输入 {trialResult.promptTokens} / 输出 {trialResult.completionTokens} tokens ·
                   消耗 {points(trialResult.pointsCost)} 积分（{money(trialResult.rmbCost)}）· {trialResult.elapsedMs} ms
+                  {trialResult.cardDeduct > 0
+                    ? ` · 扣卡 ${trialResult.cardDeduct} ${
+                        UNIT_LABEL[trial.billingUnit] || trial.billingUnit
+                      }`
+                    : ""}
                 </div>
+                {trialResult.cardNote ? (
+                  <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                    {trialResult.cardNote}
+                  </div>
+                ) : null}
                 <pre
                   style={{
                     margin: 0,

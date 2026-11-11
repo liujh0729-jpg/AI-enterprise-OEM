@@ -1089,7 +1089,7 @@ export function AgentChatPanel({
           <AddRow
             icon={<SettingOutlined aria-hidden />}
             label="模型设置"
-            meta="开放集成"
+            meta="模型服务"
             onClick={() => {
               setAddOpen(false);
               router.push("/model-settings");
@@ -2174,9 +2174,9 @@ export function AgentChatPanel({
             <Notice variant="error">
               {modelsError}{" "}
               {current.channelId === 0 ? (
-                <Link href="/model-settings">去「模型设置」</Link>
+                <Link href="/developer/keys">立即配置 API Key</Link>
               ) : (
-                <Link href="/developer/keys">去「API Key 管理」</Link>
+                <Link href="/model-settings">立即配置模型</Link>
               )}
             </Notice>
           ) : null}

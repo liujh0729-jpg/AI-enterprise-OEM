@@ -2,6 +2,10 @@ import type { HrmOrg } from '../hrm/hrm.scope';
 import type { JsonInput } from '../common/json-input';
 import { toJsonInput } from '../common/json-input';
 import { clip, iso } from '../hrm/hrm.helpers';
+import {
+  ACQ_CONTACT_FIELDS,
+  ACQ_CONTACT_VISIBILITIES,
+} from '@enterprise/contracts';
 
 export type Row = Record<string, unknown>;
 export type OrgKey = { orgType: string; orgUserId: string };
@@ -55,6 +59,8 @@ export const orgOf = (key: OrgKey): HrmOrg => ({
   actorId: '',
   isOwner: false,
   isAdmin: false,
+  roles: [],
+  positions: [],
   department: '',
 });
 
@@ -78,6 +84,49 @@ export const dedupeKeyOf = (platform: string, platformUserId: string): string =>
 /** 渠道会话键：入站客户尚未提升 CRM 时用它做档案主键。 */
 export const peerKeyOf = (channel: string, externalUserId: string): string =>
   `${clip(channel, 20)}:${clip(externalUserId, 160)}`.slice(0, 200);
+
+export type AcqContact = {
+  field: (typeof ACQ_CONTACT_FIELDS)[number];
+  value: string;
+  visibility: (typeof ACQ_CONTACT_VISIBILITIES)[number];
+};
+
+/**
+ * 归一化插件上报的公开联系方式：只认白名单字段与可见性，逐条裁剪长度。
+ * 插件只抽主页上「已公开可见」的字段，服务端不再二次抓取，只做落库前的收敛与去重。
+ */
+export const contactsOf = (raw: unknown): AcqContact[] => {
+  const list = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const out: AcqContact[] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Row;
+    const field = text(row.field) as AcqContact['field'];
+    if (!(ACQ_CONTACT_FIELDS as readonly string[]).includes(field)) continue;
+    const value = clip(text(row.value).trim(), 200);
+    if (!value) continue;
+    const visibility = oneOf(
+      row.visibility,
+      ACQ_CONTACT_VISIBILITIES,
+      'PROFILE_PUBLIC',
+    );
+    const key = `${field}:${value.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ field, value, visibility });
+    if (out.length >= 20) break;
+  }
+  return out;
+};
+
+/** 去重口径同 contactsOf：同一字段同一取值只留一条，跨证据汇总时用。 */
+export const contactKey = (contact: AcqContact): string =>
+  `${contact.field}:${contact.value.toLowerCase()}`;
+
+/** 从证据行 JSON 里读回联系方式，脏数据一律丢。 */
+export const evidenceContactsOf = (raw: unknown): AcqContact[] =>
+  contactsOf(raw);
 
 const minutesOf = (hhmm: string, fallback: number): number => {
   const match = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());

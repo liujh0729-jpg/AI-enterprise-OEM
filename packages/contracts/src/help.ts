@@ -10,6 +10,18 @@ const emptyQuery = z.object({});
  * 章节按侧栏菜单的真实入口组织，正文口径与 PAGE_META 说明对齐。
  */
 
+export const HELP_AUDIENCES = [
+  "GENERAL",
+  "ENTERPRISE_USER",
+  "SERVICE_PROVIDER",
+  "PROVIDER_STAFF",
+  "PLATFORM_ADMIN",
+] as const;
+export const helpAudienceSchema = z.object({
+  code: z.enum(HELP_AUDIENCES),
+  label: z.string(),
+});
+
 export const helpTopicSchema = z.object({
   /** 全局唯一主题编码，形如 "dist-extension"；MCP / 深链按 code 取详情 */
   code: z.string(),
@@ -20,6 +32,7 @@ export const helpTopicSchema = z.object({
   content: z.string(),
   /** 关联站内页面路径，前端渲染「去这个页面」按钮 */
   routePath: z.string().default(""),
+  audience: z.array(helpAudienceSchema).default([]),
   /** 检索关键词（含别名/口语说法，帮 Agent 与搜索命中） */
   keywords: z.array(z.string()).default([]),
 });
@@ -39,6 +52,8 @@ export const helpChapterSchema = z.object({
   title: z.string(),
   /** 章节导语，告诉用户这一章解决什么问题 */
   intro: z.string(),
+  /** 当前账号可见的角色分区；平台管理员专区仅管理员接口会返回 */
+  audience: z.array(helpAudienceSchema).default([]),
   topics: z.array(helpTopicBriefSchema),
 });
 export type HelpChapter = z.infer<typeof helpChapterSchema>;
@@ -52,6 +67,7 @@ export type HelpTopicDetail = z.infer<typeof helpTopicDetailSchema>;
 
 export const helpSearchHitSchema = helpTopicBriefSchema.extend({
   chapterTitle: z.string(),
+  audience: z.array(helpAudienceSchema).default([]),
   /** 命中上下文片段（正文里关键字附近的一行，供结果页高亮） */
   excerpt: z.string(),
   /** 归一相关度 0~1（统一检索内核口径，跨源合并用） */

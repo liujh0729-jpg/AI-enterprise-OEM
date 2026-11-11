@@ -16,6 +16,7 @@ import {
   message,
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
   LowCodeApprovalNode,
@@ -57,16 +58,22 @@ export function SettingsDrawer({
   open,
   projectId,
   detail,
+  initialTab,
   onClose,
   onReload,
 }: {
   open: boolean;
   projectId: number;
   detail: Detail;
+  /** 从空态直达某个设置页签（如 pages / entities）。 */
+  initialTab?: string;
   onClose: () => void;
   onReload: () => void;
 }) {
-  const [tab, setTab] = useState("project");
+  const [tab, setTab] = useState(initialTab || "project");
+  useEffect(() => {
+    if (open) setTab(initialTab || "project");
+  }, [open, initialTab]);
   return (
     <Drawer open={open} onClose={onClose} size={960} title="应用设置" destroyOnHidden>
       <TabStrip items={SETTING_TABS} value={tab} onChange={setTab} />
@@ -1821,6 +1828,7 @@ function AiPanel({ projectId }: { projectId: number }) {
       {!channels.length ? (
         <Notice variant="warn">
           还没有可用的模型渠道。请先到「模型设置」里配置渠道，再回来选择本应用使用的模型。
+          <Link href="/model-settings"> 立即配置模型</Link>
         </Notice>
       ) : (
         <>

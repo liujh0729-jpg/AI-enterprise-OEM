@@ -39,7 +39,14 @@ import {
   type LoginMethod,
   type RegisterMode,
 } from "@/api/auth";
+import { gapsPublicApi, type PublicTerms } from "@/api/gaps";
 import { useSession } from "@/lib/session";
+
+/** 注册前必读协议的全文页：编码 → 站内页（未发布后台版本时展示平台默认文本）。 */
+const AGREEMENT_PAGES: Record<string, string> = {
+  USER_REGISTRATION: "/agreement/register",
+  USER_PRIVACY: "/agreement/privacy",
+};
 
 type DevAccount = {
   username: string;
@@ -85,6 +92,12 @@ const FALLBACK_CONFIG: AccountConfig = {
     SMS_CODE: false,
     WECHAT: false,
   },
+  passwordRecovery: {
+    enabled: false,
+    PASSWORD: true,
+    EMAIL: false,
+    SMS: false,
+  },
   wechat: { enabled: false },
   captchaRequired: false,
 };
@@ -127,7 +140,17 @@ const PASSWORD_MESSAGE = "密码至少 8 位，且需同时包含字母和数字
 
 /** 演示账号分组（对齐 backend/prisma/seed 的账号口径）。 */
 const GROUPS: { key: string; label: string; users: string[] }[] = [
-  { key: "enterprise", label: "用户（企业 / 个体工商户 / 个人）", users: ["demo_enterprise", "demo_dual", "demo_user", "demo_individual", "demo_personal"] },
+  {
+    key: "enterprise",
+    label: "用户（企业 / 个体工商户 / 个人）",
+    users: [
+      "demo_enterprise",
+      "demo_dual",
+      "demo_user",
+      "demo_individual",
+      "demo_personal",
+    ],
+  },
   {
     key: "provider",
     label: "服务商",
@@ -171,7 +194,10 @@ const GROUPS: { key: string; label: string; users: string[] }[] = [
 ];
 
 function groupOf(username: string) {
-  return GROUPS.find((group) => group.users.includes(username))?.label || "其他演示账号";
+  return (
+    GROUPS.find((group) => group.users.includes(username))?.label ||
+    "其他演示账号"
+  );
 }
 
 /** 同页多处验证码倒计时共用一套实现，避免各写一遍 setTimeout。 */
@@ -209,7 +235,9 @@ export default function LoginPage() {
   const [config, setConfig] = useState<AccountConfig | null>(null);
   const [loginMethod, setLoginMethod] = useState<LoginMethod>("PASSWORD");
   const [registerMode, setRegisterMode] = useState<RegisterMode>("USERNAME");
-  const [bindMethod, setBindMethod] = useState<"PASSWORD" | "EMAIL_CODE" | "SMS_CODE">("PASSWORD");
+  const [bindMethod, setBindMethod] = useState<
+    "PASSWORD" | "EMAIL_CODE" | "SMS_CODE"
+  >("PASSWORD");
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [tips, setTips] = useState("");
@@ -220,6 +248,22 @@ export default function LoginPage() {
   const [loginCountdown, setLoginCountdown] = useCountdown();
   const [registerCountdown, setRegisterCountdown] = useCountdown();
   const [bindCountdown, setBindCountdown] = useCountdown();
+  /** 注册前必读的协议（编码/标题/当前生效版本）：勾选与提交都以它为准。 */
+  const [consents, setConsents] = useState<PublicTerms[]>([]);
+  useEffect(() => {
+    let alive = true;
+    gapsPublicApi
+      .registerConsents()
+      .then((list) => {
+        if (alive) setConsents(list);
+      })
+      .catch(() => {
+        // 协议清单拉不到时不阻塞登录页；后端仍会按生效版本强校验
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const next = useMemo(() => {
     if (typeof window === "undefined") return "/dashboard";
@@ -229,7 +273,8 @@ export default function LoginPage() {
 
   /** 微信回跳参数：ok=登录成功；bind=需要绑定已有账号；error=授权失败。 */
   const wechatQuery = useMemo(() => {
-    if (typeof window === "undefined") return { status: "", reason: "", ticket: "" };
+    if (typeof window === "undefined")
+      return { status: "", reason: "", ticket: "" };
     const params = new URLSearchParams(window.location.search);
     return {
       status: params.get("wechat") || "",
@@ -243,7 +288,8 @@ export default function LoginPage() {
     if (wechatQuery.status !== "error") return "";
     if (wechatQuery.reason === "state") return t("二维码已过期，请刷新后重试");
     if (wechatQuery.reason === "denied") return t("已取消微信授权");
-    if (wechatQuery.reason === "disabled") return t("微信登录未开启，请联系管理员");
+    if (wechatQuery.reason === "disabled")
+      return t("微信登录未开启，请联系管理员");
     return wechatQuery.reason || t("微信登录失败，请稍后重试");
   }, [wechatQuery, t]);
 
@@ -251,7 +297,9 @@ export default function LoginPage() {
   const loginOptions = useMemo<LoginMethod[]>(() => {
     const source = config ?? FALLBACK_CONFIG;
     const list = source.loginMethods.filter(
-      (method) => source.loginAvailability[method] && (method !== "WECHAT" || source.wechat.enabled),
+      (method) =>
+        source.loginAvailability[method] &&
+        (method !== "WECHAT" || source.wechat.enabled),
     );
     return list.length ? list : ["PASSWORD"];
   }, [config]);
@@ -262,12 +310,31 @@ export default function LoginPage() {
     return source.registerModes.filter((item) => source.availability[item]);
   }, [config]);
 
+  /** 勾选链接用的展示名：后台改了标题也以接口标题为准。 */
+  const consentLabel = useCallback(
+    (code: string) =>
+      consents.find((item) => item.code === code)?.title ||
+      (code === "USER_PRIVACY" ? t("隐私政策") : t("用户注册协议")),
+    [consents, t],
+  );
+  const consentHref = (code: string) =>
+    AGREEMENT_PAGES[code] || `/terms/${code}`;
+  /** 提交时带上的协议版本：取自当前生效版本，过期由后端拒绝并提示重新勾选。 */
+  const consentPayload = useMemo(
+    () => consents.map((item) => ({ code: item.code, version: item.version })),
+    [consents],
+  );
+
   const bindOptions = useMemo<{ key: string; label: string }[]>(() => {
     const source = config ?? FALLBACK_CONFIG;
     return [
       { key: "PASSWORD", label: t("账号密码") },
-      ...(source.loginAvailability.EMAIL_CODE ? [{ key: "EMAIL_CODE", label: t("邮箱验证码") }] : []),
-      ...(source.loginAvailability.SMS_CODE ? [{ key: "SMS_CODE", label: t("手机验证码") }] : []),
+      ...(source.loginAvailability.EMAIL_CODE
+        ? [{ key: "EMAIL_CODE", label: t("邮箱验证码") }]
+        : []),
+      ...(source.loginAvailability.SMS_CODE
+        ? [{ key: "SMS_CODE", label: t("手机验证码") }]
+        : []),
     ];
   }, [config, t]);
 
@@ -289,7 +356,9 @@ export default function LoginPage() {
   // 首页「免费注册」链接 /login?mode=register：直接打开注册页签
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("mode") === "register") {
+    if (
+      new URLSearchParams(window.location.search).get("mode") === "register"
+    ) {
       setMode("register");
     }
   }, []);
@@ -297,7 +366,11 @@ export default function LoginPage() {
   // 邀请链接 /login?invite=CODE：切到注册页并预填邀请码
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const invite = (new URLSearchParams(window.location.search).get("invite") || "").trim().toUpperCase();
+    const invite = (
+      new URLSearchParams(window.location.search).get("invite") || ""
+    )
+      .trim()
+      .toUpperCase();
     if (!invite) return;
     setMode("register");
     form.setFieldsValue({ inviteCode: invite.slice(0, 32) });
@@ -316,17 +389,23 @@ export default function LoginPage() {
 
   // 微信扫码：进入该方式时取一次性授权地址（state 由后端生成，5 分钟失效）
   useEffect(() => {
-    if (me || bindTicket || mode !== "login" || loginMethod !== "WECHAT") return;
+    if (me || bindTicket || mode !== "login" || loginMethod !== "WECHAT")
+      return;
     let alive = true;
     setWechatLoading(true);
     setWechatUrl("");
     authApi
-      .wechatAuthorize(next, false)
+      .wechatAuthorize(next, false, consentPayload)
       .then((value) => {
         if (alive) setWechatUrl(value.authorizeUrl);
       })
       .catch((error: unknown) => {
-        if (alive) setTips(error instanceof Error ? error.message : t("微信授权失败，请稍后重试"));
+        if (alive)
+          setTips(
+            error instanceof Error
+              ? error.message
+              : t("微信授权失败，请稍后重试"),
+          );
       })
       .finally(() => {
         if (alive) setWechatLoading(false);
@@ -334,12 +413,24 @@ export default function LoginPage() {
     return () => {
       alive = false;
     };
-  }, [me, bindTicket, mode, loginMethod, next, wechatReload, t]);
+  }, [
+    me,
+    bindTicket,
+    mode,
+    loginMethod,
+    next,
+    wechatReload,
+    t,
+    consentPayload,
+  ]);
 
   // 扫码成功：后端在 iframe 里回跳到本页，这里把整页带到 next
   useEffect(() => {
     if (wechatQuery.status !== "ok") return;
-    const target = safeNextPath(new URLSearchParams(window.location.search).get("next"), next);
+    const target = safeNextPath(
+      new URLSearchParams(window.location.search).get("next"),
+      next,
+    );
     void sessionChanged().then(() => navigate(target));
   }, [wechatQuery, next, sessionChanged]);
 
@@ -366,7 +457,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     void load();
-    if (new URLSearchParams(window.location.search).get("reason") === "expired") {
+    if (
+      new URLSearchParams(window.location.search).get("reason") === "expired"
+    ) {
       setTips("登录状态已过期，请重新登录");
     }
   }, [load]);
@@ -438,7 +531,9 @@ export default function LoginPage() {
         await finish();
         return true;
       } catch (error) {
-        setTips(error instanceof Error ? error.message : t("网络异常，请稍后再试"));
+        setTips(
+          error instanceof Error ? error.message : t("网络异常，请稍后再试"),
+        );
         return false;
       } finally {
         setBusy(false);
@@ -474,16 +569,25 @@ export default function LoginPage() {
           mode: registerMode,
           password,
           ...(registerMode === "USERNAME" ? { username: identifier } : {}),
-          ...(registerMode === "EMAIL" ? { email: identifier, code: values.rCode } : {}),
-          ...(registerMode === "PHONE" ? { phone: identifier, code: values.rCode } : {}),
-          ...(values.inviteCode ? { inviteCode: values.inviteCode.trim().toUpperCase() } : {}),
+          ...(registerMode === "EMAIL"
+            ? { email: identifier, code: values.rCode }
+            : {}),
+          ...(registerMode === "PHONE"
+            ? { phone: identifier, code: values.rCode }
+            : {}),
+          ...(values.inviteCode
+            ? { inviteCode: values.inviteCode.trim().toUpperCase() }
+            : {}),
+          ...(consentPayload.length ? { terms: consentPayload } : {}),
         });
         if (!(await autoLogin(identifier, password))) return false;
       }
       await finish();
       return true;
     } catch (error) {
-      setTips(error instanceof Error ? error.message : t("网络异常，请稍后再试"));
+      setTips(
+        error instanceof Error ? error.message : t("网络异常，请稍后再试"),
+      );
       return false;
     } finally {
       setBusy(false);
@@ -508,12 +612,15 @@ export default function LoginPage() {
     setTips("");
     try {
       if (kind === "login") await authApi.sendLoginCode(channel, target);
-      else if (kind === "register") await authApi.sendRegisterCode(channel, target);
+      else if (kind === "register")
+        await authApi.sendRegisterCode(channel, target);
       else await authApi.sendLoginCode(channel, target);
       message.success(t("验证码已发送"));
       setCountdown(60);
     } catch (error) {
-      setTips(error instanceof Error ? error.message : t("网络异常，请稍后再试"));
+      setTips(
+        error instanceof Error ? error.message : t("网络异常，请稍后再试"),
+      );
     } finally {
       setSending(false);
     }
@@ -540,31 +647,49 @@ export default function LoginPage() {
   const canSwitchRegister = registerOptions.length > 1;
   const emailChannel = loginMethod === "EMAIL_CODE";
   const messageText = tips || (errorClosed ? "" : wechatError);
-  const submitter = me || (mode === "login" && loginMethod === "WECHAT" && !bindTicket)
-    ? false
-    : {
-        searchConfig: {
-          submitText: t(bindTicket ? "绑定并登录" : mode === "login" ? "登 录" : "注册并登录"),
-        },
-        submitButtonProps: {
-          loading: busy,
-          disabled: sending,
-          className: styles.submit,
-        },
-      };
+  const submitter =
+    me || (mode === "login" && loginMethod === "WECHAT" && !bindTicket)
+      ? false
+      : {
+          searchConfig: {
+            submitText: t(
+              bindTicket
+                ? "绑定并登录"
+                : mode === "login"
+                  ? "登 录"
+                  : "注册并登录",
+            ),
+          },
+          submitButtonProps: {
+            loading: busy,
+            disabled: sending,
+            className: styles.submit,
+          },
+        };
 
   return (
     <div className={styles.page}>
       <div style={{ position: "absolute", top: 16, right: 16, zIndex: 2 }}>
         <LanguageSwitcher />
       </div>
-      <a href="#login-content" className={styles.skipLink}>{t("跳转到登录表单")}</a>
+      <a href="#login-content" className={styles.skipLink}>
+        {t("跳转到登录表单")}
+      </a>
       <main className={styles.main} id="login-content">
         <section className={styles.authSection} aria-label={t("账号登录")}>
           <LoginForm<AuthValues>
             form={form}
-            logo={<BrandLogo size={48} className={styles.logo} priority src={brand.siteLogo || undefined} />}
-            title={<h1 className={styles.title}>{brand.siteName || PRODUCT_NAME}</h1>}
+            logo={
+              <BrandLogo
+                size={48}
+                className={styles.logo}
+                priority
+                src={brand.siteLogo || undefined}
+              />
+            }
+            title={
+              <h1 className={styles.title}>{brand.siteName || PRODUCT_NAME}</h1>
+            }
             subTitle={brand.siteDesc || t("一站连接企业服务，让业务协同更简单")}
             contentStyle={{ width: "100%", maxWidth: 368 }}
             onFinish={submit}
@@ -572,35 +697,55 @@ export default function LoginPage() {
             disabled={busy}
             validateTrigger="onBlur"
             submitter={submitter}
-            message={messageText ? (
-              <Alert
-                className={styles.alert}
-                title={messageText}
-                type="error"
-                showIcon
-                role="alert"
-                closable={!!messageText}
-                onClose={() => {
-                  setTips("");
-                  setErrorClosed(true);
-                }}
-              />
-            ) : undefined}
-            actions={devMode && !me && !bindTicket ? (
-              <div className={styles.devEntry}>
-                <Button type="text" icon={<CodeOutlined />} onClick={() => setDevOpen(true)} disabled={locked}>
-                  {t("开发演示账号")}
-                </Button>
-              </div>
-            ) : undefined}
+            message={
+              messageText ? (
+                <Alert
+                  className={styles.alert}
+                  title={messageText}
+                  type="error"
+                  showIcon
+                  role="alert"
+                  closable={!!messageText}
+                  onClose={() => {
+                    setTips("");
+                    setErrorClosed(true);
+                  }}
+                />
+              ) : undefined
+            }
+            actions={
+              devMode && !me && !bindTicket ? (
+                <div className={styles.devEntry}>
+                  <Button
+                    type="text"
+                    icon={<CodeOutlined />}
+                    onClick={() => setDevOpen(true)}
+                    disabled={locked}
+                  >
+                    {t("开发演示账号")}
+                  </Button>
+                </div>
+              ) : undefined
+            }
           >
             {me ? (
               <div className={styles.current}>
-                <span className={styles.currentAvatar} aria-hidden="true"><UserOutlined /></span>
-                <h2>{lang === "zh-CN" ? `欢迎回来，${me.displayName || me.username}` : `${t("欢迎回来")}, ${me.displayName || me.username}`}</h2>
+                <span className={styles.currentAvatar} aria-hidden="true">
+                  <UserOutlined />
+                </span>
+                <h2>
+                  {lang === "zh-CN"
+                    ? `欢迎回来，${me.displayName || me.username}`
+                    : `${t("欢迎回来")}, ${me.displayName || me.username}`}
+                </h2>
                 <p>{t("你已登录，可以继续处理企业业务。")}</p>
-                <Button type="primary" size="large" block onClick={() => (window.location.href = next)}>
-                  {t("进入高管驾驶舱")} <ArrowRightOutlined />
+                <Button
+                  type="primary"
+                  size="large"
+                  block
+                  onClick={() => (window.location.href = next)}
+                >
+                  {t("进入驾驶舱")} <ArrowRightOutlined />
                 </Button>
                 <Button type="link" onClick={logout}>
                   {t("退出并切换账号")}
@@ -612,7 +757,9 @@ export default function LoginPage() {
                   className={styles.alert}
                   type="info"
                   showIcon
-                  title={t("该微信尚未绑定账号，请先用已有账号确认身份，绑定后即可扫码登录。")}
+                  title={t(
+                    "该微信尚未绑定账号，请先用已有账号确认身份，绑定后即可扫码登录。",
+                  )}
                 />
                 {bindOptions.length > 1 ? (
                   <PillTabs
@@ -621,20 +768,40 @@ export default function LoginPage() {
                     style={{ marginBottom: 20 }}
                     items={bindOptions}
                     value={bindMethod}
-                    onChange={(value) => setBindMethod(value as "PASSWORD" | "EMAIL_CODE" | "SMS_CODE")}
+                    onChange={(value) =>
+                      setBindMethod(
+                        value as "PASSWORD" | "EMAIL_CODE" | "SMS_CODE",
+                      )
+                    }
                   />
                 ) : null}
                 {bindMethod === "PASSWORD" ? (
                   <>
                     <ProFormText
                       name="bindAccount"
-                      fieldProps={{ size: "large", prefix: <UserOutlined />, autoComplete: "username", "aria-label": t("用户名 / 邮箱 / 手机号") }}
+                      fieldProps={{
+                        size: "large",
+                        prefix: <UserOutlined />,
+                        autoComplete: "username",
+                        "aria-label": t("用户名 / 邮箱 / 手机号"),
+                      }}
                       placeholder={t("用户名 / 邮箱 / 手机号")}
-                      rules={[{ required: true, whitespace: true, message: t("请输入账号") }]}
+                      rules={[
+                        {
+                          required: true,
+                          whitespace: true,
+                          message: t("请输入账号"),
+                        },
+                      ]}
                     />
                     <ProFormText.Password
                       name="bindPassword"
-                      fieldProps={{ size: "large", prefix: <LockOutlined />, autoComplete: "current-password", "aria-label": t("密码") }}
+                      fieldProps={{
+                        size: "large",
+                        prefix: <LockOutlined />,
+                        autoComplete: "current-password",
+                        "aria-label": t("密码"),
+                      }}
                       placeholder={t("密码")}
                       rules={[{ required: true, message: t("请输入密码") }]}
                     />
@@ -645,25 +812,61 @@ export default function LoginPage() {
                       name="bindTarget"
                       fieldProps={{
                         size: "large",
-                        prefix: bindMethod === "EMAIL_CODE" ? <MailOutlined /> : <MobileOutlined />,
-                        autoComplete: bindMethod === "EMAIL_CODE" ? "email" : "tel",
-                        inputMode: bindMethod === "EMAIL_CODE" ? "email" : "tel",
-                        "aria-label": bindMethod === "EMAIL_CODE" ? t("邮箱") : t("手机号"),
+                        prefix:
+                          bindMethod === "EMAIL_CODE" ? (
+                            <MailOutlined />
+                          ) : (
+                            <MobileOutlined />
+                          ),
+                        autoComplete:
+                          bindMethod === "EMAIL_CODE" ? "email" : "tel",
+                        inputMode:
+                          bindMethod === "EMAIL_CODE" ? "email" : "tel",
+                        "aria-label":
+                          bindMethod === "EMAIL_CODE" ? t("邮箱") : t("手机号"),
                       }}
-                      placeholder={bindMethod === "EMAIL_CODE" ? t("邮箱") : t("手机号")}
+                      placeholder={
+                        bindMethod === "EMAIL_CODE" ? t("邮箱") : t("手机号")
+                      }
                       rules={[
-                        { required: true, whitespace: true, message: t("请输入账号") },
+                        {
+                          required: true,
+                          whitespace: true,
+                          message: t("请输入账号"),
+                        },
                         ...(bindMethod === "EMAIL_CODE"
-                          ? [{ type: "email" as const, transform: (value: string) => value?.trim(), message: t("请输入有效的邮箱地址") }]
-                          : [{ pattern: /^1[3-9]\d{9}$/, message: t("请输入有效的手机号") }]),
+                          ? [
+                              {
+                                type: "email" as const,
+                                transform: (value: string) => value?.trim(),
+                                message: t("请输入有效的邮箱地址"),
+                              },
+                            ]
+                          : [
+                              {
+                                pattern: /^1[3-9]\d{9}$/,
+                                message: t("请输入有效的手机号"),
+                              },
+                            ]),
                       ]}
                     />
                     <div className={styles.codeRow}>
                       <ProFormText
                         name="bindCode"
-                        fieldProps={{ size: "large", prefix: <SafetyCertificateOutlined />, autoComplete: "one-time-code", "aria-label": t("验证码") }}
+                        fieldProps={{
+                          size: "large",
+                          prefix: <SafetyCertificateOutlined />,
+                          autoComplete: "one-time-code",
+                          "aria-label": t("验证码"),
+                        }}
                         placeholder={t("验证码")}
-                        rules={[{ required: true, whitespace: true, message: t("请输入验证码") }]}
+                        rules={[
+                          {
+                            required: true,
+                            whitespace: true,
+                            message: t("请输入验证码"),
+                          },
+                        ]}
                       />
                       <Button
                         size="large"
@@ -678,12 +881,18 @@ export default function LoginPage() {
                           )
                         }
                       >
-                        {bindCountdown > 0 ? `${bindCountdown}s${t("后重发")}` : t("获取验证码")}
+                        {bindCountdown > 0
+                          ? `${bindCountdown}s${t("后重发")}`
+                          : t("获取验证码")}
                       </Button>
                     </div>
                   </>
                 )}
-                <Form.Item name="remember" valuePropName="checked" style={{ marginBottom: 8 }}>
+                <Form.Item
+                  name="remember"
+                  valuePropName="checked"
+                  style={{ marginBottom: 8 }}
+                >
                   <Checkbox>{t("30 天内自动登录")}</Checkbox>
                 </Form.Item>
               </>
@@ -693,7 +902,9 @@ export default function LoginPage() {
                   style={{ marginBottom: 24 }}
                   items={[
                     { key: "login", label: t("账号登录") },
-                    ...(registerOptions.length ? [{ key: "register", label: t("注册账号") }] : []),
+                    ...(registerOptions.length
+                      ? [{ key: "register", label: t("注册账号") }]
+                      : []),
                   ]}
                   value={mode}
                   onChange={changeMode}
@@ -705,7 +916,10 @@ export default function LoginPage() {
                         size="small"
                         variant="soft"
                         style={{ marginBottom: 20 }}
-                        items={loginOptions.map((method) => ({ key: method, label: t(LOGIN_METHOD_LABEL[method]) }))}
+                        items={loginOptions.map((method) => ({
+                          key: method,
+                          label: t(LOGIN_METHOD_LABEL[method]),
+                        }))}
                         value={loginMethod}
                         onChange={changeLoginMethod}
                       />
@@ -714,19 +928,50 @@ export default function LoginPage() {
                       <>
                         <ProFormText
                           name="account"
-                          fieldProps={{ size: "large", prefix: <UserOutlined />, autoComplete: "username", "aria-label": t("用户名 / 邮箱 / 手机号") }}
+                          fieldProps={{
+                            size: "large",
+                            prefix: <UserOutlined />,
+                            autoComplete: "username",
+                            "aria-label": t("用户名 / 邮箱 / 手机号"),
+                          }}
                           placeholder={t("用户名 / 邮箱 / 手机号")}
-                          rules={[{ required: true, whitespace: true, message: t("请输入账号") }]}
+                          rules={[
+                            {
+                              required: true,
+                              whitespace: true,
+                              message: t("请输入账号"),
+                            },
+                          ]}
                         />
                         <ProFormText.Password
                           name="password"
-                          fieldProps={{ size: "large", prefix: <LockOutlined />, autoComplete: "current-password", "aria-label": t("密码") }}
+                          fieldProps={{
+                            size: "large",
+                            prefix: <LockOutlined />,
+                            autoComplete: "current-password",
+                            "aria-label": t("密码"),
+                          }}
                           placeholder={t("密码")}
                           rules={[{ required: true, message: t("请输入密码") }]}
                         />
-                        <Form.Item name="remember" valuePropName="checked" style={{ marginBottom: 8 }}>
-                          <Checkbox>{t("30 天内自动登录")}</Checkbox>
-                        </Form.Item>
+                        <div className={styles.rememberRow}>
+                          <Form.Item
+                            name="remember"
+                            valuePropName="checked"
+                            style={{ marginBottom: 8 }}
+                          >
+                            <Checkbox>{t("30 天内自动登录")}</Checkbox>
+                          </Form.Item>
+                          {(config ?? FALLBACK_CONFIG).passwordRecovery
+                            .enabled ? (
+                            <a
+                              href="/reset-password"
+                              className={styles.forgotLink}
+                            >
+                              {t("忘记密码？")}
+                            </a>
+                          ) : null}
+                        </div>
                       </>
                     ) : loginMethod === "WECHAT" ? (
                       <div className={styles.wechat}>
@@ -742,7 +987,9 @@ export default function LoginPage() {
                             allow="encrypted-media"
                           />
                         ) : (
-                          <p className={styles.formNote}>{t("微信二维码加载失败，请刷新重试")}</p>
+                          <p className={styles.formNote}>
+                            {t("微信二维码加载失败，请刷新重试")}
+                          </p>
                         )}
                         <Button
                           type="link"
@@ -759,25 +1006,57 @@ export default function LoginPage() {
                           name="codeTarget"
                           fieldProps={{
                             size: "large",
-                            prefix: emailChannel ? <MailOutlined /> : <MobileOutlined />,
+                            prefix: emailChannel ? (
+                              <MailOutlined />
+                            ) : (
+                              <MobileOutlined />
+                            ),
                             autoComplete: emailChannel ? "email" : "tel",
                             inputMode: emailChannel ? "email" : "tel",
-                            "aria-label": emailChannel ? t("邮箱") : t("手机号"),
+                            "aria-label": emailChannel
+                              ? t("邮箱")
+                              : t("手机号"),
                           }}
                           placeholder={emailChannel ? t("邮箱") : t("手机号")}
                           rules={[
-                            { required: true, whitespace: true, message: t("请输入账号") },
+                            {
+                              required: true,
+                              whitespace: true,
+                              message: t("请输入账号"),
+                            },
                             ...(emailChannel
-                              ? [{ type: "email" as const, transform: (value: string) => value?.trim(), message: t("请输入有效的邮箱地址") }]
-                              : [{ pattern: /^1[3-9]\d{9}$/, message: t("请输入有效的手机号") }]),
+                              ? [
+                                  {
+                                    type: "email" as const,
+                                    transform: (value: string) => value?.trim(),
+                                    message: t("请输入有效的邮箱地址"),
+                                  },
+                                ]
+                              : [
+                                  {
+                                    pattern: /^1[3-9]\d{9}$/,
+                                    message: t("请输入有效的手机号"),
+                                  },
+                                ]),
                           ]}
                         />
                         <div className={styles.codeRow}>
                           <ProFormText
                             name="loginCode"
-                            fieldProps={{ size: "large", prefix: <SafetyCertificateOutlined />, autoComplete: "one-time-code", "aria-label": t("验证码") }}
+                            fieldProps={{
+                              size: "large",
+                              prefix: <SafetyCertificateOutlined />,
+                              autoComplete: "one-time-code",
+                              "aria-label": t("验证码"),
+                            }}
                             placeholder={t("验证码")}
-                            rules={[{ required: true, whitespace: true, message: t("请输入验证码") }]}
+                            rules={[
+                              {
+                                required: true,
+                                whitespace: true,
+                                message: t("请输入验证码"),
+                              },
+                            ]}
                           />
                           <Button
                             size="large"
@@ -792,10 +1071,16 @@ export default function LoginPage() {
                               )
                             }
                           >
-                            {loginCountdown > 0 ? `${loginCountdown}s${t("后重发")}` : t("获取验证码")}
+                            {loginCountdown > 0
+                              ? `${loginCountdown}s${t("后重发")}`
+                              : t("获取验证码")}
                           </Button>
                         </div>
-                        <Form.Item name="remember" valuePropName="checked" style={{ marginBottom: 8 }}>
+                        <Form.Item
+                          name="remember"
+                          valuePropName="checked"
+                          style={{ marginBottom: 8 }}
+                        >
                           <Checkbox>{t("30 天内自动登录")}</Checkbox>
                         </Form.Item>
                       </>
@@ -808,7 +1093,10 @@ export default function LoginPage() {
                         size="small"
                         variant="soft"
                         style={{ marginBottom: 20 }}
-                        items={registerOptions.map((item) => ({ key: item, label: t(REGISTER_MODE_LABEL[item]) }))}
+                        items={registerOptions.map((item) => ({
+                          key: item,
+                          label: t(REGISTER_MODE_LABEL[item]),
+                        }))}
                         value={registerMode}
                         onChange={changeRegisterMode}
                       />
@@ -816,38 +1104,88 @@ export default function LoginPage() {
                     {registerMode === "USERNAME" ? (
                       <ProFormText
                         name="rUsername"
-                        fieldProps={{ size: "large", prefix: <UserOutlined />, autoComplete: "username", "aria-label": t("用户名") }}
-                        placeholder={t("用户名（3-32 位字母、数字、下划线或连字符）")}
+                        fieldProps={{
+                          size: "large",
+                          prefix: <UserOutlined />,
+                          autoComplete: "username",
+                          "aria-label": t("用户名"),
+                        }}
+                        placeholder={t(
+                          "用户名（3-32 位字母、数字、下划线或连字符）",
+                        )}
                         rules={[
-                          { required: true, whitespace: true, message: t("请输入用户名") },
-                          { pattern: /^[A-Za-z0-9_-]{3,32}$/, message: t("用户名需为 3-32 位字母、数字、下划线或连字符") },
+                          {
+                            required: true,
+                            whitespace: true,
+                            message: t("请输入用户名"),
+                          },
+                          {
+                            pattern: /^[A-Za-z0-9_-]{3,32}$/,
+                            message: t(
+                              "用户名需为 3-32 位字母、数字、下划线或连字符",
+                            ),
+                          },
                         ]}
                       />
                     ) : registerMode === "EMAIL" ? (
                       <>
                         <ProFormText
                           name="rEmail"
-                          fieldProps={{ size: "large", prefix: <MailOutlined />, autoComplete: "email", inputMode: "email", "aria-label": t("邮箱") }}
+                          fieldProps={{
+                            size: "large",
+                            prefix: <MailOutlined />,
+                            autoComplete: "email",
+                            inputMode: "email",
+                            "aria-label": t("邮箱"),
+                          }}
                           placeholder={t("邮箱")}
                           rules={[
-                            { required: true, whitespace: true, message: t("请输入邮箱") },
-                            { type: "email", transform: (value: string) => value?.trim(), message: t("请输入有效的邮箱地址") },
+                            {
+                              required: true,
+                              whitespace: true,
+                              message: t("请输入邮箱"),
+                            },
+                            {
+                              type: "email",
+                              transform: (value: string) => value?.trim(),
+                              message: t("请输入有效的邮箱地址"),
+                            },
                           ]}
                         />
                         <div className={styles.codeRow}>
                           <ProFormText
                             name="rCode"
-                            fieldProps={{ size: "large", prefix: <SafetyCertificateOutlined />, autoComplete: "one-time-code", "aria-label": t("验证码") }}
+                            fieldProps={{
+                              size: "large",
+                              prefix: <SafetyCertificateOutlined />,
+                              autoComplete: "one-time-code",
+                              "aria-label": t("验证码"),
+                            }}
                             placeholder={t("验证码")}
-                            rules={[{ required: true, whitespace: true, message: t("请输入邮箱验证码") }]}
+                            rules={[
+                              {
+                                required: true,
+                                whitespace: true,
+                                message: t("请输入邮箱验证码"),
+                              },
+                            ]}
                           />
                           <Button
                             size="large"
                             loading={sending}
                             disabled={busy || registerCountdown > 0}
-                            onClick={() => void sendCode("EMAIL", "rEmail", "register", setRegisterCountdown)}
+                            onClick={() =>
+                              void sendCode(
+                                "EMAIL",
+                                "rEmail",
+                                "register",
+                                setRegisterCountdown,
+                              )
+                            }
                           >
-                            {registerCountdown > 0 ? `${registerCountdown}s${t("后重发")}` : t("获取验证码")}
+                            {registerCountdown > 0
+                              ? `${registerCountdown}s${t("后重发")}`
+                              : t("获取验证码")}
                           </Button>
                         </div>
                       </>
@@ -855,43 +1193,90 @@ export default function LoginPage() {
                       <>
                         <ProFormText
                           name="rPhone"
-                          fieldProps={{ size: "large", prefix: <MobileOutlined />, autoComplete: "tel", inputMode: "tel", "aria-label": t("手机号") }}
+                          fieldProps={{
+                            size: "large",
+                            prefix: <MobileOutlined />,
+                            autoComplete: "tel",
+                            inputMode: "tel",
+                            "aria-label": t("手机号"),
+                          }}
                           placeholder={t("手机号")}
                           rules={[
-                            { required: true, whitespace: true, message: t("请输入手机号") },
-                            { pattern: /^1[3-9]\d{9}$/, message: t("请输入有效的手机号") },
+                            {
+                              required: true,
+                              whitespace: true,
+                              message: t("请输入手机号"),
+                            },
+                            {
+                              pattern: /^1[3-9]\d{9}$/,
+                              message: t("请输入有效的手机号"),
+                            },
                           ]}
                         />
                         <div className={styles.codeRow}>
                           <ProFormText
                             name="rCode"
-                            fieldProps={{ size: "large", prefix: <SafetyCertificateOutlined />, autoComplete: "one-time-code", "aria-label": t("验证码") }}
+                            fieldProps={{
+                              size: "large",
+                              prefix: <SafetyCertificateOutlined />,
+                              autoComplete: "one-time-code",
+                              "aria-label": t("验证码"),
+                            }}
                             placeholder={t("验证码")}
-                            rules={[{ required: true, whitespace: true, message: t("请输入短信验证码") }]}
+                            rules={[
+                              {
+                                required: true,
+                                whitespace: true,
+                                message: t("请输入短信验证码"),
+                              },
+                            ]}
                           />
                           <Button
                             size="large"
                             loading={sending}
                             disabled={busy || registerCountdown > 0}
-                            onClick={() => void sendCode("SMS", "rPhone", "register", setRegisterCountdown)}
+                            onClick={() =>
+                              void sendCode(
+                                "SMS",
+                                "rPhone",
+                                "register",
+                                setRegisterCountdown,
+                              )
+                            }
                           >
-                            {registerCountdown > 0 ? `${registerCountdown}s${t("后重发")}` : t("获取验证码")}
+                            {registerCountdown > 0
+                              ? `${registerCountdown}s${t("后重发")}`
+                              : t("获取验证码")}
                           </Button>
                         </div>
                       </>
                     )}
                     <ProFormText.Password
                       name="rPassword"
-                      fieldProps={{ size: "large", prefix: <LockOutlined />, autoComplete: "new-password", "aria-label": t("密码") }}
+                      fieldProps={{
+                        size: "large",
+                        prefix: <LockOutlined />,
+                        autoComplete: "new-password",
+                        "aria-label": t("密码"),
+                      }}
                       placeholder={t("设置密码（至少 8 位，含字母和数字）")}
                       rules={[
                         { required: true, message: t("请输入密码") },
-                        { pattern: PASSWORD_PATTERN, message: t(PASSWORD_MESSAGE) },
+                        {
+                          pattern: PASSWORD_PATTERN,
+                          message: t(PASSWORD_MESSAGE),
+                        },
                       ]}
                     />
                     <ProFormText
                       name="inviteCode"
-                      fieldProps={{ size: "large", prefix: <SafetyCertificateOutlined />, autoComplete: "off", "aria-label": t("邀请码（选填）"), maxLength: 32 }}
+                      fieldProps={{
+                        size: "large",
+                        prefix: <SafetyCertificateOutlined />,
+                        autoComplete: "off",
+                        "aria-label": t("邀请码（选填）"),
+                        maxLength: 32,
+                      }}
                       placeholder={t("邀请码（选填）")}
                     />
                     <Form.Item
@@ -903,14 +1288,30 @@ export default function LoginPage() {
                           validator: (_rule, value) =>
                             value
                               ? Promise.resolve()
-                              : Promise.reject(new Error(t("请先阅读并同意注册协议"))),
+                              : Promise.reject(
+                                  new Error(
+                                    t("请先阅读并同意用户注册协议与隐私政策"),
+                                  ),
+                                ),
                         },
                       ]}
                     >
                       <Checkbox>
                         {t("我已阅读并同意")}
-                        <a href="/agreement/register" target="_blank" rel="noreferrer">
-                          {t("《注册协议》")}
+                        <a
+                          href={consentHref("USER_REGISTRATION")}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {`《${consentLabel("USER_REGISTRATION")}》`}
+                        </a>
+                        {t("和")}
+                        <a
+                          href={consentHref("USER_PRIVACY")}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {`《${consentLabel("USER_PRIVACY")}》`}
                         </a>
                       </Checkbox>
                     </Form.Item>
@@ -927,8 +1328,13 @@ export default function LoginPage() {
           <span>
             {brand.footerLinks.map((link, index) => (
               <span key={link.url}>
-                {index > 0 ? ' · ' : null}
-                <a href={link.url} target="_blank" rel="noreferrer" className={styles.icpLink}>
+                {index > 0 ? " · " : null}
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={styles.icpLink}
+                >
                   {link.label}
                 </a>
               </span>
@@ -956,7 +1362,9 @@ export default function LoginPage() {
         size={620}
         className={styles.devDrawer}
       >
-        <p className={styles.devDescription}>选择业务身份直接进入高管驾驶舱，共 {accounts.length} 个账号。</p>
+        <p className={styles.devDescription}>
+          选择业务身份直接进入驾驶舱，共 {accounts.length} 个账号。
+        </p>
         <Input.Search
           allowClear
           placeholder="搜索用户名、名称或 ID"
@@ -966,17 +1374,33 @@ export default function LoginPage() {
         />
         <div className={styles.accountGrid}>
           {visible.map((account) => (
-            <button key={account.username} type="button" className={styles.account} onClick={() => loginAs(account.username)}>
+            <button
+              key={account.username}
+              type="button"
+              className={styles.account}
+              onClick={() => loginAs(account.username)}
+            >
               <span className={styles.accountName}>
                 {account.displayName}
-                {account.role === "admin" ? <Tag color="blue">管理员</Tag> : null}
+                {account.role === "admin" ? (
+                  <Tag color="blue">管理员</Tag>
+                ) : null}
               </span>
-              <span className={styles.accountMeta}>{account.username} · {account.userId}</span>
-              <span className={styles.accountGroup}>{groupOf(account.username)}</span>
+              <span className={styles.accountMeta}>
+                {account.username} · {account.userId}
+              </span>
+              <span className={styles.accountGroup}>
+                {groupOf(account.username)}
+              </span>
             </button>
           ))}
         </div>
-        {visible.length ? null : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的演示账号" />}
+        {visible.length ? null : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="没有匹配的演示账号"
+          />
+        )}
       </Drawer>
     </div>
   );

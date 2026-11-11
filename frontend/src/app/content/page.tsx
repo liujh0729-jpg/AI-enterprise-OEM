@@ -6,6 +6,7 @@ import {
   PictureOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
+  SettingOutlined,
   ShopOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
@@ -21,6 +22,7 @@ import {
   Upload,
 } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   CONTENT_MEDIA_TYPE_LABELS,
   CONTENT_TOOLS,
@@ -145,7 +147,7 @@ export default function ContentPage() {
     <div>
       <PageHero
         title="内容创作小工具"
-        desc="一个卡片一个功能：写文案、生成图片/视频、配音配乐、去水印超分；跨境电商 / 国内电商商品页优化（商品简报 → 转化诊断与理由卡 → 风格锁 → 逐张确认文案与提示词后出图，国内版按广告法合规、白底首图预留平台价格区与 logo 区）；末尾的「视频创作工具」是装在自己电脑上的外部项目，点卡片先看简介与网关配置。产物自动存进本账号的 AIPDD 数字资产；模型与 Key 在「开放集成 → 模型设置」里配置"
+        desc="一个卡片一个功能：写文案、生成图片/视频、配音配乐、去水印超分；跨境电商 / 国内电商商品页优化（商品简报 → 转化诊断与理由卡 → 风格锁 → 逐张确认文案与提示词后出图，国内版按广告法合规、白底首图预留平台价格区与 logo 区）；末尾的「视频创作工具」是装在自己电脑上的外部项目，点卡片先看简介与网关配置。产物自动存进本账号的 AIPDD 数字资产；模型与 Key 在「模型服务 → 模型设置」里配置"
         extra={
           detailOpen ? (
             <Button
@@ -598,6 +600,16 @@ function ContentToolPanel({ tool }: { tool: ContentTool }) {
                         }))
                       }
                     />
+                    {!modelsLoading && !list.length ? (
+                      <Link
+                        href="/model-settings"
+                        className="text-12"
+                        style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                      >
+                        <SettingOutlined aria-hidden />
+                        立即配置模型
+                      </Link>
+                    ) : null}
                   </div>
                 );
               })}

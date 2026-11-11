@@ -7,6 +7,7 @@ import { socialApi, type ProfileData } from "@/api/social";
 import { useBusinessQuery, useOperationMutation } from "@/query/business";
 import { useSession } from "@/lib/session";
 import { PersonAvatar } from "./social-ui";
+import { SocialSyncPanel } from "./sync-panel";
 
 type ProfileForm = {
   title: string;
@@ -182,6 +183,10 @@ export function ProfileTab() {
           </Button>
         </Form>
       </Panel>
+
+      <div style={{ gridColumn: "1 / -1" }}>
+        <SocialSyncPanel />
+      </div>
     </div>
   );
 }

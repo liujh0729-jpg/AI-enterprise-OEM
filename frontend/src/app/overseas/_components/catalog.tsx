@@ -7,6 +7,7 @@ import { App, Button, Modal, Space } from "antd";
 import { useState } from "react";
 import { StaffApplyAction } from "@/components/staff-apply-action";
 import { Panel } from "@/components/ui/panel";
+import { ServicePackagesPanel } from "@/components/service-packages";
 import {
   LocationFilterBar,
   locationText,
@@ -382,6 +383,8 @@ export function OverseasCatalog({
           </>
         ) : null}
       </Modal>
+
+      <ServicePackagesPanel serviceType="EXPORT_REFUND" />
 
       <ConfirmModal state={confirm} onClose={() => setConfirm(null)} />
     </>

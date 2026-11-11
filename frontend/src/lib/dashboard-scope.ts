@@ -18,6 +18,13 @@ const STATISTIC_DOMAIN: Record<DashboardStatistic, string> = {
   onboardings: "flex",
 };
 
+/**
+ * 已补齐 TaskSource 的板块：驾驶舱「我的待办」卡直接读任务中心 `bySource`，
+ * 不再单独拉板块统计，避免两套口径与重复请求（B7 口径收敛）。
+ * 其余板块尚无 TaskSource，仍按板块统计计算。
+ */
+const CONVERGED_STATISTICS: DashboardStatistic[] = ["declarations", "logistics", "marketing"];
+
 /** 请求、待办卡片和合计使用同一可见范围；管理员切换业务身份保留全部类目。 */
 export function dashboardScope(me: EnterpriseMe | null) {
   const identity = me?.currentIdentity || "";
@@ -29,6 +36,7 @@ export function dashboardScope(me: EnterpriseMe | null) {
     !(personal && (domain === "tax" || domain === "overseas")),
   );
   const statistics = (Object.keys(STATISTIC_DOMAIN) as DashboardStatistic[]).filter((key) =>
+    !CONVERGED_STATISTICS.includes(key) &&
     domains.includes(STATISTIC_DOMAIN[key]) && !(identity === "ENTERPRISE_USER" && key === "onboardings"),
   );
   return { identity, domains, statistics };

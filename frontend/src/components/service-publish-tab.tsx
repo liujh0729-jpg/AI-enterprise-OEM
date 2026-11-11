@@ -217,7 +217,7 @@ export function ServicePublishTab({
       content: (
         <span>
           发布服务会把服务登记到 AIworkin 平台，需先绑定本账号自己的 AIPDD API Key。
-          请打开「开放集成 → <Link href="/developer/keys">API Key 管理</Link>」
+          请打开「模型服务 → <Link href="/developer/keys">API Key 管理</Link>」
           （/developer/keys），粘贴 sk- 开头的 Key 完成绑定后再回来发布。
         </span>
       ),

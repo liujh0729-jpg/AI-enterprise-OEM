@@ -36,6 +36,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { contentApi } from "@/api/content";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
 import { joinSiteUrl } from "@/lib/site-url";
@@ -870,8 +871,9 @@ export function AgentAssistantTab() {
             ) : null}
             {!channelOptions.length ? (
               <Notice variant="warn">
-                还没有可用的自定义模型渠道：助理是无人值守执行，拿不到登录态，不能用「模型设置」里的内置渠道和默认槽位。请先到「开放集成 →
+                还没有可用的自定义模型渠道：助理是无人值守执行，拿不到登录态，不能用「模型设置」里的内置渠道和默认槽位。请先到「模型服务 →
                 模型设置」添加一个渠道，再回来绑这个助理。
+                <Link href="/model-settings"> 立即配置模型</Link>
               </Notice>
             ) : null}
           </div>

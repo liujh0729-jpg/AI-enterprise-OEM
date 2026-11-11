@@ -147,6 +147,7 @@ export function GapsOnboardingTab() {
           staffUserId: values.staffUserId,
           memberUserId: "",
           offerId: 0,
+          positionName: values.positionName || "",
         },
       });
       message.success("入职流程已发起");
@@ -259,7 +260,7 @@ export function GapsOnboardingTab() {
   return (
     <Panel
       title="入职引导清单"
-      titleExtra="Offer 接受时自动按「员工入职」模板开工；事项按角色分工，全部完成后自动收口"
+      titleExtra="Offer 接受时自动按「员工入职」模板开工；离职时自动按「离职交接」模板开工。事项按角色分工，全部完成后自动收口（入职清单会按登记的岗位开通权限）"
       extra={
         <PillTabs
           items={[
@@ -359,6 +360,7 @@ export function GapsOnboardingTab() {
               options={[
                 { value: "HIRE", label: "员工入职" },
                 { value: "ADMIN", label: "管理员开通" },
+                { value: "OFFBOARD", label: "离职交接" },
               ]}
             />
           </Form.Item>
@@ -421,6 +423,13 @@ export function GapsOnboardingTab() {
           <Form.Item name="staffUserId" label="入职成员" rules={[{ required: true, message: "请选择成员" }]}>
             <Select showSearch optionFilterProp="label" options={staff} />
           </Form.Item>
+          <Form.Item
+            name="positionName"
+            label="开通岗位"
+            tooltip="填写本组织职能目录里的岗位名称；清单全部完成后自动为该成员开通该岗位权限，留空则只走清单"
+          >
+            <Input maxLength={64} placeholder="如：销售专员（留空则不开通）" />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -439,6 +448,7 @@ export function GapsOnboardingTab() {
                 <span className="text-12 muted">
                   由 {staff.find((item) => item.value === detail.staffUserId)?.label || detail.staffUserId} 于{" "}
                   {zhDay(detail.startedAt)} 发起，已完成 {detail.done}/{detail.total}
+                  {detail.positionName ? `，完成后开通岗位：${detail.positionName}` : ""}
                 </span>
               </Space>
             </div>

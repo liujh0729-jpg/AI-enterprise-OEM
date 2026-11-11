@@ -1,6 +1,7 @@
 "use client";
 
 import { App, Button, Drawer, Input, Modal, Select, Space, Table, Tag } from "antd";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   kbApi,
@@ -106,7 +107,8 @@ export function KbBoard({ tab }: { tab: KbTab }) {
           />
         ) : (
           <Notice variant="warn">
-            还没有可用的知识空间：先到「空间」页签创建一个（个人空间人人可建）。
+            还没有可用的知识空间：先到「空间」页签创建一个（个人空间人人可建）。{" "}
+            <Link href="/kb?tab=spaces">去创建知识空间</Link>
           </Notice>
         )}
       </Panel>

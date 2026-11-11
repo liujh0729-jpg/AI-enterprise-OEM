@@ -7,6 +7,7 @@ import {
   ScheduleOutlined,
 } from "@ant-design/icons";
 import { ConfigProvider, Skeleton } from "antd";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Notice, PageHero } from "@/components/ui/panel";
 import { AccountPanel } from "./_components/account-panel";
@@ -38,6 +39,11 @@ import { WorkbuddyGuideButton } from "./_components/usage-guide";
  */
 export default function WorkbuddyPage() {
   const [tab, setTab] = useState("plans");
+  // 阻断提示直达：/workbuddy?tab=accounts 定位到账号页签
+  const wantedTab = useSearchParams().get("tab") || "";
+  useEffect(() => {
+    if (["plans", "agents", "accounts", "ai-call"].includes(wantedTab)) setTab(wantedTab);
+  }, [wantedTab]);
   const [plans, setPlans] = useState<WbPlan[]>([]);
   const [accounts, setAccounts] = useState<WbAccount[]>([]);
   const [aiCallAccounts, setAiCallAccounts] = useState<AiCallAccount[]>([]);

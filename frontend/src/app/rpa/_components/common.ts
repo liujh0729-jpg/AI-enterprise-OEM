@@ -59,6 +59,7 @@ export const DEVICE_LABEL: Record<string, string> = {
   pc: "PC（比特浏览器）",
   android: "安卓云手机",
   iphone: "iPhone 云手机",
+  chrome: "本地 Chrome（插件）",
 };
 
 export const DEVICE_OPTIONS = Object.entries(DEVICE_LABEL).map(
@@ -72,6 +73,11 @@ export function deviceLabel(value: string) {
 /** 只有云手机设备才谈环境 ID、计费方式与跑完后的收尾动作。 */
 export function isPhoneDevice(value: string) {
   return value === "android" || value === "iphone";
+}
+
+/** 本地 Chrome 插件任务：绑设备 clientId、不需要 RPA 账号（用本机已登录的浏览器）。 */
+export function isChromeDevice(value: string) {
+  return value === "chrome";
 }
 
 /** 云手机计费方式（对齐比特浏览器 envType）：0＝套餐计费，1＝按时计费。 */
@@ -147,18 +153,21 @@ export const FILE_TYPE_LABEL: Record<string, string> = {
   automa_json: "JSON（Automa 脚本）",
   bitbrowser_rpa: "比特浏览器 RPA 流程",
   bitphone_json: "比特云手机 RPA 流程",
+  chrome_actions: "本地 Chrome 动作序列（JSON）",
   javascript: "JS 脚本",
   python: "Python 脚本",
 };
 
 /**
  * 每种设备能吃的脚本类型，顺序与默认值都由后端 rpa-shared.SCRIPT_FILE_TYPES_BY_DEVICE 定：
- * 比特浏览器 / 云手机的 RPA 流程只能在客户端里画好再登记，iPhone 云手机只有 JS / Python。
+ * 比特浏览器 / 云手机的 RPA 流程只能在客户端里画好再登记，iPhone 云手机只有 JS / Python；
+ * 本地 Chrome 插件只回放闭集动作序列（契约 RC_ACTIONS），不接受任意脚本。
  */
 export const FILE_TYPES_BY_DEVICE: Record<string, string[]> = {
   pc: ["automa_json", "bitbrowser_rpa", "javascript", "python"],
   android: ["bitphone_json", "javascript", "python"],
   iphone: ["javascript", "python"],
+  chrome: ["chrome_actions"],
 };
 
 /** AI 能写出来的类型：客户端导出的流程文件模型造不出合法正文，不给选。 */
@@ -285,6 +294,8 @@ export type RpaTask = {
   scriptId: number;
   deviceType: string;
   deviceLabel: string;
+  /** 本地 Chrome 任务绑定的设备 clientId；其余设备类型为空串。 */
+  chromeClientId: string;
   accountIds: number[];
   params: Record<string, unknown>;
   status: string;

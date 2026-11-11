@@ -24,6 +24,7 @@ import { mailApi } from "@/api/mail";
 import { aiApi, type AiMailboxAnalyze } from "@/api/ai";
 import { AiLevelTag, AiList, AiResultModal } from "@/components/ai-result";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import Link from "next/link";
 import { fmtTime } from "@/lib/datetime";
 
 type InboxRow = MailMessageSummary & {
@@ -166,7 +167,12 @@ export function MailInboxTab({ accounts }: { accounts: MailAccount[] }) {
   const act = async (kind: "draft" | "send") => {
     if (!viewing) return;
     if (!reply.trim()) {
-      message.error("请先写回复正文，或在「知识与话术」里配置命中这类邮件的话术");
+      message.error(
+        <>
+          请先写回复正文，或在「知识与话术」里配置命中这类邮件的话术{" "}
+          <Link href="/mail?tab=scripts">去配置话术</Link>
+        </>,
+      );
       return;
     }
     setActing(kind);
@@ -304,7 +310,10 @@ export function MailInboxTab({ accounts }: { accounts: MailAccount[] }) {
       >
         {error ? <Notice variant="warn">{error}</Notice> : null}
         {!accounts.length ? (
-          <EmptyState text="还没有邮箱：先到「邮箱账号」页签添加一个" />
+          <EmptyState
+            text="还没有邮箱：先到「邮箱账号」页签添加一个"
+            action={<Link href="/mail?tab=accounts">去添加邮箱</Link>}
+          />
         ) : !loading && !rows.length ? (
           <EmptyState text="没有符合条件的邮件（POP3 没有已读标记，处理过的会计入台账）" />
         ) : (

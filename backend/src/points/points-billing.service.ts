@@ -6,6 +6,7 @@ import { ErrorCode } from '../common/error-code';
 import { PointsSettingsService } from './points-settings.service';
 import { PointsService } from './points.service';
 import { RechargeService } from './recharge.service';
+import type { CardService } from './card.service';
 
 const GB = 1024 * 1024 * 1024;
 
@@ -26,8 +27,9 @@ function dayStart(now = new Date()) {
  * 1) 数字资产每日存储快照（按用户聚合字节，幂等键 userId+snapshotAt）；
  * 2) asset_storage 按 GB·天出账（扣月免费额，欠费只冻结新增永不删数据）；
  * 3) crm 席位月费（每月 1 日按 owner 聚合 ACTIVE 席位，超免费额扣费）；
- * 4) 关闭超时未支付充值单；
- * 5) 欠费状态流转与宽限。
+ * 4) 关闭超时未支付充值单与购卡单；
+ * 5) 时长卡过期刷状态（谓词本身已排除过期卡，只为列表显示准确）；
+ * 6) 欠费状态流转与宽限。
  * 全部动作以 point_settings 的 last_daily_batch_date 做「今天只跑一次」幂等。
  */
 export class PointsBillingService {
@@ -38,6 +40,7 @@ export class PointsBillingService {
     private readonly settings: PointsSettingsService,
     private readonly points: PointsService,
     private readonly recharge: RechargeService,
+    private readonly cards: CardService,
   ) {}
 
   async runDailyBatch() {
@@ -51,6 +54,8 @@ export class PointsBillingService {
       storageArrears: 0,
       seatCharged: 0,
       rechargesClosed: 0,
+      cardOrdersClosed: 0,
+      cardsExpired: 0,
     };
     try {
       summary.snapshots = await this.snapshotStorage(snapshotAt);
@@ -63,6 +68,11 @@ export class PointsBillingService {
       summary.rechargesClosed = await this.recharge.closeExpired(
         new Date(Date.now() - 2 * 3600_000),
       );
+      // 购卡单同样先查上游再关单：已支付但回调丢失的订单在这里补发卡，不会关掉已付的单子
+      summary.cardOrdersClosed = await this.cards.closeCashOrders(
+        new Date(Date.now() - 2 * 3600_000),
+      );
+      summary.cardsExpired = await this.cards.expireCards();
       await this.refreshArrearsStatus();
       // 全部成功后再落幂等标记：中途异常下轮可重试
       await this.settings.setFlag('last_daily_batch_date', key);

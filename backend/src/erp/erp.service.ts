@@ -17,6 +17,10 @@ const num = (v: unknown, fallback = 0): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
+const round = (value: number, digits = 2): number => {
+  const base = 10 ** digits;
+  return Math.round(value * base) / base;
+};
 const strArr = (v: unknown): string[] =>
   Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : [];
 const text = (v: unknown): string => {
@@ -50,6 +54,60 @@ const MOVES = ['IN', 'OUT', 'TRANSFER', 'ADJUST'] as const;
 const RECURRENCES = ['NONE', 'MONTHLY', 'QUARTERLY', 'YEARLY'] as const;
 
 /**
+ * 职能权限（设计方案 §四/§3.4）：ERP 管理操作按职能域分别授权，
+ * 不与 HR 管理角色串用——HR 角色不自动获得采购/财务/库存管理权。
+ */
+type ErpFunction = 'PURCHASE' | 'INVENTORY' | 'FINANCE';
+
+const ERP_FUNCTION_ROLES: Record<ErpFunction, readonly string[]> = {
+  PURCHASE: ['PURCHASE', 'PURCHASING', 'BUYER', '采购'],
+  INVENTORY: ['INVENTORY', 'STOCK', 'WAREHOUSE', '库存', '仓管'],
+  FINANCE: ['FINANCE', 'ACCOUNTING', '财务'],
+};
+
+const ERP_FUNCTION_LABELS: Record<ErpFunction, string> = {
+  PURCHASE: '采购',
+  INVENTORY: '库存',
+  FINANCE: '财务',
+};
+
+/** 组织管理员角色：不细分职能，可管理全部 ERP 职能域（组织主账号/管理员）。 */
+const ERP_ADMIN_ROLES = ['ADMIN', 'OWNER', 'ERP', 'ERP_ADMIN'];
+
+/**
+ * 大额付款审批阈值（docs §5.3 采购闭环「付款审批」）：
+ * 与 OA「付款申请」模板的大额二次确认同一口径（5 万元）；
+ * 应付金额达到该值的应付单需财务审批通过后才可登记付款，低额直接付款。
+ */
+const PAYMENT_APPROVAL_THRESHOLD = 50000;
+
+const PAYMENT_APPROVAL_LABELS: Record<string, string> = {
+  NONE: '无需审批',
+  PENDING: '待付款审批',
+  APPROVED: '付款审批通过',
+  REJECTED: '付款审批驳回',
+};
+
+/**
+ * 岗位名称关键词（企业「职能管理」岗位目录为自由命名，如「采购主管」「仓库管理员」「会计」）：
+ * 与角色码互为补充，任一命中即授予该职能域，避免只认角色码导致无从授权。
+ */
+const ERP_FUNCTION_POSITION_KEYWORDS: Record<ErpFunction, readonly string[]> = {
+  PURCHASE: ['采购', '供应', 'buyer', 'purchas'],
+  INVENTORY: [
+    '库存',
+    '仓储',
+    '仓管',
+    '仓库',
+    '存货',
+    'warehouse',
+    'inventor',
+    'stock',
+  ],
+  FINANCE: ['财务', '会计', '出纳', 'account', 'financ'],
+};
+
+/**
  * §5.4 ERP 进销存 + 应收应付：产品/变体/仓库/库存流水与领用、供应商/采购/入库、
  * 应收/应付/费用/税率/价格策略 + AI 经营评估（规则式兜底、LLM 可选）。
  * 组织键与 HRM 共用 (orgType, orgUserId)；关键动作发 `erp.*` 事件供 Webhook/规则消费。
@@ -79,6 +137,18 @@ export class ErpService {
     return `${prefix}-${stamp}-${String((await count()) + 1).padStart(4, '0')}`;
   }
 
+  /**
+   * 更新分支的组织归属校验：管理员身份不能替代目标记录的组织校验（设计方案 §3.3），
+   * 否则用别家组织的记录 id 也能覆盖本组织数据。查不到即按「不存在」拒绝。
+   */
+  private async requireOwnedRow(
+    label: string,
+    find: () => Promise<{ id: number } | null>,
+  ): Promise<void> {
+    if (!(await find()))
+      throw new BusinessException(ErrorCode.NOT_FOUND, `${label}不存在`);
+  }
+
   private async requireWarehouse(org: HrmOrg, id: number) {
     const row = await this.prisma.erpWarehouse.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -101,6 +171,27 @@ export class ErpService {
       where: { id: productId },
     });
     return num(product?.taxRate);
+  }
+
+  /**
+   * 职能域鉴权：组织主账号与 ERP 管理员可管理全部职能；
+   * 其余成员必须持有该职能域对应的角色码，或岗位名称命中该职能域关键词——
+   * 避免「HR 角色顺带管理采购/财务」或只认角色码导致无从授权。
+   */
+  private requireErpRole(org: HrmOrg, fn: ErpFunction): void {
+    if (org.isOwner) return;
+    if (org.roles.some((role) => ERP_ADMIN_ROLES.includes(role))) return;
+    if (org.roles.some((role) => ERP_FUNCTION_ROLES[fn].includes(role))) return;
+    const keywords = ERP_FUNCTION_POSITION_KEYWORDS[fn];
+    const byPosition = org.positions.some((position) => {
+      const name = position.toLowerCase();
+      return keywords.some((keyword) => name.includes(keyword));
+    });
+    if (byPosition) return;
+    throw new BusinessException(
+      ErrorCode.ROLE_MISMATCH,
+      `该操作需要${ERP_FUNCTION_LABELS[fn]}职能权限（组织主账号、ERP 管理员或对应岗位角色）`,
+    );
   }
 
   // ------------------------------------------------------------------
@@ -214,7 +305,7 @@ export class ErpService {
 
   async saveCategory(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const data = {
       code: clip(body.code, 32),
@@ -238,6 +329,13 @@ export class ErpService {
       if (!parent)
         throw new BusinessException(ErrorCode.BAD_REQUEST, '上级分类不存在');
     }
+    if (id)
+      await this.requireOwnedRow('分类', () =>
+        this.prisma.erpCategory.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
+      );
     const row = id
       ? await this.prisma.erpCategory.update({ where: { id }, data })
       : await this.prisma.erpCategory.create({
@@ -255,7 +353,7 @@ export class ErpService {
 
   async removeCategory(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const row = await this.prisma.erpCategory.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -390,7 +488,7 @@ export class ErpService {
 
   async saveProduct(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const data = {
       code: clip(body.code, 32),
@@ -407,6 +505,13 @@ export class ErpService {
     };
     if (!data.name)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写商品名称');
+    if (id)
+      await this.requireOwnedRow('商品', () =>
+        this.prisma.erpProduct.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
+      );
     const row = id
       ? await this.prisma.erpProduct.update({ where: { id }, data })
       : await this.prisma.erpProduct.create({
@@ -418,7 +523,7 @@ export class ErpService {
 
   async removeProduct(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const row = await this.prisma.erpProduct.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -539,7 +644,7 @@ export class ErpService {
 
   async saveVariant(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const productId = num(body.productId);
     const product = await this.prisma.erpProduct.findFirst({
       where: { id: productId, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -558,6 +663,13 @@ export class ErpService {
     };
     if (!data.sku)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写 SKU');
+    if (id)
+      await this.requireOwnedRow('商品规格', () =>
+        this.prisma.erpVariant.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
+      );
     const row = id
       ? await this.prisma.erpVariant.update({ where: { id }, data })
       : await this.prisma.erpVariant.create({
@@ -569,7 +681,7 @@ export class ErpService {
 
   async removeVariant(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const row = await this.prisma.erpVariant.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -622,7 +734,7 @@ export class ErpService {
 
   async saveWarehouse(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const data = {
       code: clip(body.code, 32),
@@ -638,6 +750,13 @@ export class ErpService {
       );
     if (data.managerId)
       await this.scope.requireStaff(org, data.managerId, false);
+    if (id)
+      await this.requireOwnedRow('仓库', () =>
+        this.prisma.erpWarehouse.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
+      );
     const row = id
       ? await this.prisma.erpWarehouse.update({ where: { id }, data })
       : await this.prisma.erpWarehouse.create({
@@ -649,7 +768,7 @@ export class ErpService {
 
   async removeWarehouse(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const row = await this.requireWarehouse(org, id);
     const stockCount = await this.prisma.erpStock.count({
@@ -1167,7 +1286,7 @@ export class ErpService {
 
   async decideStockRequest(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'INVENTORY');
     const id = num(body.id);
     const row = await this.prisma.erpStockRequest.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -1340,7 +1459,7 @@ export class ErpService {
 
   async saveVendor(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'PURCHASE');
     const id = num(body.id);
     const name = clip(body.name, 120);
     const data = {
@@ -1359,6 +1478,13 @@ export class ErpService {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
         '请填写供应商编码与名称',
+      );
+    if (id)
+      await this.requireOwnedRow('供应商', () =>
+        this.prisma.erpVendor.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
       );
     const row = id
       ? await this.prisma.erpVendor.update({ where: { id }, data })
@@ -1388,7 +1514,7 @@ export class ErpService {
 
   async removeVendor(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'PURCHASE');
     const id = num(body.id);
     const row = await this.prisma.erpVendor.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -1411,6 +1537,9 @@ export class ErpService {
       id: number;
       orderNo: string;
       vendorId: number;
+      projectId: number;
+      sourceType: string;
+      sourceNo: string;
       warehouseId: number;
       items: unknown;
       amount: unknown;
@@ -1431,11 +1560,27 @@ export class ErpService {
       where: { orgType: org.orgType, orgUserId: org.orgUserId },
     });
     const vendorName = new Map(vendors.map((row) => [row.id, row.name]));
+    const projectIds = [...new Set(rows.map((row) => row.projectId).filter((id) => id > 0))];
+    const projects = projectIds.length
+      ? await this.prisma.pjProject.findMany({
+          where: {
+            id: { in: projectIds },
+            orgType: org.orgType,
+            orgUserId: org.orgUserId,
+          },
+          select: { id: true, name: true },
+        })
+      : [];
+    const projectName = new Map(projects.map((row) => [row.id, row.name]));
     return rows.map((row) => ({
       id: row.id,
       orderNo: row.orderNo,
       vendorId: row.vendorId,
       vendorName: vendorName.get(row.vendorId) || '',
+      projectId: row.projectId,
+      projectName: projectName.get(row.projectId) || '',
+      sourceType: row.sourceType,
+      sourceNo: row.sourceNo,
       warehouseId: row.warehouseId,
       items: Array.isArray(row.items)
         ? (row.items as Row[]).map((item) => ({
@@ -1519,8 +1664,24 @@ export class ErpService {
         '请至少添加一条采购明细',
       );
     const id = num(body.id);
+    const projectId = num(body.projectId);
+    if (projectId) {
+      const project = await this.prisma.pjProject.findFirst({
+        where: { id: projectId, orgType: org.orgType, orgUserId: org.orgUserId },
+        select: { id: true },
+      });
+      if (!project)
+        throw new BusinessException(ErrorCode.BAD_REQUEST, '归属项目不存在');
+    }
     const data = {
       vendorId,
+      projectId,
+      sourceType: oneOf(
+        body.sourceType,
+        ['MANUAL', 'OA_PURCHASE', 'STOCK_LOW'] as const,
+        'MANUAL',
+      ),
+      sourceNo: clip(body.sourceNo, 40),
       warehouseId,
       items: json(items),
       amount,
@@ -1573,7 +1734,7 @@ export class ErpService {
 
   async decidePurchaseOrder(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'PURCHASE');
     const id = num(body.id);
     const row = await this.prisma.erpPurchaseOrder.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -1761,6 +1922,22 @@ export class ErpService {
         '仅已审批的采购单可创建入库单',
       );
     }
+    // 重复入库防护：同一采购单只允许一张待审/已入库的入库单，已驳回的可重新提交。
+    const open = await this.prisma.erpReceipt.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        purchaseOrderId,
+        status: { in: ['PENDING', 'RECEIVED'] },
+      },
+      select: { id: true, receiptNo: true, status: true },
+    });
+    if (open) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        `该采购单已有入库单 ${open.receiptNo}（${open.status === 'PENDING' ? '待审核' : '已入库'}），请勿重复入库`,
+      );
+    }
     const rawItems = Array.isArray(body.items) ? (body.items as Row[]) : [];
     const items = [];
     let amount = 0;
@@ -1811,7 +1988,7 @@ export class ErpService {
 
   async decideReceipt(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'PURCHASE');
     const id = num(body.id);
     const row = await this.prisma.erpReceipt.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -1865,8 +2042,13 @@ export class ErpService {
         where: { id: row.purchaseOrderId },
         data: { status: 'DONE' },
       });
+      const order = await tx.erpPurchaseOrder.findUnique({
+        where: { id: row.purchaseOrderId },
+      });
+      if (order) await this.syncPurchaseOrderCost(org, tx, order, row.amount);
     });
     const next = await this.prisma.erpReceipt.findUnique({ where: { id } });
+    await this.syncPurchaseOrderPayable(org, row.purchaseOrderId);
     this.emit(org, 'erp.receipt.received', {
       receiptId: id,
       receiptNo: row.receiptNo,
@@ -1874,6 +2056,117 @@ export class ErpService {
     });
     const [view] = await this.receiptViews([next!], org);
     return view;
+  }
+
+  /**
+   * 采购入库 → 自动生成应付（同一采购单只挂一张，重复入库天然幂等）：
+   * 金额按采购单含税额，供应商取采购单供应商；已有应付仅回写金额，不动付款进度。
+   */
+  private async syncPurchaseOrderPayable(org: HrmOrg, purchaseOrderId: number) {
+    const order = await this.prisma.erpPurchaseOrder.findFirst({
+      where: { id: purchaseOrderId, orgType: org.orgType, orgUserId: org.orgUserId },
+    });
+    if (!order) return;
+    const amount = num(order.amount) + num(order.taxAmount);
+    const existing = await this.prisma.erpPayable.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        sourceType: 'PURCHASE_ORDER',
+        sourceId: order.id,
+      },
+    });
+    if (existing) {
+      if (existing.status === 'CANCELED') return;
+      await this.prisma.erpPayable.update({
+        where: { id: existing.id },
+        data: {
+          amount,
+          approvalStatus: this.nextApprovalStatus(
+            amount,
+            existing.approvalStatus,
+            num(existing.amount),
+          ),
+        },
+      });
+      return;
+    }
+    const code = await this.chainNo(org, 'YF', () =>
+      this.prisma.erpPayable.count({
+        where: {
+          orgType: org.orgType,
+          orgUserId: org.orgUserId,
+          createdAt: { gte: new Date(`${today()}T00:00:00Z`) },
+        },
+      }),
+    );
+    await this.prisma.erpPayable.create({
+      data: {
+        ...orgKey(org),
+        code,
+        vendorId: order.vendorId,
+        sourceType: 'PURCHASE_ORDER',
+        sourceId: order.id,
+        amount,
+        dueDate: today(),
+        approvalStatus: this.nextApprovalStatus(amount, 'NONE'),
+        note: `采购入库：${order.orderNo}${order.sourceNo ? `（来源 ${order.sourceNo}）` : ''}`,
+      },
+    });
+  }
+
+  /**
+   * 采购入库 → 按归属项目自动归集一条 ERP_PO 成本项（幂等：sourceId＝采购单 id）。
+   * 未归属项目（projectId=0）不落账，避免把采购成本摊到无关项目；科目默认物料，
+   * 金额取入库实际金额（= 入库数量 × 采购单价），使项目成本三口径的「已发生」可核对。
+   */
+  private async syncPurchaseOrderCost(
+    org: HrmOrg,
+    tx: Prisma.TransactionClient,
+    order: { id: number; orderNo: string; projectId: number },
+    receiptAmount: unknown,
+  ) {
+    if (order.projectId <= 0) return;
+    const project = await tx.pjProject.findFirst({
+      where: {
+        id: order.projectId,
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+      },
+      select: { currency: true },
+    });
+    if (!project) return;
+    const amount = round(num(receiptAmount));
+    const data = {
+      projectId: order.projectId,
+      kind: 'MATERIAL',
+      title: `采购入库 ${order.orderNo}`,
+      qty: 1,
+      unit: '批',
+      unitCost: amount,
+      amount,
+      currency: project.currency,
+      sourceType: 'ERP_PO',
+      sourceId: String(order.id),
+      occurredAt: today(),
+      note: `采购单 ${order.orderNo} 入库自动归集`,
+    };
+    const existing = await tx.pjCostItem.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        sourceType: 'ERP_PO',
+        sourceId: String(order.id),
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      await tx.pjCostItem.update({ where: { id: existing.id }, data });
+      return;
+    }
+    await tx.pjCostItem.create({
+      data: { ...orgKey(org), ...data, createdBy: org.actorId },
+    });
   }
 
   // ------------------------------------------------------------------
@@ -1950,7 +2243,7 @@ export class ErpService {
 
   async saveReceivable(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const amount = num(body.amount);
     if (amount <= 0)
@@ -1969,6 +2262,12 @@ export class ErpService {
     if (!data.customerName)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写客户名称');
     if (id) {
+      await this.requireOwnedRow('应收单', () =>
+        this.prisma.erpReceivable.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
+      );
       const row = await this.prisma.erpReceivable.update({
         where: { id },
         data,
@@ -1994,7 +2293,7 @@ export class ErpService {
 
   async receivePayment(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const row = await this.prisma.erpReceivable.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -2043,6 +2342,10 @@ export class ErpService {
       recurrence: string;
       nextAt: string;
       status: string;
+      approvalStatus: string;
+      approverId: string;
+      decidedAt: Date | null;
+      approvalNote: string;
       note: string;
       createdAt: Date;
       updatedAt: Date;
@@ -2063,6 +2366,12 @@ export class ErpService {
       recurrence: row.recurrence,
       nextAt: row.nextAt,
       status: row.status,
+      approvalStatus: row.approvalStatus,
+      approvalStatusLabel:
+        PAYMENT_APPROVAL_LABELS[row.approvalStatus] || row.approvalStatus,
+      approverId: row.approverId,
+      decidedAt: row.decidedAt ? row.decidedAt.toISOString() : '',
+      approvalNote: row.approvalNote,
       agingDays: row.dueDate ? dayDiff(row.dueDate) : 0,
       note: row.note,
       createdAt: row.createdAt.toISOString(),
@@ -2072,7 +2381,7 @@ export class ErpService {
 
   async listPayables(
     user: CurrentUser,
-    query: PageQuery & { status?: string; q?: string },
+    query: PageQuery & { status?: string; q?: string; approvalStatus?: string },
   ) {
     const org = await this.org(user);
     const where: Prisma.ErpPayableWhereInput = {
@@ -2080,6 +2389,7 @@ export class ErpService {
       orgUserId: org.orgUserId,
     };
     if (query.status) where.status = query.status;
+    if (query.approvalStatus) where.approvalStatus = query.approvalStatus;
     if (query.q) where.code = { contains: query.q };
     const [total, rows, vendors] = await Promise.all([
       this.prisma.erpPayable.count({ where }),
@@ -2106,7 +2416,7 @@ export class ErpService {
 
   async savePayable(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const amount = num(body.amount);
     if (amount <= 0)
@@ -2127,7 +2437,23 @@ export class ErpService {
     });
     const vendorName = new Map(vendors.map((row) => [row.id, row.name]));
     if (id) {
-      const row = await this.prisma.erpPayable.update({ where: { id }, data });
+      const existing = await this.prisma.erpPayable.findFirst({
+        where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+        select: { id: true, approvalStatus: true, amount: true },
+      });
+      if (!existing)
+        throw new BusinessException(ErrorCode.NOT_FOUND, '应付单不存在');
+      const row = await this.prisma.erpPayable.update({
+        where: { id },
+        data: {
+          ...data,
+          approvalStatus: this.nextApprovalStatus(
+            amount,
+            existing.approvalStatus,
+            num(existing.amount),
+          ),
+        },
+      });
       return this.payableView(row, vendorName.get(row.vendorId) || '');
     }
     const code =
@@ -2142,14 +2468,19 @@ export class ErpService {
         }),
       ));
     const row = await this.prisma.erpPayable.create({
-      data: { ...orgKey(org), ...data, code },
+      data: {
+        ...orgKey(org),
+        ...data,
+        code,
+        approvalStatus: this.nextApprovalStatus(amount, 'NONE'),
+      },
     });
     return this.payableView(row, vendorName.get(row.vendorId) || '');
   }
 
   async payPayable(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const row = await this.prisma.erpPayable.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -2161,10 +2492,18 @@ export class ErpService {
         '该应付单已结清或已取消',
       );
     }
+    const total = num(row.amount);
+    if (total >= PAYMENT_APPROVAL_THRESHOLD && row.approvalStatus !== 'APPROVED') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        row.approvalStatus === 'REJECTED'
+          ? '该应付单付款审批已被驳回，调整金额后重新提交审批'
+          : `应付金额已达 ${PAYMENT_APPROVAL_THRESHOLD} 元，需财务审批通过后才能付款`,
+      );
+    }
     const pay = num(body.amount);
     if (pay <= 0)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '付款金额必须大于 0');
-    const total = num(row.amount);
     const paid = Math.min(total, num(row.paidAmount) + pay);
     const status = paid >= total ? 'PAID' : 'PARTIAL';
     const next = await this.prisma.erpPayable.update({
@@ -2204,6 +2543,7 @@ export class ErpService {
           dueDate: nextAt,
           recurrence: row.recurrence,
           nextAt: addDays(nextAt, step),
+          approvalStatus: this.nextApprovalStatus(total, 'NONE'),
           note: `周期应付续期（${row.code}）`,
         },
       });
@@ -2221,6 +2561,76 @@ export class ErpService {
       next,
       vendors.find((v) => v.id === next.vendorId)?.name || '',
     );
+  }
+
+  /**
+   * 付款审批（大额应付）：财务复核通过/驳回，通过后方可登记付款。
+   * 与付款动作分权：审批只改审批结论，不直接产生付款流水。
+   */
+  async decidePayable(user: CurrentUser, body: Row) {
+    const org = await this.org(user);
+    this.requireErpRole(org, 'FINANCE');
+    const id = num(body.id);
+    const row = await this.prisma.erpPayable.findFirst({
+      where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+    });
+    if (!row) throw new BusinessException(ErrorCode.NOT_FOUND, '应付单不存在');
+    if (row.approvalStatus !== 'PENDING') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        row.approvalStatus === 'NONE'
+          ? '该应付单未达到付款审批阈值，无需审批'
+          : '该应付单已完成付款审批',
+      );
+    }
+    if (['PAID', 'CANCELED'].includes(row.status)) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该应付单已结清或已取消',
+      );
+    }
+    const decision = typeof body.decision === 'string' ? body.decision : '';
+    if (decision !== 'approve' && decision !== 'reject') {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '审批结论不正确');
+    }
+    const next = await this.prisma.erpPayable.update({
+      where: { id },
+      data: {
+        approvalStatus: decision === 'approve' ? 'APPROVED' : 'REJECTED',
+        approverId: org.actorId,
+        decidedAt: new Date(),
+        approvalNote: clip(body.note, 500) || row.approvalNote,
+      },
+    });
+    this.emit(
+      org,
+      decision === 'approve' ? 'erp.payable.approved' : 'erp.payable.rejected',
+      { payableId: id, code: row.code, amount: ds(row.amount) },
+    );
+    const vendors = await this.prisma.erpVendor.findMany({
+      where: { orgType: org.orgType, orgUserId: org.orgUserId },
+    });
+    return this.payableView(
+      next,
+      vendors.find((v) => v.id === next.vendorId)?.name || '',
+    );
+  }
+
+  /** 付款审批状态随金额与既有结论推进：低于阈值免审批；金额上调需重新审批。 */
+  private nextApprovalStatus(
+    amount: number,
+    current: string,
+    previousAmount?: number,
+  ): string {
+    if (amount < PAYMENT_APPROVAL_THRESHOLD) return 'NONE';
+    if (
+      current === 'APPROVED' &&
+      previousAmount !== undefined &&
+      amount <= previousAmount
+    ) {
+      return 'APPROVED';
+    }
+    return 'PENDING';
   }
 
   // ------------------------------------------------------------------
@@ -2364,7 +2774,7 @@ export class ErpService {
 
   async decideExpense(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const row = await this.prisma.erpExpenseReport.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -2416,6 +2826,7 @@ export class ErpService {
           sourceId: id,
           amount: num(row.amount),
           dueDate: today(),
+          approvalStatus: this.nextApprovalStatus(num(row.amount), 'NONE'),
           note: `报销付款 ${row.reportNo}`,
         },
       });
@@ -2449,7 +2860,7 @@ export class ErpService {
 
   async saveTaxRate(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const data = {
       name: clip(body.name, 32),
@@ -2459,6 +2870,13 @@ export class ErpService {
     };
     if (!data.name)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写税率名称');
+    if (id)
+      await this.requireOwnedRow('税率', () =>
+        this.prisma.erpTaxRate.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
+      );
     const row = id
       ? await this.prisma.erpTaxRate.update({ where: { id }, data })
       : await this.prisma.erpTaxRate.create({
@@ -2475,7 +2893,7 @@ export class ErpService {
 
   async removeTaxRate(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const row = await this.prisma.erpTaxRate.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
@@ -2505,7 +2923,7 @@ export class ErpService {
 
   async savePricePolicy(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const data = {
       name: clip(body.name, 80),
@@ -2517,6 +2935,13 @@ export class ErpService {
     };
     if (!data.name)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写策略名称');
+    if (id)
+      await this.requireOwnedRow('价格策略', () =>
+        this.prisma.erpPricePolicy.findFirst({
+          where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          select: { id: true },
+        }),
+      );
     const row = id
       ? await this.prisma.erpPricePolicy.update({ where: { id }, data })
       : await this.prisma.erpPricePolicy.create({
@@ -2536,7 +2961,7 @@ export class ErpService {
 
   async removePricePolicy(user: CurrentUser, body: Row) {
     const org = await this.org(user);
-    this.scope.requireAdmin(org);
+    this.requireErpRole(org, 'FINANCE');
     const id = num(body.id);
     const row = await this.prisma.erpPricePolicy.findFirst({
       where: { id, orgType: org.orgType, orgUserId: org.orgUserId },

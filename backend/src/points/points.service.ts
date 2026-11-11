@@ -15,6 +15,11 @@ export interface LedgerInput {
   refId?: string;
   operator?: string;
   remark?: string;
+  /**
+   * 结算幂等键：传入则受 point_transactions 唯一约束保护。重复入账（同键）不再加余额、
+   * 不落第二条流水，返回 `applied: false`；用于充值等「可恢复结算」的资金步骤。
+   */
+  idempotencyKey?: string;
 }
 
 function dayStart(now = new Date()) {
@@ -25,6 +30,15 @@ function dayStart(now = new Date()) {
 function toNum(v: Prisma.Decimal | number | null | undefined): number {
   if (v === null || v === undefined) return 0;
   return Number(v);
+}
+
+/** Prisma 唯一约束冲突（P2002）：用于把「重复入账」与真正的失败区分开。 */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as { code?: string }).code === 'P2002'
+  );
 }
 
 /**
@@ -56,7 +70,10 @@ export class PointsService {
     }
   }
 
-  /** 入账（余额增加）。type 决定累加哪个统计列。 */
+  /**
+   * 入账（余额增加）。type 决定累加哪个统计列。
+   * 传 idempotencyKey 时按唯一键幂等：重复入账不再加余额、不落第二条流水，返回 `applied:false`。
+   */
   async credit(
     userId: string,
     type: CreditType,
@@ -72,39 +89,98 @@ export class PointsService {
       type === 'RECHARGE' || type === 'RECHARGE_BONUS'
         ? 'totalRechargeAmount'
         : 'totalEarnAmount';
-    return this.prisma.$transaction(async (tx) => {
-      const account = await tx.pointAccount.update({
-        where: { userId },
-        data: {
-          balanceAmount: { increment: value },
-          [totalField]: { increment: value },
-          // 有余额了：欠费状态回归正常（充值/入账即时解冻新增能力）
-          ...(type === 'RECHARGE' || type === 'RECHARGE_BONUS'
-            ? { status: 'ACTIVE', arrearsSince: null }
-            : {}),
-        },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const account = await tx.pointAccount.update({
+          where: { userId },
+          data: {
+            balanceAmount: { increment: value },
+            [totalField]: { increment: value },
+            // 有余额了：欠费状态回归正常（充值/入账即时解冻新增能力）
+            ...(type === 'RECHARGE' || type === 'RECHARGE_BONUS'
+              ? { status: 'ACTIVE', arrearsSince: null }
+              : {}),
+          },
+        });
+        const txRow = await tx.pointTransaction.create({
+          data: {
+            userId,
+            type,
+            scene: input.scene || '',
+            amount: value,
+            balanceAmount: account.balanceAmount,
+            counterparty: input.counterparty || '',
+            refType: input.refType || '',
+            refId: input.refId || '',
+            operator: input.operator || '',
+            remark: (input.remark || '').slice(0, 500),
+            ...(input.idempotencyKey
+              ? { idempotencyKey: input.idempotencyKey }
+              : {}),
+          },
+        });
+        return {
+          applied: true,
+          balance: toNum(account.balanceAmount),
+          txId: txRow.id,
+        };
       });
-      const txRow = await tx.pointTransaction.create({
-        data: {
-          userId,
-          type,
-          scene: input.scene || '',
-          amount: value,
-          balanceAmount: account.balanceAmount,
-          counterparty: input.counterparty || '',
-          refType: input.refType || '',
-          refId: input.refId || '',
-          operator: input.operator || '',
-          remark: (input.remark || '').slice(0, 500),
-        },
+    } catch (error) {
+      // 带幂等键的重复入账：唯一约束令整笔事务回滚（余额未被改动），按「已入账」返回。
+      if (!input.idempotencyKey || !isUniqueViolation(error)) throw error;
+      const account = await this.ensureAccount(userId);
+      const existing = await this.prisma.pointTransaction.findFirst({
+        where: { idempotencyKey: input.idempotencyKey },
       });
-      return { balance: toNum(account.balanceAmount), txId: txRow.id };
+      return {
+        applied: false,
+        balance: toNum(account.balanceAmount),
+        txId: existing?.id ?? 0,
+      };
+    }
+  }
+
+  /**
+   * 退款入账：由业务事务传入 tx，余额增加与业务状态变更同事务提交。
+   * 退款冲减「累计消费」而非计入「累计赚取」，保证累计消费是净支出。
+   * 调用前需确保账户存在（下单扣费时已创建）。
+   */
+  async refundTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    input: LedgerInput = {},
+  ) {
+    const value = Number(amount.toFixed(4));
+    if (!(value > 0)) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '退款积分必须为正数');
+    }
+    const account = await tx.pointAccount.update({
+      where: { userId },
+      data: {
+        balanceAmount: { increment: value },
+        totalSpendAmount: { decrement: value },
+      },
     });
+    const txRow = await tx.pointTransaction.create({
+      data: {
+        userId,
+        type: 'REFUND',
+        scene: input.scene || '',
+        amount: value,
+        balanceAmount: account.balanceAmount,
+        counterparty: input.counterparty || '',
+        refType: input.refType || '',
+        refId: input.refId || '',
+        operator: input.operator || '',
+        remark: (input.remark || '').slice(0, 500),
+      },
+    });
+    return { balance: toNum(account.balanceAmount), txId: txRow.id };
   }
 
   /**
    * 扣减（余额减少）：原子比较-扣减，余额不足抛 POINTS_INSUFFICIENT。
-   * spendDailyCap>0 时先校验当日消费熔断上限。
    */
   async debit(
     userId: string,
@@ -115,16 +191,6 @@ export class PointsService {
     const value = Number(amount.toFixed(4));
     if (!(value > 0)) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '扣减积分必须为正数');
-    }
-    const cfg = await this.settings.view();
-    if (cfg.spendDailyCap > 0) {
-      const spentToday = await this.spendToday(userId);
-      if (spentToday + value > cfg.spendDailyCap) {
-        throw new BusinessException(
-          ErrorCode.FORBIDDEN,
-          `已触发单日消费上限（${cfg.spendDailyCap} 积分），请明天再试或联系管理员`,
-        );
-      }
     }
     await this.ensureAccount(userId);
     return this.prisma.$transaction(async (tx) => {
@@ -157,17 +223,51 @@ export class PointsService {
     });
   }
 
-  /** 当日已消费（含转出）绝对值合计，供熔断判断。 */
-  private async spendToday(userId: string) {
-    const agg = await this.prisma.pointTransaction.aggregate({
-      where: {
-        userId,
-        type: { in: ['SPEND', 'TRANSFER_OUT'] },
-        createdAt: { gte: dayStart() },
+  /**
+   * 事务内扣减：与业务状态变更同事务提交，供「扣分 + 发卡」这类必须原子的兑换使用。
+   * 与 `debit` 同一套条件更新，余额不足抛 POINTS_INSUFFICIENT 并让整笔事务回滚。
+   * 调用方需保证账户已存在（余额校验前已 ensureAccount）。
+   */
+  async debitTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    type: 'SPEND' | 'TRANSFER_OUT' | 'ADMIN_ADJUST',
+    amount: number,
+    input: LedgerInput = {},
+  ) {
+    const value = Number(amount.toFixed(4));
+    if (!(value > 0)) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '扣减积分必须为正数');
+    }
+    const res = await tx.pointAccount.updateMany({
+      where: { userId, balanceAmount: { gte: value } },
+      data: {
+        balanceAmount: { decrement: value },
+        totalSpendAmount: { increment: value },
       },
-      _sum: { amount: true },
     });
-    return Math.abs(toNum(agg._sum.amount));
+    if (res.count === 0) {
+      throw new BusinessException(ErrorCode.POINTS_INSUFFICIENT);
+    }
+    const account = await tx.pointAccount.findUnique({ where: { userId } });
+    const txRow = await tx.pointTransaction.create({
+      data: {
+        userId,
+        type,
+        scene: input.scene || '',
+        amount: -value,
+        balanceAmount: account!.balanceAmount,
+        counterparty: input.counterparty || '',
+        refType: input.refType || '',
+        refId: input.refId || '',
+        operator: input.operator || '',
+        remark: (input.remark || '').slice(0, 500),
+        ...(input.idempotencyKey
+          ? { idempotencyKey: input.idempotencyKey }
+          : {}),
+      },
+    });
+    return { balance: toNum(account!.balanceAmount), txId: txRow.id };
   }
 
   /**

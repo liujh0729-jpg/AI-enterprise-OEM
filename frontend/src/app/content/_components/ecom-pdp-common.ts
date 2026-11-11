@@ -4,7 +4,7 @@ import { endpoint } from "@/api/endpoint";
 /**
  * 跨境电商商品页优化（PDP）的界面层：近日志 → 新建商品简报 → 生成规划 →
  * 逐张确认/修改提示词 → 走本系统模型网关出图。
- * 后端：/enterprise/ecom-pdp/*（登录态）；文本与图片都经「内容创作 → 模型设置」的槽位。
+ * 后端：/enterprise/ecom-pdp/*（登录态）；文本与图片都经「模型服务 → 模型设置」的槽位。
  */
 
 export type EcomPdpMeta = {

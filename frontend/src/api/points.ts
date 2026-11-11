@@ -27,7 +27,6 @@ export interface PointsSettings {
   transferDailyPoints: number;
   transferFeePercent: number;
   arrearsGraceDays: number;
-  spendDailyCap: number;
   wechatConfigured: boolean;
   wechatNotifyUrl: string;
   wechatAppId: string;
@@ -147,7 +146,6 @@ const settingsSchema = apiEnvelope(
     transferDailyPoints: z.number(),
     transferFeePercent: z.number(),
     arrearsGraceDays: z.number(),
-    spendDailyCap: z.number(),
     wechatConfigured: z.boolean(),
     wechatNotifyUrl: z.string(),
     wechatAppId: z.string(),

@@ -18,6 +18,10 @@ export type HrmOrg = {
   actorId: string;
   isOwner: boolean;
   isAdmin: boolean;
+  /** 当前操作者在册成员的角色码（大写，来自 orgStaff.roles）；主账号为空数组。 */
+  roles: string[];
+  /** 当前操作者被赋予的岗位名称（来自 orgStaff.positions）；主账号为空数组。 */
+  positions: string[];
   department: string;
 };
 
@@ -25,6 +29,17 @@ const HR_ROLE_KEYS = ['HR', 'ADMIN', 'OWNER', 'HUMAN_RESOURCE'];
 
 const asRoles = (v: unknown): string[] =>
   Array.isArray(v) ? v.map((x) => String(x).toUpperCase()).filter(Boolean) : [];
+
+/** 成员岗位名称（orgStaff.positions 为 [{ name, description }]）；用于职能权限按岗位授权。 */
+const asPositionNames = (v: unknown): string[] => {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v) {
+    const name = (item as { name?: unknown } | null)?.name;
+    if (typeof name === 'string' && name.trim()) out.push(name.trim());
+  }
+  return out;
+};
 
 export class HrmScopeService {
   constructor(
@@ -62,6 +77,8 @@ export class HrmScopeService {
             actorId,
             isOwner: true,
             isAdmin: true,
+            roles: [],
+            positions: [],
             department: self?.department || '',
           };
         }
@@ -83,6 +100,8 @@ export class HrmScopeService {
             isOwner: false,
             isAdmin:
               platformAdmin || roles.some((r) => HR_ROLE_KEYS.includes(r)),
+            roles,
+            positions: asPositionNames(member.positions),
             department: member.department || '',
           };
         }
@@ -110,6 +129,8 @@ export class HrmScopeService {
         actorId,
         isOwner: true,
         isAdmin: true,
+        roles: [],
+        positions: [],
         department: self?.department || '',
       };
     }
@@ -122,6 +143,8 @@ export class HrmScopeService {
         actorId,
         isOwner: false,
         isAdmin: platformAdmin || roles.some((r) => HR_ROLE_KEYS.includes(r)),
+        roles,
+        positions: asPositionNames(joined.positions),
         department: joined.department || '',
       };
     }
@@ -131,6 +154,8 @@ export class HrmScopeService {
       actorId,
       isOwner: true,
       isAdmin: platformAdmin,
+      roles: [],
+      positions: [],
       department: '',
     };
   }
@@ -142,6 +167,48 @@ export class HrmScopeService {
         '该操作需要组织 HR 管理员（主账号或 HR/ADMIN 角色成员）',
       );
     }
+  }
+
+  /** 账号是否仍可通行：只有 ACTIVE 算在册，停用/封禁/注销均立即失效。 */
+  async accountActive(userId: string): Promise<boolean> {
+    const id = String(userId || '').trim();
+    const numeric = Number(id);
+    if (!id || !Number.isInteger(numeric) || numeric <= 0) return false;
+    const account = await this.prisma.account.findUnique({
+      where: { id: numeric },
+      select: { status: true },
+    });
+    return account?.status === 'ACTIVE';
+  }
+
+  /** 组织资格是否仍有效：主账号本人恒有效；成员需当前 ACTIVE 在册。 */
+  async membershipValid(
+    orgType: string,
+    orgUserId: string,
+    userId: string,
+  ): Promise<boolean> {
+    if (!orgType || !orgUserId || !userId) return false;
+    if (orgUserId === userId) return true;
+    const row = await this.prisma.orgStaff.findFirst({
+      where: { orgType, orgUserId, memberUserId: userId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return Boolean(row);
+  }
+
+  /**
+   * 已持久化产物（旧分享、导出文件、插件令牌、定时任务）被再次取用前的统一复核：
+   * 账号状态 + 组织在册资格都按当前库表判断，不依赖异步清理项目成员或缓存。
+   * 调用方自行决定不通过时的响应口径（公开链接按「不存在」处理以免泄露存在性）。
+   */
+  async isStanding(
+    userId: string,
+    org?: { orgType: string; orgUserId: string },
+  ): Promise<boolean> {
+    const active = await this.accountActive(userId);
+    if (!active) return false;
+    if (!org) return true;
+    return this.membershipValid(org.orgType, org.orgUserId, userId);
   }
 
   /** 组织在册成员（含主账号本人）：档案/请假/面试参与人的合法候选集。 */

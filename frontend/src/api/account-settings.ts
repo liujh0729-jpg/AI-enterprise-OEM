@@ -17,6 +17,12 @@ export interface AccountSettingsView {
   loginMethods: LoginMethod[];
   availability: Record<RegisterMode, boolean>;
   loginAvailability: Record<LoginMethod, boolean>;
+  passwordRecovery: {
+    enabled: boolean;
+    PASSWORD: boolean;
+    EMAIL: boolean;
+    SMS: boolean;
+  };
   smtp: {
     host?: string;
     port?: number;

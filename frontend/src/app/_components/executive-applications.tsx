@@ -13,7 +13,7 @@ export type ApplicationStatusItem = {
   to: string;
 };
 
-/** 高管驾驶舱「与我相关的申请」：只给状态与入口，材料与操作去对应模块。 */
+/** 驾驶舱「与我相关的申请」：只给状态与入口，材料与操作去对应模块。 */
 export function ExecutiveApplications({ items }: { items: ApplicationStatusItem[] }) {
   const router = useRouter();
   return (

@@ -16,6 +16,8 @@ export type MechanismListener = (
   org: HrmOrg,
   event: string,
   payload: Row,
+  /** 事件台账 id：订阅方拿它做幂等锚，同一事件重复投递不会重复执行。 */
+  meta?: { eventLogId: number },
 ) => Promise<void> | void;
 
 export const json = (value: unknown): Prisma.InputJsonValue =>

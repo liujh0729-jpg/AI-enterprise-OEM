@@ -2,6 +2,7 @@
 
 import { App, Button, Drawer, Form, Input, Modal, Select, Space, Table, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
@@ -468,7 +469,8 @@ export function AgentPanel({ accounts }: { accounts: PlanAccount[] }) {
     >
       {active.length ? null : (
         <Notice variant="warn">
-          还没有启用的 Workbuddy Enterprise 账号：先到「Workbuddy Enterprise 账号」页签绑定并启用腾讯云密钥。
+          还没有启用的 Workbuddy Enterprise 账号：先到「Workbuddy Enterprise 账号」页签绑定并启用腾讯云密钥。{" "}
+          <Link href="/workbuddy?tab=accounts">去绑定账号</Link>
         </Notice>
       )}
       {error ? (

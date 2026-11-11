@@ -16,6 +16,7 @@ import {
 } from "@/components/section-card-list";
 import { StaffApplyAction } from "@/components/staff-apply-action";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { ServicePackagesPanel } from "@/components/service-packages";
 import { useProviderDirectory, useRequestContract } from "@/query/contracts";
 import type { DirectoryProvider } from "@enterprise/contracts";
 export type { DirectoryProvider } from "@enterprise/contracts";
@@ -50,6 +51,7 @@ export function ProviderDirectoryTab({
   subItems,
   exclusive = false,
   locationFilter = false,
+  showPackages = true,
 }: {
   serviceType: string;
   title: string;
@@ -68,6 +70,8 @@ export function ProviderDirectoryTab({
   exclusive?: boolean;
   /** 名录列表页：显示省市筛选条（企业按省、市找服务商）。 */
   locationFilter?: boolean;
+  /** 名录页签下方是否挂「官方服务套餐」（细项列表页不挂，套餐按板块维度展示）。 */
+  showPackages?: boolean;
 }) {
   const { message } = App.useApp();
   const { me } = useSession();
@@ -578,6 +582,8 @@ export function ProviderDirectoryTab({
           )}
         </Panel>
       )}
+
+      {showPackages ? <ServicePackagesPanel serviceType={serviceType} /> : null}
 
       <Modal
         open={Boolean(detail)}

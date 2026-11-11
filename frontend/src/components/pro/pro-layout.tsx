@@ -2,6 +2,8 @@
 
 import {
   AimOutlined,
+  ApartmentOutlined,
+  CarryOutOutlined,
   FolderOpenOutlined,
   GiftOutlined,
   AppstoreOutlined,
@@ -10,6 +12,7 @@ import {
   BookOutlined,
   ClusterOutlined,
   CheckOutlined,
+  CodeOutlined,
   DashboardOutlined,
   DownOutlined,
   FileDoneOutlined,
@@ -41,15 +44,12 @@ import {
   UsergroupAddOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import {
-  ProLayout,
-  SettingDrawer,
-  type ProLayoutProps,
-  type ProSettings,
-} from "@ant-design/pro-components";
+import { ProLayout } from "@ant-design/pro-components";
 import { App, Button, Dropdown, Result, Spin, Tooltip } from "antd";
 import Link from "next/link";
 import { NotificationBell } from "@/components/notification-bell";
+import { WechatMpBindingEntry } from "@/components/wechat-mp-binding";
+import { ExtensionEntry } from "@/components/extension-entry";
 import { OrgContextSwitcher } from "@/components/org-context-switcher";
 import { PageAssistant } from "@/components/page-assistant";
 import { PointsBalanceChip } from "@/components/points-balance-chip";
@@ -57,11 +57,7 @@ import { TermsGate } from "@/components/terms-gate";
 import { UsageTracker } from "@/components/usage-tracker";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import {
-  defaultSettings,
-  PRO_AVATAR,
-  PRO_LAYOUT_BACKGROUNDS,
-} from "@/config/default-settings";
+import { PRO_AVATAR, PRO_LAYOUT_BACKGROUNDS } from "@/config/default-settings";
 import { navigationFor, type EnterpriseRoute } from "@/config/routes";
 import { governanceApi } from "@/api/governance";
 import { useSiteBrand } from "@/lib/site-brand";
@@ -70,10 +66,12 @@ import { LanguageSwitcher } from "@/components/language-switcher";
 import { PRODUCT_NAME } from "@/lib/brand";
 import { BUSINESS_IDENTITIES, identityLabel } from "@/lib/identity";
 import { useSession } from "@/lib/session";
+import { usePersonalization } from "@/lib/personalization";
 import { IdentitySelectModal } from "../identity-select-modal";
 import { BrandLogo } from "../brand-logo";
 
-const ROUTE_ICONS = {
+/** 侧栏菜单图标表：菜单渲染与驾驶舱「快捷导航」共用同一张表，避免两处图标漂移。 */
+export const ROUTE_ICONS = {
   dashboard: <DashboardOutlined />,
   idcard: <IdcardOutlined />,
   contract: <FileProtectOutlined />,
@@ -86,6 +84,7 @@ const ROUTE_ICONS = {
   setting: <SettingOutlined />,
   api: <ApiOutlined />,
   rocket: <RocketOutlined />,
+  code: <CodeOutlined />,
   chip: <RobotOutlined />,
   robot: <RobotOutlined />,
   play: <PlayCircleOutlined />,
@@ -110,6 +109,8 @@ const ROUTE_ICONS = {
   target: <AimOutlined />,
   gift: <GiftOutlined />,
   "pay-circle": <PayCircleOutlined />,
+  tasks: <CarryOutOutlined />,
+  workflow: <ApartmentOutlined />,
 } as const;
 
 type MenuRoute = {
@@ -123,9 +124,15 @@ type MenuRoute = {
   routes?: MenuRoute[];
 };
 
-function withRouteIcons(route: EnterpriseRoute, t: (text: string) => string): MenuRoute {
-  const path = route.path || (route.type === "group" && route.name
-    ? `/__menu/${encodeURIComponent(route.name)}` : undefined);
+function withRouteIcons(
+  route: EnterpriseRoute,
+  t: (text: string) => string,
+): MenuRoute {
+  const path =
+    route.path ||
+    (route.type === "group" && route.name
+      ? `/__menu/${encodeURIComponent(route.name)}`
+      : undefined);
   return {
     path,
     // 菜单名按当前语言取译名（字典未命中回落中文原文）；分组 key 仍用中文原名，不受翻译影响。
@@ -138,7 +145,11 @@ function withRouteIcons(route: EnterpriseRoute, t: (text: string) => string): Me
       : undefined,
     routes: route.routes
       ?.map((child) => withRouteIcons(child, t))
-      .filter((child) => child.syntheticGroup ? Boolean(child.routes?.length) : Boolean(child.path || child.routes?.length)),
+      .filter((child) =>
+        child.syntheticGroup
+          ? Boolean(child.routes?.length)
+          : Boolean(child.path || child.routes?.length),
+      ),
   };
 }
 
@@ -152,11 +163,12 @@ function filterClosedMenu(route: MenuRoute, closed: Set<string>): MenuRoute {
   const routes = route.routes
     .filter((child) => !(child.path && closed.has(child.path)))
     .map((child) => filterClosedMenu(child, closed))
-    .filter((child) => child.syntheticGroup ? Boolean(child.routes?.length) : true);
+    .filter((child) =>
+      child.syntheticGroup ? Boolean(child.routes?.length) : true,
+    );
   return { ...route, routes: routes.length ? routes : undefined };
 }
 
-const SETTINGS_KEY = "aiworkin-enterprise-pro-settings";
 const IDENTITY_GUIDE: Record<string, string> = {
   ENTERPRISE_USER: "请先到「身份与资质」提交用户信息。",
   SERVICE_PROVIDER: "请先到「身份与资质」提交服务商备案并等待审核。",
@@ -167,12 +179,14 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { message, modal } = App.useApp();
-  const { me, loading, switchingIdentity, switchIdentity, logout } = useSession();
+  const { me, loading, switchingIdentity, switchIdentity, logout } =
+    useSession();
   const { t } = useI18n();
-  const [settings, setSettings] = useState<ProLayoutProps>(defaultSettings);
+  const { settings, hiddenMenuPaths } = usePersonalization();
   const [pathnameReady, setPathnameReady] = useState(false);
   const isAdmin = Boolean(me?.identities?.includes("PLATFORM_ADMIN"));
-  const isPlatformArea = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isPlatformArea =
+    pathname === "/admin" || pathname.startsWith("/admin/");
   const identity = me?.currentIdentity;
   // 管理员在「站点设置」隐藏的用户侧菜单项（含首页与各分组）：站配置经 SiteBrandProvider 全局透出，保存后即时生效。
   const siteBrand = useSiteBrand();
@@ -201,11 +215,9 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
     };
   }, [me?.userId, identity]);
   const menuRoute = filterClosedMenu(
-    withRouteIcons(
-      navigationFor(me, siteBrand.hiddenMenuPaths || []),
-      t,
-    ),
-    new Set(closedMenuPaths),
+    withRouteIcons(navigationFor(me, siteBrand.hiddenMenuPaths || []), t),
+    // 平台级开关（closedMenuPaths）与用户自定义显隐（hiddenMenuPaths）叠加：两者只收窄菜单，不放开。
+    new Set([...closedMenuPaths, ...hiddenMenuPaths]),
   );
   const identityOptions = [
     ...BUSINESS_IDENTITIES,
@@ -230,30 +242,18 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
     try {
       if (next !== identity) await switchIdentity(next);
       window.localStorage.setItem("identity_selected", "1");
-      // 回到新身份的高管驾驶舱，避免停留在原身份的页签或已隐藏模块中。
+      // 回到新身份的驾驶舱，避免停留在原身份的页签或已隐藏模块中。
       router.replace(destination);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "身份切换失败，请重试");
+      message.error(
+        error instanceof Error ? error.message : "身份切换失败，请重试",
+      );
     }
   };
 
   useEffect(() => {
     setPathnameReady(true);
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return;
-    try {
-      setSettings({
-        ...defaultSettings,
-        ...(JSON.parse(raw) as ProLayoutProps),
-      });
-    } catch {
-      window.localStorage.removeItem(SETTINGS_KEY);
-    }
   }, []);
-
-  useEffect(() => {
-    document.body.classList.toggle("colorWeak", Boolean(settings.colorWeak));
-  }, [settings.colorWeak]);
 
   // 新注册账号（一个身份都没开通）：默认用户身份，直接带到「身份与资质」提交材料
   useEffect(() => {
@@ -284,13 +284,23 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
             return dom;
           }
           if (/^https?:\/\//.test(item.path)) {
-            return <a href={item.path} target="_blank" rel="noreferrer">{dom}</a>;
+            return (
+              <a href={item.path} target="_blank" rel="noreferrer">
+                {dom}
+              </a>
+            );
           }
           return (
             <a
               href={item.path}
               onClick={(event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                if (
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                )
+                  return;
                 event.preventDefault();
                 router.push(item.path || "/dashboard");
               }}
@@ -302,8 +312,19 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
         menuProps={{
           onClick: ({ key, domEvent }) => {
             // 菜单容器也响应点击；分组和外链交给各自的默认行为。
-            if (typeof key !== "string" || !key.startsWith("/") || key.startsWith("/__menu/")) return;
-            if (domEvent.metaKey || domEvent.ctrlKey || domEvent.shiftKey || domEvent.altKey) return;
+            if (
+              typeof key !== "string" ||
+              !key.startsWith("/") ||
+              key.startsWith("/__menu/")
+            )
+              return;
+            if (
+              domEvent.metaKey ||
+              domEvent.ctrlKey ||
+              domEvent.shiftKey ||
+              domEvent.altKey
+            )
+              return;
             domEvent.preventDefault();
             router.push(key);
           },
@@ -325,10 +346,11 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
         }}
         actionsRender={() => [
           <OrgContextSwitcher key="org-context" />,
-          <PageAssistant key="assistant" />,
           <PointsBalanceChip key="points" />,
           <LanguageSwitcher key="lang" compact />,
           <NotificationBell key="notifications" />,
+          <WechatMpBindingEntry key="wechat-mp" />,
+          <ExtensionEntry key="extension" />,
           <Tooltip title={t("帮助中心")} key="help">
             <Button
               type="text"
@@ -339,18 +361,6 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
               aria-label={t("帮助中心")}
             />
           </Tooltip>,
-          <Button
-            key="settings"
-            type="text"
-            size="small"
-            icon={<SettingOutlined />}
-            style={{ opacity: 0.65 }}
-            onClick={() => {
-              const handle = document.querySelector('.ant-pro-setting-drawer-handle') as HTMLElement;
-              if (handle) handle.click();
-            }}
-            aria-label="布局设置"
-          />,
           <div key="identity" className="workspace-identity">
             <Dropdown
               trigger={["click"]}
@@ -360,11 +370,17 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
                 selectedKeys: identity ? [identity] : [],
                 items: identityOptions.map((option) => ({
                   key: option.value,
-                  icon: <span className="workspace-identity-check">{option.value === identity && <CheckOutlined />}</span>,
+                  icon: (
+                    <span className="workspace-identity-check">
+                      {option.value === identity && <CheckOutlined />}
+                    </span>
+                  ),
                   label: (
                     <span className="workspace-identity-option">
                       {option.label}
-                      {!me?.identities.includes(option.value) && <span className="text-12 muted">{t("去开通")}</span>}
+                      {!me?.identities.includes(option.value) && (
+                        <span className="text-12 muted">{t("去开通")}</span>
+                      )}
                     </span>
                   ),
                 })),
@@ -380,7 +396,9 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
                 disabled={loading || switchingIdentity || !me}
                 icon={<UserOutlined />}
               >
-                <span className="workspace-identity-text">{identityLabel(identity, me?.enterprise?.subjectType)}</span>
+                <span className="workspace-identity-text">
+                  {identityLabel(identity, me?.enterprise?.subjectType)}
+                </span>
                 <DownOutlined className="workspace-identity-arrow" />
               </Button>
             </Dropdown>
@@ -394,19 +412,30 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
             <Dropdown
               menu={{
                 items: [
-                  ...(isAdmin && identity !== "PLATFORM_ADMIN" ? [{
-                    key: "platform",
-                    icon: <AppstoreOutlined />,
-                    label: t("切换到平台管理"),
-                    disabled: switchingIdentity,
-                    onClick: () => void changeIdentity("PLATFORM_ADMIN", "/dashboard"),
-                  }, { type: "divider" as const }] : []),
-                  ...(isPlatformArea ? [{
-                    key: "back",
-                    icon: <AppstoreOutlined />,
-                    label: t("返回高管驾驶舱"),
-                    onClick: () => router.push("/dashboard"),
-                  }, { type: "divider" as const }] : []),
+                  ...(isAdmin && identity !== "PLATFORM_ADMIN"
+                    ? [
+                        {
+                          key: "platform",
+                          icon: <AppstoreOutlined />,
+                          label: t("切换到平台管理"),
+                          disabled: switchingIdentity,
+                          onClick: () =>
+                            void changeIdentity("PLATFORM_ADMIN", "/dashboard"),
+                        },
+                        { type: "divider" as const },
+                      ]
+                    : []),
+                  ...(isPlatformArea
+                    ? [
+                        {
+                          key: "back",
+                          icon: <AppstoreOutlined />,
+                          label: t("返回驾驶舱"),
+                          onClick: () => router.push("/dashboard"),
+                        },
+                        { type: "divider" as const },
+                      ]
+                    : []),
                   {
                     key: "help",
                     icon: <QuestionCircleOutlined />,
@@ -414,6 +443,12 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
                     onClick: () => router.push("/help"),
                   },
                   { type: "divider" },
+                  {
+                    key: "security",
+                    icon: <SafetyCertificateOutlined />,
+                    label: t("账号安全"),
+                    onClick: () => router.push("/account/security"),
+                  },
                   {
                     key: "identity",
                     icon: <UserOutlined />,
@@ -443,34 +478,52 @@ export function EnterpriseProLayout({ children }: { children: ReactNode }) {
         footerRender={false}
       >
         {loading || switchingIdentity ? (
-          <div className="workspace-loading"><Spin description={t("正在确认身份…")}><div /></Spin></div>
+          <div className="workspace-loading">
+            <Spin description={t("正在确认身份…")}>
+              <div />
+            </Spin>
+          </div>
         ) : !me ? (
-          <Result status="warning" title={t("无法确认当前身份")} extra={<Button onClick={() => window.location.reload()}>{t("刷新页面")}</Button>} />
+          <Result
+            status="warning"
+            title={t("无法确认当前身份")}
+            extra={
+              <Button onClick={() => window.location.reload()}>
+                {t("刷新页面")}
+              </Button>
+            }
+          />
         ) : isPlatformArea && identity !== "PLATFORM_ADMIN" ? (
           <Result
             status="403"
-            title={isAdmin ? t("请切换到平台管理员身份") : t("当前身份无法访问平台管理")}
+            title={
+              isAdmin
+                ? t("请切换到平台管理员身份")
+                : t("当前身份无法访问平台管理")
+            }
             subTitle={t("平台管理使用独立的身份和导航。")}
-            extra={isAdmin
-              ? <Button type="primary" onClick={() => void changeIdentity("PLATFORM_ADMIN", pathname)}>{t("以平台管理员身份进入")}</Button>
-              : <Button onClick={() => router.replace("/dashboard")}>{t("返回高管驾驶舱")}</Button>}
+            extra={
+              isAdmin ? (
+                <Button
+                  type="primary"
+                  onClick={() =>
+                    void changeIdentity("PLATFORM_ADMIN", pathname)
+                  }
+                >
+                  {t("以平台管理员身份进入")}
+                </Button>
+              ) : (
+                <Button onClick={() => router.replace("/dashboard")}>
+                  {t("返回驾驶舱")}
+                </Button>
+              )
+            }
           />
-        ) : <Fragment key={`${me.userId}:${identity}`}>{children}</Fragment>}
+        ) : (
+          <Fragment key={`${me.userId}:${identity}`}>{children}</Fragment>
+        )}
       </ProLayout>
-      <style>{`
-        .ant-pro-setting-drawer-handle {
-          display: none !important;
-        }
-      `}</style>
-      <SettingDrawer
-        settings={settings as ProSettings}
-        onSettingChange={(changedSettings) => {
-          const next = { ...settings, ...changedSettings };
-          setSettings(next);
-          window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-        }}
-        disableUrlParams
-      />
+      <PageAssistant />
     </div>
   );
 }

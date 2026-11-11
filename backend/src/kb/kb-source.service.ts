@@ -14,6 +14,8 @@ import { clip, excerptOf, iso } from './kb-util';
  * 抽取逻辑在 KbIntakeService，本服务只做「落行去重 + 台账」这一件事。
  * assetId 引用数字资产：资产上传时已抽正文（DigitalAssetEntry.text），这里直接取用可编译
  * （修「资产不存正文导致投料即 FAILED」的断链；仍为空则如实 FAILED 提示补文）。
+ * 引用前同时校验「能读来源资产」（本人或已共享给本人）与「能写目标空间」，不借空间写权限
+ * 复制他人资产正文（设计方案 §四）。
  */
 
 export interface AddSourceInput {
@@ -84,15 +86,7 @@ export class KbSourceService {
     let text = body.text ?? '';
     let ossKey = '';
     if (!text.trim() && body.assetId > 0) {
-      const asset = await this.prisma.digitalAssetEntry.findUnique({
-        where: { id: body.assetId },
-      });
-      if (!asset) {
-        throw new BusinessException(
-          ErrorCode.NOT_FOUND,
-          '引用的数字资产不存在',
-        );
-      }
+      const asset = await this.loadReadableAsset(user, body.assetId);
       // 资产上传时已抽正文：直接取用即可编译；未抽到（图片/音视频）则留空等解析
       text = (asset.text ?? '').trim();
       ossKey = asset.ossKey || '';
@@ -116,6 +110,32 @@ export class KbSourceService {
       },
       user,
     );
+  }
+
+  /**
+   * 引用数字资产前校验来源读权限：本人资产，或已被共享给本人（content_shared_assets）。
+   * 无权读取时按“不存在”处理，不泄露他人资产存在性，也不借空间写权限复制其正文。
+   */
+  private async loadReadableAsset(user: CurrentUser, assetId: number) {
+    const entry = await this.prisma.digitalAssetEntry.findUnique({
+      where: { id: assetId },
+    });
+    if (!entry) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '引用的数字资产不存在');
+    }
+    if (entry.userId === user.userId) return entry;
+    const shared = await this.prisma.contentSharedAsset.findFirst({
+      where: {
+        ownerUserId: entry.userId,
+        targetUserId: user.userId,
+        assetId: String(entry.aipddAssetId),
+      },
+      select: { id: true },
+    });
+    if (!shared) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '引用的数字资产不存在');
+    }
+    return entry;
   }
 
   /** 落行去重 + 台账（各摄取入口共用）：同空间同 hash 直接返回既有行。 */

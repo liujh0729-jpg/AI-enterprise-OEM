@@ -119,6 +119,8 @@ export const FEATURE_SEED: FeatureSeedNode[] = [
   menu('identity', 'manage-settings', '身份与资质', '/identity', 10, true),
   menu('staff', 'manage-settings', '职员/代理人管理', '/staff', 20),
   menu('contracts', 'manage-settings', '签约管理', '/contracts', 30),
+  // 我的套餐：已购官方服务套餐与交付进度（购买入口分散在各业务板块，接口与板块共享）
+  menu('my-packages', 'manage-settings', '我的套餐', '/my-packages', 35),
   menu('points-center', 'manage-settings', '积分中心', '/points', 40, true),
   menu('invite', 'manage-settings', '我的邀请', '/invite', 50, true),
   // ---------- 开放集成（api-keys 是认证会话底座，protected 不可关） ----------
@@ -221,6 +223,8 @@ export const FEATURE_API_PREFIXES: Record<string, string[]> = {
   hiring: ['/enterprise/social/hiring', '/enterprise/recruit'],
   staff: ['/enterprise/staff', '/enterprise/org-staff'],
   contracts: ['/enterprise/contracts'],
+  // 我的套餐：/enterprise/service-packages 被各业务板块的购买入口共用，只做菜单显隐不单独拦截
+  'my-packages': [],
   // 模型广场：站内目录/试用/用量 + 对外 OpenAI 兼容网关（/v1 在根 app 上，由网关内自行校验开关）
   'model-plaza': ['/enterprise/model-plaza'],
   // model-settings 的后端落在 /enterprise/content/* 里（与内容创作共通道），只做菜单显隐不单独拦截

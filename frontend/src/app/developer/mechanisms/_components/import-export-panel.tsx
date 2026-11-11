@@ -1,6 +1,11 @@
 "use client";
 
-import { DeleteOutlined, DownloadOutlined, InboxOutlined, UploadOutlined } from "@ant-design/icons";
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  InboxOutlined,
+  UploadOutlined,
+} from "@ant-design/icons";
 import { App, Button, Checkbox, Input, Select, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -18,7 +23,10 @@ import {
   type ImportMap,
 } from "./mechanisms-common";
 
-function parseCsv(text: string): { headers: string[]; rows: Record<string, string>[] } {
+function parseCsv(text: string): {
+  headers: string[];
+  rows: Record<string, string>[];
+} {
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
   if (!lines.length) return { headers: [], rows: [] };
   const split = (line: string) => {
@@ -81,7 +89,8 @@ export function ImportExportPanel() {
   const [exportFormat, setExportFormat] = useState<"csv" | "json">("csv");
 
   const definition = useMemo(
-    () => IMPORT_MODULES.find((item) => item.value === module) || IMPORT_MODULES[0],
+    () =>
+      IMPORT_MODULES.find((item) => item.value === module) || IMPORT_MODULES[0],
     [module],
   );
 
@@ -91,7 +100,9 @@ export function ImportExportPanel() {
   }, [module]);
 
   const loadJobs = useCallback(async () => {
-    const data = await mechanismsApi.importJobs({ query: { page: 1, pageSize: 30 } });
+    const data = await mechanismsApi.importJobs({
+      query: { page: 1, pageSize: 30 },
+    });
     setJobs(data?.list || []);
   }, []);
 
@@ -126,7 +137,8 @@ export function ImportExportPanel() {
       setFileName(file.name);
       setHeaders(parsed.headers);
       setRows(parsed.rows);
-      if (!parsed.rows.length) message.warning("没有解析到数据行，请检查 CSV 表头与内容");
+      if (!parsed.rows.length)
+        message.warning("没有解析到数据行，请检查 CSV 表头与内容");
     };
     reader.onerror = () => message.error("读取文件失败");
     reader.readAsText(file, "utf-8");
@@ -214,6 +226,32 @@ export function ImportExportPanel() {
     }
   };
 
+  const downloadExport = async (row: ExportJob) => {
+    try {
+      const file = await mechanismsApi.downloadExport({
+        params: { id: String(row.id) },
+      });
+      if (!file) {
+        message.error("导出文件已不可用");
+        return;
+      }
+      const blob = new Blob([file.content], {
+        type:
+          file.format === "json"
+            ? "application/json"
+            : "text/csv;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      message.error(mechError(err));
+    }
+  };
+
   const jobColumns: ColumnsType<ImportJob> = [
     {
       title: "文件 / 模块",
@@ -221,7 +259,9 @@ export function ImportExportPanel() {
       render: (_value, row) => (
         <div>
           <div>{row.fileName || "粘贴数据"}</div>
-          <div className="muted text-12">{IMPORT_MODULE_LABELS[row.module] || row.module}</div>
+          <div className="muted text-12">
+            {IMPORT_MODULE_LABELS[row.module] || row.module}
+          </div>
         </div>
       ),
     },
@@ -237,13 +277,28 @@ export function ImportExportPanel() {
         </span>
       ),
     },
-    { title: "状态", dataIndex: "status", width: 100, render: (value: string) => jobStatusTag(value) },
-    { title: "时间", dataIndex: "createdAt", width: 160, render: (value: string) => fmtDateTime(value) },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 100,
+      render: (value: string) => jobStatusTag(value),
+    },
+    {
+      title: "时间",
+      dataIndex: "createdAt",
+      width: 160,
+      render: (value: string) => fmtDateTime(value),
+    },
     {
       title: "操作",
       width: 80,
       render: (_value, row) => (
-        <Button size="small" danger icon={<DeleteOutlined aria-hidden />} onClick={() => void removeJob(row)} />
+        <Button
+          size="small"
+          danger
+          icon={<DeleteOutlined aria-hidden />}
+          onClick={() => void removeJob(row)}
+        />
       ),
     },
   ];
@@ -254,21 +309,41 @@ export function ImportExportPanel() {
       dataIndex: "module",
       render: (_value, row) => (
         <div>
-          <div>{exportModules.find((item) => item.module === row.module)?.label || row.module}</div>
-          <div className="muted text-12">{row.format.toUpperCase()} · {row.rowCount} 行</div>
+          <div>
+            {exportModules.find((item) => item.module === row.module)?.label ||
+              row.module}
+          </div>
+          <div className="muted text-12">
+            {row.format.toUpperCase()} · {row.rowCount} 行
+          </div>
         </div>
       ),
     },
-    { title: "状态", dataIndex: "status", width: 110, render: (value: string) => jobStatusTag(value) },
-    { title: "时间", dataIndex: "createdAt", width: 160, render: (value: string) => fmtDateTime(value) },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 110,
+      render: (value: string) => jobStatusTag(value),
+    },
+    {
+      title: "时间",
+      dataIndex: "createdAt",
+      width: 160,
+      render: (value: string) => fmtDateTime(value),
+    },
     {
       title: "文件",
       dataIndex: "fileUrl",
-      render: (value: string) =>
-        value ? (
-          <a href={value} target="_blank" rel="noreferrer">
-            <DownloadOutlined aria-hidden /> 下载
-          </a>
+      render: (_value: string, row) =>
+        row.fileUrl ? (
+          <Button
+            size="small"
+            type="link"
+            icon={<DownloadOutlined aria-hidden />}
+            onClick={() => void downloadExport(row)}
+          >
+            下载
+          </Button>
         ) : (
           "—"
         ),
@@ -277,7 +352,12 @@ export function ImportExportPanel() {
       title: "操作",
       width: 80,
       render: (_value, row) => (
-        <Button size="small" danger icon={<DeleteOutlined aria-hidden />} onClick={() => void removeExport(row)} />
+        <Button
+          size="small"
+          danger
+          icon={<DeleteOutlined aria-hidden />}
+          onClick={() => void removeExport(row)}
+        />
       ),
     },
   ];
@@ -299,9 +379,17 @@ export function ImportExportPanel() {
       {tab === "import" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <Notice variant="info">
-            CSV 第一行是表头；把「目标字段」映射到你的表头列后再导入。可以先试运行，确认没问题再正式写入。
+            CSV
+            第一行是表头；把「目标字段」映射到你的表头列后再导入。可以先试运行，确认没问题再正式写入。
           </Notice>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
             <Select
               style={{ width: 180 }}
               value={module}
@@ -311,7 +399,10 @@ export function ImportExportPanel() {
                 setRows([]);
                 setFileName("");
               }}
-              options={IMPORT_MODULES.map((item) => ({ value: item.value, label: item.label }))}
+              options={IMPORT_MODULES.map((item) => ({
+                value: item.value,
+                label: item.label,
+              }))}
             />
             <label
               style={{
@@ -338,7 +429,9 @@ export function ImportExportPanel() {
               />
             </label>
             <span className="muted text-12">
-              {fileName ? `${fileName} · ${rows.length} 行 · ${headers.length} 列` : "尚未选择文件"}
+              {fileName
+                ? `${fileName} · ${rows.length} 行 · ${headers.length} 列`
+                : "尚未选择文件"}
             </span>
             {maps.length ? (
               <Select
@@ -349,7 +442,10 @@ export function ImportExportPanel() {
                   const found = maps.find((item) => item.id === value);
                   if (found) applyMap(found);
                 }}
-                options={maps.map((item) => ({ value: item.id, label: item.name }))}
+                options={maps.map((item) => ({
+                  value: item.id,
+                  label: item.name,
+                }))}
               />
             ) : null}
           </div>
@@ -357,10 +453,25 @@ export function ImportExportPanel() {
           {headers.length ? (
             <div>
               <strong>字段映射</strong>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8, marginTop: 8 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                  gap: 8,
+                  marginTop: 8,
+                }}
+              >
                 {definition.columns.map((column) => (
-                  <div key={column} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span className="text-12" style={{ width: 110, flex: "none" }}>{column}</span>
+                  <div
+                    key={column}
+                    style={{ display: "flex", gap: 6, alignItems: "center" }}
+                  >
+                    <span
+                      className="text-12"
+                      style={{ width: 110, flex: "none" }}
+                    >
+                      {column}
+                    </span>
                     <Select
                       size="small"
                       style={{ flex: 1 }}
@@ -375,7 +486,10 @@ export function ImportExportPanel() {
                           return next;
                         })
                       }
-                      options={headers.map((header) => ({ value: header, label: header }))}
+                      options={headers.map((header) => ({
+                        value: header,
+                        label: header,
+                      }))}
                     />
                   </div>
                 ))}
@@ -387,29 +501,63 @@ export function ImportExportPanel() {
             <div>
               <strong>已保存的映射方案</strong>
               {maps.map((map) => (
-                <div key={map.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderTop: "1px dashed var(--border, #eee)" }}>
+                <div
+                  key={map.id}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    padding: "6px 0",
+                    borderTop: "1px dashed var(--border, #eee)",
+                  }}
+                >
                   <span>{map.name}</span>
-                  <span className="muted text-12">{Object.keys(map.mapping).length} 个字段</span>
-                  <Button size="small" style={{ marginLeft: "auto" }} onClick={() => applyMap(map)}>
+                  <span className="muted text-12">
+                    {Object.keys(map.mapping).length} 个字段
+                  </span>
+                  <Button
+                    size="small"
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => applyMap(map)}
+                  >
                     套用
                   </Button>
-                  <Button size="small" danger icon={<DeleteOutlined aria-hidden />} onClick={() => void removeMap(map)} />
+                  <Button
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined aria-hidden />}
+                    onClick={() => void removeMap(map)}
+                  />
                 </div>
               ))}
             </div>
           ) : null}
 
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <Input
               style={{ width: 200 }}
               placeholder="保存映射为（选填）"
               value={saveMapAs}
               onChange={(event) => setSaveMapAs(event.target.value)}
             />
-            <Checkbox checked={dryRun} onChange={(event) => setDryRun(event.target.checked)}>
+            <Checkbox
+              checked={dryRun}
+              onChange={(event) => setDryRun(event.target.checked)}
+            >
               仅试运行（不写入）
             </Checkbox>
-            <Button type="primary" loading={busy} onClick={() => void createJob()}>
+            <Button
+              type="primary"
+              loading={busy}
+              onClick={() => void createJob()}
+            >
               开始导入
             </Button>
           </div>
@@ -441,12 +589,22 @@ export function ImportExportPanel() {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <Select
               style={{ width: 200 }}
               value={exportModule}
               onChange={setExportModule}
-              options={exportModules.map((item) => ({ value: item.module, label: item.label }))}
+              options={exportModules.map((item) => ({
+                value: item.module,
+                label: item.label,
+              }))}
               placeholder="选择导出模块"
             />
             <Select
@@ -458,10 +616,16 @@ export function ImportExportPanel() {
                 { value: "json", label: "JSON" },
               ]}
             />
-            <Button type="primary" icon={<InboxOutlined aria-hidden />} onClick={() => void createExport()}>
+            <Button
+              type="primary"
+              icon={<InboxOutlined aria-hidden />}
+              onClick={() => void createExport()}
+            >
               创建导出任务
             </Button>
-            <span className="muted text-12">导出按当前组织的可见数据生成，完成后在下方下载</span>
+            <span className="muted text-12">
+              导出按当前组织的可见数据生成，完成后在下方下载
+            </span>
           </div>
           <Table
             rowKey="id"

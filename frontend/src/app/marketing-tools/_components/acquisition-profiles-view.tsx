@@ -435,7 +435,7 @@ export function AcquisitionProfilesView({
                       items={detail.events.map((event) => ({
                         key: event.id,
                         color: event.kind === "STAGE" ? "green" : "blue",
-                        children: (
+                        content: (
                           <Space orientation="vertical" size={0}>
                             <span>
                               {profileEventLabel(event.kind)}：{event.summary}

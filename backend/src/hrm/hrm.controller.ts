@@ -1,6 +1,7 @@
 import type { CurrentUser } from '../auth/current-user';
 import type {
   HrmProfileService,
+  TransferHandoverInput,
   UpsertProfileInput,
   UpdateProfileStatusInput,
 } from './hrm-profile.service';
@@ -66,6 +67,17 @@ export class HrmController {
 
   updateProfileStatus(user: CurrentUser, body: UpdateProfileStatusInput) {
     return this.profileService.updateStatus(body, user);
+  }
+
+  handoverChecklist(
+    user: CurrentUser,
+    query: { memberUserId: string },
+  ) {
+    return this.profileService.handover(query.memberUserId, user);
+  }
+
+  transferHandover(user: CurrentUser, body: TransferHandoverInput) {
+    return this.profileService.transferHandover(body, user);
   }
 
   // ---------- 假勤 ----------

@@ -55,6 +55,37 @@ export const updateHrmProfileStatusBodySchema = z.object({
   leftAt: z.string().max(16).default(""),
 });
 
+/** 离职交接：检查项（清零才可结案）+ 可改派资产。 */
+export const HRM_HANDOVER_ASSET_KEYS = ["customers", "projects", "projectMembers", "tasks", "approvals"] as const;
+export const hrmHandoverAssetSchema = z.object({
+  key: z.enum(HRM_HANDOVER_ASSET_KEYS),
+  label: z.string(),
+  count: z.number(),
+  items: z.array(z.object({ id: z.string(), name: z.string(), link: z.string() })),
+  transferable: z.boolean(),
+});
+export const hrmHandoverSchema = z.object({
+  memberUserId: z.string(),
+  checklist: z.array(z.object({ key: z.string(), label: z.string(), pending: z.number(), link: z.string() })),
+  assets: z.array(hrmHandoverAssetSchema),
+  closable: z.boolean(),
+  profileStatus: z.string(),
+});
+export const transferHrmHandoverBodySchema = z.object({
+  memberUserId: z.string().min(1).max(64),
+  toUserId: z.string().min(1).max(64),
+  /** 不传＝移交全部可改派类别（客户/负责项目/参与项目）。 */
+  assets: z.array(z.enum(HRM_HANDOVER_ASSET_KEYS)).max(5).optional(),
+  note: z.string().max(500).default(""),
+});
+export const hrmHandoverResultSchema = z.object({
+  memberUserId: z.string(),
+  toUserId: z.string(),
+  moved: z.record(z.string(), z.number()),
+  total: z.number(),
+  name: z.string(),
+});
+
 /** 假勤政策（年额度）与余额。 */
 export const hrmPolicySchema = z.object({
   id: z.number(),
@@ -422,6 +453,22 @@ export const hrmEndpoints = {
     query: emptyQuery,
     body: updateHrmProfileStatusBodySchema,
     response: envelope(hrmProfileSchema),
+  },
+  Hrm_handoverChecklist: {
+    method: "get" as const,
+    path: "/enterprise/hrm/handover",
+    params: z.object({}),
+    query: z.object({ memberUserId: z.string().min(1).max(64) }),
+    body: z.undefined(),
+    response: envelope(hrmHandoverSchema),
+  },
+  Hrm_transferHandover: {
+    method: "post" as const,
+    path: "/enterprise/hrm/handover/transfer",
+    params: z.object({}),
+    query: emptyQuery,
+    body: transferHrmHandoverBodySchema,
+    response: envelope(hrmHandoverResultSchema),
   },
   // ---------- 假勤 ----------
   Hrm_listPolicies: {

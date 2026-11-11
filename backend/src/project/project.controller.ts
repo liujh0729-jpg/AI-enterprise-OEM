@@ -29,6 +29,10 @@ export class ProjectController {
     return this.service.getProject(user, idRaw);
   }
 
+  createProjectFromContract(user: CurrentUser, body: Row) {
+    return this.service.createFromContract(user, body);
+  }
+
   saveProject(user: CurrentUser, body: Row) {
     return this.service.saveProject(user, body);
   }
@@ -207,6 +211,13 @@ export class ProjectController {
 
   projectCost(user: CurrentUser, idRaw: string) {
     return this.cost.projectCost(user, idRaw);
+  }
+
+  purchaseReconciliation(
+    user: CurrentUser,
+    query: { onlyIssues?: boolean | string },
+  ) {
+    return this.cost.purchaseReconciliation(user, query);
   }
 
   listEngagements(

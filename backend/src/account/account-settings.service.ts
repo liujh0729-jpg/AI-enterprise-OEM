@@ -124,19 +124,43 @@ export class AccountSettingsService {
   }
 
   /**
-   * 公开配置：登录页据此渲染「有哪些方式」「微信开没开」。
+   * 找回密码 / 已登录验证码设密可用性：与登录方式同一份策略。
+   * 密码登录未开启时整条找回链路关闭（避免「能重置却无法用密码登录」）；
+   * 某通道需同时「勾选登录方式」且「通道凭据已配置」。
+   */
+  async passwordRecoveryAvailability() {
+    const [methods, availability] = await Promise.all([
+      this.loginMethods(),
+      this.loginAvailability(),
+    ]);
+    const passwordEnabled = methods.includes('PASSWORD');
+    const EMAIL =
+      passwordEnabled &&
+      methods.includes('EMAIL_CODE') &&
+      availability.EMAIL_CODE;
+    const SMS =
+      passwordEnabled && methods.includes('SMS_CODE') && availability.SMS_CODE;
+    return { enabled: EMAIL || SMS, PASSWORD: passwordEnabled, EMAIL, SMS };
+  }
+
+  /**
+   * 公开配置：登录页据此渲染「有哪些方式」「微信开没开」「忘记密码能不能点」。
    * 只回布尔与方式名，微信 AppID/Secret 永不回传。
    */
   async publicLoginView() {
-    const [methods, availability, wechat] = await Promise.all([
-      this.loginMethods(),
-      this.loginAvailability(),
-      this.wechat(),
-    ]);
+    const [methods, availability, wechat, passwordRecovery] = await Promise.all(
+      [
+        this.loginMethods(),
+        this.loginAvailability(),
+        this.wechat(),
+        this.passwordRecoveryAvailability(),
+      ],
+    );
     return {
       loginMethods: methods,
       loginAvailability: availability,
       wechat: { enabled: !!wechat?.enabled },
+      passwordRecovery,
     };
   }
 
@@ -438,6 +462,7 @@ export class AccountSettingsService {
       },
       cooldownDays: cooldown,
       resetLinkBase: resetLink,
+      passwordRecovery: await this.passwordRecoveryAvailability(),
     };
   }
 }

@@ -38,20 +38,24 @@ const asRoles = (value: unknown): string[] =>
 export class TenantScopeService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async resolve(user: CurrentUser): Promise<Tenant> {
-    const actorId = user.userId;
-    const preferred = await this.prisma.userOrgContext.findUnique({
-      where: { userId: actorId },
+  /**
+   * 主体切换器选过且关系仍有效时的组织归属；否则 null。
+   * CRM / BI / OA 等按组织归属的模块统一用它做「当前主体」，避免各写一套选择逻辑。
+   */
+  async preferred(userId: string): Promise<Tenant | null> {
+    const row = await this.prisma.userOrgContext.findUnique({
+      where: { userId },
       select: { orgType: true, orgUserId: true },
     });
-    if (preferred?.orgUserId) {
-      const valid = await this.stillValid(
-        preferred.orgType,
-        preferred.orgUserId,
-        actorId,
-      );
-      if (valid) return { ...valid, actorId };
-    }
+    if (!row?.orgUserId || !row.orgType) return null;
+    const valid = await this.stillValid(row.orgType, row.orgUserId, userId);
+    return valid ? { ...valid, actorId: userId } : null;
+  }
+
+  async resolve(user: CurrentUser): Promise<Tenant> {
+    const actorId = user.userId;
+    const preferred = await this.preferred(actorId);
+    if (preferred) return preferred;
 
     const [owned, memberships, legacy] = await Promise.all([
       this.prisma.orgStaff.findFirst({

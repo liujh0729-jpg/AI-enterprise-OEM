@@ -50,9 +50,9 @@ function listZipEntryNames(file) {
   const names = [];
   let p = 0;
   while (p + 30 <= buf.length && buf.readUInt32LE(p) === 0x04034b50) {
-    const compSize = buf.readUInt32LE(18);
-    const nameLen = buf.readUInt16LE(26);
-    const extraLen = buf.readUInt16LE(28);
+    const compSize = buf.readUInt32LE(p + 18);
+    const nameLen = buf.readUInt16LE(p + 26);
+    const extraLen = buf.readUInt16LE(p + 28);
     names.push(buf.subarray(p + 30, p + 30 + nameLen).toString("utf8"));
     p += 30 + nameLen + extraLen + compSize;
   }
@@ -124,8 +124,8 @@ try {
     const entryNames = listZipEntryNames(join(root, "frontend/public", extension.downloadPath));
     assert(entryNames.length > 0 && entryNames.every((name) => !name.includes("\\")), "zip 条目名不含反斜杠（POSIX 分隔符合规）", entryNames.filter((n) => n.includes("\\")).join(","));
     assert(
-      entryNames.length > 0 && entryNames.every((name) => name.startsWith("aipdd-enterprise/")),
-      "zip 内保留 aipdd-enterprise/ 目录层（README 安装第 3 步可加载）",
+      entryNames.includes("manifest.json") && entryNames.every((name) => !name.startsWith("aipdd-enterprise/")),
+      "zip 根目录直接放 manifest.json（解压出的文件夹可直接加载）",
       entryNames[0],
     );
     assert(

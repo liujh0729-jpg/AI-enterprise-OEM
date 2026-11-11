@@ -26,17 +26,31 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
-import type {
-  MpAdminModel,
-  MpAipddView,
-  MpBillingUnit,
-  MpCategory,
-  MpComponent,
-  MpDiscoveredModel,
-  MpPullResult,
-  MpTier,
-  MpUpstream,
-  MpUsageLog,
+import {
+  CONTENT_CHANNEL_PROVIDERS,
+  CONTENT_CHANNEL_PROVIDER_LABELS,
+  CONTENT_CHANNEL_PRESET_LABELS,
+  CONTENT_CHANNEL_PRESETS,
+  CONTENT_MEDIA_TYPES,
+  CONTENT_MEDIA_TYPE_LABELS,
+  CONTENT_PRESET_DEFAULT_MEDIA_TYPES,
+  isProviderSupported,
+  type ContentChannelPolicy,
+  type ContentChannelPreset,
+  type ContentMediaType,
+  type MpAdminModel,
+  type MpAipddView,
+  type MpBillingUnit,
+  type MpCategory,
+  type MpComponent,
+  type MpDiscoveredModel,
+  type MpPlatformCapability,
+  type MpPlatformDefaults,
+  type MpPlatformLimits,
+  type MpPullResult,
+  type MpTier,
+  type MpUpstream,
+  type MpUsageLog,
 } from "@enterprise/contracts";
 import { modelPlazaAdminApi } from "@/api/model-plaza";
 import {
@@ -54,7 +68,13 @@ import {
   StatGrid,
 } from "@/components/ui/panel";
 
-type Tab = "catalog" | "upstreams" | "usage";
+type Tab = "catalog" | "upstreams" | "policy" | "platform" | "usage";
+
+type PlatformDraft = {
+  enabled: boolean;
+  models: Partial<Record<MpPlatformCapability, number>>;
+  limits: MpPlatformLimits;
+};
 
 type Overview = {
   rate: number;
@@ -87,7 +107,10 @@ const ENDPOINT_LABEL: Record<string, string> = {
   "/videos": "视频",
 };
 
-const SOURCE_LABEL: Record<string, string> = { IN_APP: "站内试用", API: "对外 API" };
+const SOURCE_LABEL: Record<string, string> = {
+  IN_APP: "站内试用",
+  API: "对外 API",
+};
 
 const CATEGORY_LABEL: Record<string, string> = {
   text: "文本",
@@ -98,10 +121,12 @@ const CATEGORY_LABEL: Record<string, string> = {
   other: "其他",
 };
 
-const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABEL).map(([value, label]) => ({
-  value,
-  label,
-}));
+const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABEL).map(
+  ([value, label]) => ({
+    value,
+    label,
+  }),
+);
 
 const CATEGORY_COLOR: Record<string, string> = {
   text: "blue",
@@ -111,11 +136,20 @@ const CATEGORY_COLOR: Record<string, string> = {
   embedding: "cyan",
 };
 
+const MEDIA_TYPE_OPTIONS = CONTENT_MEDIA_TYPES.map((value) => ({
+  value,
+  label: CONTENT_MEDIA_TYPE_LABELS[value],
+}));
+
 /** 分档维度：图像按像素尺寸 / 清晰度，视频按分辨率，都是上游 back-to-back 的规格。 */
 const TIER_DIMENSIONS = [
   { value: "size", label: "像素尺寸", placeholder: "1024x1024" },
   { value: "quality", label: "清晰度", placeholder: "1K / 2K / 4K" },
-  { value: "video_resolution", label: "视频分辨率", placeholder: "480p / 768p / 1080p" },
+  {
+    value: "video_resolution",
+    label: "视频分辨率",
+    placeholder: "480p / 768p / 1080p",
+  },
 ] as const;
 
 type TierKey = (typeof TIER_DIMENSIONS)[number]["value"];
@@ -135,7 +169,10 @@ function tiersToRows(tiers: MpTier[]): TierRow[] {
 function rowsToTiers(rows: TierRow[]): MpTier[] {
   return rows
     .filter((row) => row.value.trim())
-    .map((row) => ({ match: { [row.key]: row.value.trim() }, unitRmb: Number(row.unitRmb || 0) }));
+    .map((row) => ({
+      match: { [row.key]: row.value.trim() },
+      unitRmb: Number(row.unitRmb || 0),
+    }));
 }
 
 type UpstreamDraft = {
@@ -232,11 +269,25 @@ export function ModelPlazaAdminTab() {
   const [tab, setTab] = useState<Tab>("catalog");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [aipdd, setAipdd] = useState<MpAipddView | null>(null);
+  const [policy, setPolicy] = useState<ContentChannelPolicy | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policySaving, setPolicySaving] = useState(false);
+
+  const [platformDefaults, setPlatformDefaults] =
+    useState<MpPlatformDefaults | null>(null);
+  const [platformLoading, setPlatformLoading] = useState(false);
+  const [platformSaving, setPlatformSaving] = useState(false);
+  const [platformDraft, setPlatformDraft] = useState<PlatformDraft>({
+    enabled: false,
+    models: {},
+    limits: { perCallPoints: 0, dailyPoints: 0, monthlyPoints: 0 },
+  });
 
   const [upstreams, setUpstreams] = useState<MpUpstream[]>([]);
   const [upstreamLoading, setUpstreamLoading] = useState(false);
   const [upstreamModal, setUpstreamModal] = useState(false);
-  const [upstreamDraft, setUpstreamDraft] = useState<UpstreamDraft>(EMPTY_UPSTREAM);
+  const [upstreamDraft, setUpstreamDraft] =
+    useState<UpstreamDraft>(EMPTY_UPSTREAM);
   const [upstreamSaving, setUpstreamSaving] = useState(false);
 
   const [catalog, setCatalog] = useState<MpAdminModel[]>([]);
@@ -245,8 +296,12 @@ export function ModelPlazaAdminTab() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [provider, setProvider] = useState("ALL");
-  const [categoryFilter, setCategoryFilter] = useState<"ALL" | MpCategory>("ALL");
-  const [enabledFilter, setEnabledFilter] = useState<"ALL" | "ON" | "OFF">("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<"ALL" | MpCategory>(
+    "ALL",
+  );
+  const [enabledFilter, setEnabledFilter] = useState<"ALL" | "ON" | "OFF">(
+    "ALL",
+  );
   const [providers, setProviders] = useState<string[]>([]);
   const [upstreamOptions, setUpstreamOptions] = useState<
     { id: number; name: string; provider: string }[]
@@ -272,7 +327,9 @@ export function ModelPlazaAdminTab() {
   const [usageTotal, setUsageTotal] = useState(0);
   const [usagePage, setUsagePage] = useState(1);
   const [usageLoading, setUsageLoading] = useState(false);
-  const [usageSource, setUsageSource] = useState<"ALL" | "IN_APP" | "API">("ALL");
+  const [usageSource, setUsageSource] = useState<"ALL" | "IN_APP" | "API">(
+    "ALL",
+  );
 
   const loadOverview = useCallback(async () => {
     try {
@@ -282,6 +339,41 @@ export function ModelPlazaAdminTab() {
       setAipdd(data.aipdd);
     } catch (cause) {
       message.error(cause instanceof Error ? cause.message : "总览加载失败");
+    }
+  }, [message]);
+
+  const loadPolicy = useCallback(async () => {
+    setPolicyLoading(true);
+    try {
+      const data = await modelPlazaAdminApi.channelPolicy();
+      if (!data) throw new Error("渠道策略返回为空");
+      setPolicy(data);
+    } catch (cause) {
+      message.error(
+        cause instanceof Error ? cause.message : "渠道策略加载失败",
+      );
+    } finally {
+      setPolicyLoading(false);
+    }
+  }, [message]);
+
+  const loadPlatformDefaults = useCallback(async () => {
+    setPlatformLoading(true);
+    try {
+      const data = await modelPlazaAdminApi.platformDefaults();
+      if (!data) throw new Error("平台默认模型返回为空");
+      setPlatformDefaults(data);
+      const models: Partial<Record<MpPlatformCapability, number>> = {};
+      for (const slot of data.slots) {
+        if (slot.catalogId > 0) models[slot.capability] = slot.catalogId;
+      }
+      setPlatformDraft({ enabled: data.enabled, models, limits: data.limits });
+    } catch (cause) {
+      message.error(
+        cause instanceof Error ? cause.message : "平台默认模型加载失败",
+      );
+    } finally {
+      setPlatformLoading(false);
     }
   }, [message]);
 
@@ -386,8 +478,62 @@ export function ModelPlazaAdminTab() {
   }, [tab, loadCatalog]);
 
   useEffect(() => {
+    if (tab === "policy") void loadPolicy();
+  }, [tab, loadPolicy]);
+
+  useEffect(() => {
+    if (tab === "platform") void loadPlatformDefaults();
+  }, [tab, loadPlatformDefaults]);
+
+  useEffect(() => {
     if (tab === "usage") void loadUsage(1);
   }, [tab, loadUsage]);
+
+  const savePolicy = async () => {
+    if (!policy) return;
+    setPolicySaving(true);
+    try {
+      const next = await modelPlazaAdminApi.saveChannelPolicy({
+        body: policy,
+      });
+      if (next) setPolicy(next);
+      message.success("用户渠道策略已保存");
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "保存失败");
+    } finally {
+      setPolicySaving(false);
+    }
+  };
+
+  const savePlatformDefaults = async () => {
+    setPlatformSaving(true);
+    try {
+      const next = await modelPlazaAdminApi.savePlatformDefaults({
+        body: {
+          enabled: platformDraft.enabled,
+          models: platformDraft.models,
+          limits: platformDraft.limits,
+        },
+      });
+      if (next) {
+        setPlatformDefaults(next);
+        const models: Partial<Record<MpPlatformCapability, number>> = {};
+        for (const slot of next.slots) {
+          if (slot.catalogId > 0) models[slot.capability] = slot.catalogId;
+        }
+        setPlatformDraft({
+          enabled: next.enabled,
+          models,
+          limits: next.limits,
+        });
+      }
+      message.success("平台默认模型已保存");
+    } catch (cause) {
+      message.error(cause instanceof Error ? cause.message : "保存失败");
+    } finally {
+      setPlatformSaving(false);
+    }
+  };
 
   const saveUpstream = async () => {
     if (!upstreamDraft.name.trim() || !upstreamDraft.baseUrl.trim()) {
@@ -400,7 +546,9 @@ export function ModelPlazaAdminTab() {
     }
     setUpstreamSaving(true);
     try {
-      const saved = await modelPlazaAdminApi.saveUpstream({ body: upstreamDraft });
+      const saved = await modelPlazaAdminApi.saveUpstream({
+        body: upstreamDraft,
+      });
       setUpstreamModal(false);
       await Promise.all([loadUpstreams(), loadOverview()]);
       if (saved?.id) {
@@ -567,7 +715,9 @@ export function ModelPlazaAdminTab() {
     try {
       const result = await modelPlazaAdminApi.seed();
       if (!result) throw new Error("初始化返回为空");
-      message.success(`已补齐内置清单：新增 ${result.created} 个，跳过 ${result.skipped} 个`);
+      message.success(
+        `已补齐内置清单：新增 ${result.created} 个，跳过 ${result.skipped} 个`,
+      );
       await Promise.all([loadCatalog(1), loadOverview()]);
     } catch (cause) {
       message.error(cause instanceof Error ? cause.message : "初始化失败");
@@ -592,7 +742,9 @@ export function ModelPlazaAdminTab() {
       dataIndex: "category",
       width: 90,
       render: (value: string) => (
-        <Tag color={CATEGORY_COLOR[value]}>{CATEGORY_LABEL[value] || value}</Tag>
+        <Tag color={CATEGORY_COLOR[value]}>
+          {CATEGORY_LABEL[value] || value}
+        </Tag>
       ),
     },
     {
@@ -600,7 +752,9 @@ export function ModelPlazaAdminTab() {
       dataIndex: "billingUnit",
       width: 100,
       render: (value: MpBillingUnit) => (
-        <Tag color={value === "token" ? "blue" : "purple"}>{UNIT_LABEL[value]}</Tag>
+        <Tag color={value === "token" ? "blue" : "purple"}>
+          {UNIT_LABEL[value]}
+        </Tag>
       ),
     },
     {
@@ -657,14 +811,20 @@ export function ModelPlazaAdminTab() {
       title: "近 7 天",
       width: 130,
       render: (_: unknown, row) =>
-        row.usage7d.calls ? `${row.usage7d.calls} 次 · ${num(row.usage7d.pointsCost, 2)}` : "—",
+        row.usage7d.calls
+          ? `${row.usage7d.calls} 次 · ${num(row.usage7d.pointsCost, 2)}`
+          : "—",
     },
     {
       title: "上架",
       dataIndex: "enabled",
       width: 90,
       render: (value: boolean, row) => (
-        <Switch size="small" checked={value} onChange={(next) => void toggleCatalog(row, next)} />
+        <Switch
+          size="small"
+          checked={value}
+          onChange={(next) => void toggleCatalog(row, next)}
+        />
       ),
     },
     {
@@ -710,7 +870,10 @@ export function ModelPlazaAdminTab() {
               setCatalogModal(true);
             }}
           />
-          <Popconfirm title="从目录移除该模型？" onConfirm={() => void removeCatalog(row)}>
+          <Popconfirm
+            title="从目录移除该模型？"
+            onConfirm={() => void removeCatalog(row)}
+          >
             <Button size="small" danger icon={<DeleteOutlined aria-hidden />} />
           </Popconfirm>
         </Space>
@@ -718,7 +881,9 @@ export function ModelPlazaAdminTab() {
     },
   ];
 
-  const usageColumns: ColumnsType<MpUsageLog & { userId?: string; userName?: string }> = [
+  const usageColumns: ColumnsType<
+    MpUsageLog & { userId?: string; userName?: string }
+  > = [
     {
       title: "时间",
       dataIndex: "createdAt",
@@ -773,13 +938,21 @@ export function ModelPlazaAdminTab() {
       <StatGrid>
         <StatCard
           label="上架模型"
-          value={overview ? `${overview.catalogEnabled} / ${overview.catalogTotal}` : "—"}
+          value={
+            overview
+              ? `${overview.catalogEnabled} / ${overview.catalogTotal}`
+              : "—"
+          }
           hint="已上架 / 目录总数"
         />
         <StatCard
           label="上游渠道"
           value={overview ? overview.upstreamCount : "—"}
-          hint={aipdd?.configured ? "AIPDD 平台 Key 已配置" : "AIPDD 平台 Key 未配置"}
+          hint={
+            aipdd?.configured
+              ? "AIPDD 平台 Key 已配置"
+              : "AIPDD 平台 Key 未配置"
+          }
         />
         <StatCard
           label="近 7 天调用"
@@ -806,7 +979,9 @@ export function ModelPlazaAdminTab() {
                   title="平台上架目录"
                   titleExtra={
                     <span className="text-12 muted">
-                      在「上游通道」填好 baseURL 后从这里拉取勾选上架；未上架的模型不会出现在用户侧与 /v1/models
+                      在「上游通道」填好 baseURL
+                      后从这里拉取勾选上架；未上架的模型不会出现在用户侧与
+                      /v1/models
                     </span>
                   }
                   extra={
@@ -825,14 +1000,20 @@ export function ModelPlazaAdminTab() {
                         onChange={setProvider}
                         options={[
                           { value: "ALL", label: "全部渠道" },
-                          ...providers.map((item) => ({ value: item, label: item })),
+                          ...providers.map((item) => ({
+                            value: item,
+                            label: item,
+                          })),
                         ]}
                       />
                       <Select
                         style={{ width: 120 }}
                         value={categoryFilter}
                         onChange={setCategoryFilter}
-                        options={[{ value: "ALL", label: "全部分类" }, ...CATEGORY_OPTIONS]}
+                        options={[
+                          { value: "ALL", label: "全部分类" },
+                          ...CATEGORY_OPTIONS,
+                        ]}
                       />
                       <Select
                         style={{ width: 110 }}
@@ -886,7 +1067,8 @@ export function ModelPlazaAdminTab() {
                   title="上游通道"
                   titleExtra={
                     <span className="text-12 muted">
-                      AIPDD 内置渠道使用「系统设置 → AIPDD 平台 Key」，无需在这里配置
+                      AIPDD 内置渠道使用「系统设置 → AIPDD 平台
+                      Key」，无需在这里配置
                     </span>
                   }
                   extra={
@@ -911,10 +1093,14 @@ export function ModelPlazaAdminTab() {
                       : "未配置，内置模型将不可用"}
                     {aipdd ? `；接口地址 ${aipdd.baseUrl}` : ""}
                   </Notice>
-                  {upstreamLoading ? <Skeleton active paragraph={{ rows: 4 }} /> : null}
+                  {upstreamLoading ? (
+                    <Skeleton active paragraph={{ rows: 4 }} />
+                  ) : null}
                   {!upstreamLoading && !upstreams.length ? (
                     <EmptyState
-                      icon={<ApiOutlined style={{ fontSize: 40 }} aria-hidden />}
+                      icon={
+                        <ApiOutlined style={{ fontSize: 40 }} aria-hidden />
+                      }
                       text="还没有自定义上游渠道；AIPDD 内置渠道无需配置。"
                     />
                   ) : null}
@@ -931,13 +1117,16 @@ export function ModelPlazaAdminTab() {
                         {
                           title: "接口地址",
                           dataIndex: "baseUrl",
-                          render: (value: string) => <span className="mono text-12">{value}</span>,
+                          render: (value: string) => (
+                            <span className="mono text-12">{value}</span>
+                          ),
                         },
                         {
                           title: "协议",
                           dataIndex: "protocol",
                           width: 100,
-                          render: (value: string) => (value === "anthropic" ? "Anthropic" : "OpenAI"),
+                          render: (value: string) =>
+                            value === "anthropic" ? "Anthropic" : "OpenAI",
                         },
                         { title: "Key", dataIndex: "keyMasked", width: 150 },
                         { title: "模型数", dataIndex: "modelCount", width: 90 },
@@ -945,7 +1134,12 @@ export function ModelPlazaAdminTab() {
                           title: "启用",
                           dataIndex: "enabled",
                           width: 80,
-                          render: (value: boolean) => (value ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+                          render: (value: boolean) =>
+                            value ? (
+                              <Tag color="green">启用</Tag>
+                            ) : (
+                              <Tag>停用</Tag>
+                            ),
                         },
                         {
                           title: "操作",
@@ -973,7 +1167,11 @@ export function ModelPlazaAdminTab() {
                                 title={`删除渠道「${row.name}」及其 ${row.modelCount} 个模型？`}
                                 onConfirm={() => void removeUpstream(row)}
                               >
-                                <Button size="small" danger icon={<DeleteOutlined aria-hidden />} />
+                                <Button
+                                  size="small"
+                                  danger
+                                  icon={<DeleteOutlined aria-hidden />}
+                                />
                               </Popconfirm>
                             </Space>
                           ),
@@ -985,12 +1183,379 @@ export function ModelPlazaAdminTab() {
               ),
             },
             {
+              key: "policy",
+              label: "用户渠道",
+              children: (
+                <Panel
+                  title="用户算力渠道"
+                  titleExtra={
+                    <span className="text-12 muted">
+                      控制用户能否在「模型设置」里接入自建网关、各预设的兜底模型类型，以及各算力渠道的支持范围
+                    </span>
+                  }
+                  extra={
+                    <Button
+                      type="primary"
+                      loading={policySaving}
+                      disabled={!policy || policyLoading}
+                      onClick={() => void savePolicy()}
+                    >
+                      保存策略
+                    </Button>
+                  }
+                >
+                  {policyLoading && !policy ? (
+                    <Skeleton active paragraph={{ rows: 6 }} />
+                  ) : null}
+                  {!policyLoading && !policy ? (
+                    <EmptyState
+                      text="渠道策略加载失败，请检查网络后重试。"
+                      action={
+                        <Button onClick={() => void loadPolicy()}>
+                          重新加载
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                  {policy ? (
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <Space size={12}>
+                        <Switch
+                          checked={policy.allowCustom}
+                          onChange={(checked) =>
+                            setPolicy((prev) =>
+                              prev ? { ...prev, allowCustom: checked } : prev,
+                            )
+                          }
+                        />
+                        <span>允许用户新增自定义 OpenAI 兼容渠道</span>
+                      </Space>
+                      <Notice variant={policy.allowCustom ? "info" : "warn"}>
+                        {policy.allowCustom
+                          ? "关闭后用户不能再新增这类渠道，已存在的渠道仍可继续使用。"
+                          : "已关闭新增：用户侧「模型设置」会隐藏新增入口，后端也会拒绝新建；已存在的渠道继续可用。"}
+                      </Notice>
+                      <div>
+                        <div style={{ marginBottom: 8 }}>
+                          <span>算力渠道支持范围</span>
+                          <span className="text-12 muted" style={{ marginLeft: 8 }}>
+                            默认全部支持；取消勾选的渠道用户不能新增、也选不到
+                          </span>
+                        </div>
+                        <Space size={[16, 8]} wrap>
+                          {CONTENT_CHANNEL_PROVIDERS.map((provider) => (
+                            <Checkbox
+                              key={provider}
+                              checked={isProviderSupported(policy, provider)}
+                              onChange={(event) =>
+                                setPolicy((prev) => {
+                                  if (!prev) return prev;
+                                  const disabled = new Set(
+                                    prev.disabledProviders,
+                                  );
+                                  if (event.target.checked) {
+                                    disabled.delete(provider);
+                                  } else {
+                                    disabled.add(provider);
+                                  }
+                                  return {
+                                    ...prev,
+                                    disabledProviders: [
+                                      ...CONTENT_CHANNEL_PROVIDERS,
+                                    ].filter((item) => disabled.has(item)),
+                                  };
+                                })
+                              }
+                            >
+                              {CONTENT_CHANNEL_PROVIDER_LABELS[provider]}
+                            </Checkbox>
+                          ))}
+                        </Space>
+                        <div className="text-12 muted" style={{ marginTop: 8 }}>
+                          关闭 AIPDD 只停用它的「算力」（模型设置 / 模型广场）；
+                          其它功能（业务服务等）用同一把 AIPDD API Key 仍照常可用。
+                        </div>
+                      </div>
+                      <Table
+                        size="small"
+                        rowKey="preset"
+                        pagination={false}
+                        dataSource={CONTENT_CHANNEL_PRESETS.map((preset) => ({
+                          preset,
+                          type:
+                            policy.presetTypes[preset] ||
+                            CONTENT_PRESET_DEFAULT_MEDIA_TYPES[preset],
+                        }))}
+                        columns={[
+                          {
+                            title: "渠道预设",
+                            dataIndex: "preset",
+                            width: 260,
+                            render: (value: ContentChannelPreset) => (
+                              <Space size={6}>
+                                <span>
+                                  {CONTENT_CHANNEL_PRESET_LABELS[value]}
+                                </span>
+                                <span className="mono text-12 muted">
+                                  {value}
+                                </span>
+                              </Space>
+                            ),
+                          },
+                          {
+                            title: "兜底模型类型",
+                            dataIndex: "type",
+                            render: (
+                              value: ContentMediaType,
+                              row: { preset: ContentChannelPreset },
+                            ) => (
+                              <Select
+                                style={{ width: 220 }}
+                                value={value}
+                                options={MEDIA_TYPE_OPTIONS}
+                                onChange={(next: ContentMediaType) =>
+                                  setPolicy((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          presetTypes: {
+                                            ...prev.presetTypes,
+                                            [row.preset]: next,
+                                          },
+                                        }
+                                      : prev,
+                                  )
+                                }
+                              />
+                            ),
+                          },
+                        ]}
+                      />
+                      <div className="text-12 muted">
+                        兜底只在用户渠道的上游 /models
+                        没有声明模型类型时生效；选择「视觉理解」的模型会同时出现在文本与视觉理解两个槽位。
+                      </div>
+                    </div>
+                  ) : null}
+                </Panel>
+              ),
+            },
+            {
+              key: "platform",
+              label: "默认模型",
+              children: (
+                <Panel
+                  title="平台默认模型"
+                  titleExtra={
+                    <span className="text-12 muted">
+                      充值到账的用户，在「模型设置」里没有单独配置的能力会自动继承这里的模型
+                    </span>
+                  }
+                  extra={
+                    <Space>
+                      <Space size={6}>
+                        <Switch
+                          checked={platformDraft.enabled}
+                          loading={platformLoading}
+                          onChange={(checked) =>
+                            setPlatformDraft((prev) => ({
+                              ...prev,
+                              enabled: checked,
+                            }))
+                          }
+                        />
+                        <span className="text-12">
+                          {platformDraft.enabled ? "已开启" : "已关闭"}
+                        </span>
+                      </Space>
+                      <Button
+                        type="primary"
+                        loading={platformSaving}
+                        disabled={platformLoading || !platformDefaults}
+                        onClick={() => void savePlatformDefaults()}
+                      >
+                        保存设置
+                      </Button>
+                    </Space>
+                  }
+                >
+                  {platformLoading && !platformDefaults ? (
+                    <Skeleton active paragraph={{ rows: 6 }} />
+                  ) : null}
+                  {!platformLoading && !platformDefaults ? (
+                    <EmptyState
+                      text="平台默认模型加载失败，请检查网络后重试。"
+                      action={
+                        <Button onClick={() => void loadPlatformDefaults()}>
+                          重新加载
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                  {platformDefaults ? (
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <Notice variant={platformDraft.enabled ? "info" : "warn"}>
+                        {platformDraft.enabled
+                          ? "已开启继承：已支付充值单的用户调用未单独配置的能力时，按模型广场目录价从本人积分扣费。"
+                          : "未开启：没有单独配置模型的用户仍需自行在「模型设置」里接入渠道，无法使用平台默认模型。"}
+                      </Notice>
+                      <Table
+                        size="small"
+                        rowKey="capability"
+                        pagination={false}
+                        dataSource={platformDefaults.slots}
+                        columns={[
+                          {
+                            title: "能力",
+                            dataIndex: "label",
+                            width: 150,
+                            render: (value: string, row) => (
+                              <Space size={6}>
+                                <span>{value}</span>
+                                <span className="mono text-12 muted">
+                                  {row.capability}
+                                </span>
+                              </Space>
+                            ),
+                          },
+                          {
+                            title: "平台默认模型",
+                            render: (_: unknown, row) => (
+                              <Space size={8} wrap>
+                                <Select
+                                  style={{ width: 320 }}
+                                  allowClear
+                                  showSearch
+                                  optionFilterProp="label"
+                                  placeholder={
+                                    row.candidates.length
+                                      ? "选择该能力的默认模型"
+                                      : "目录里暂无该能力的可用模型"
+                                  }
+                                  value={platformDraft.models[row.capability]}
+                                  options={row.candidates.map((item) => ({
+                                    value: item.id,
+                                    label: `${item.displayName} · ${item.priceNote}`,
+                                    disabled: !item.available,
+                                    title: item.unavailableReason,
+                                  }))}
+                                  onChange={(value?: number) =>
+                                    setPlatformDraft((prev) => {
+                                      const models = { ...prev.models };
+                                      if (value) models[row.capability] = value;
+                                      else delete models[row.capability];
+                                      return { ...prev, models };
+                                    })
+                                  }
+                                />
+                                {row.catalogId > 0 ? (
+                                  row.available ? (
+                                    <Tag color="green">生效中</Tag>
+                                  ) : (
+                                    <Tag color="red">
+                                      {row.unavailableReason || "不可用"}
+                                    </Tag>
+                                  )
+                                ) : (
+                                  <Tag>未配置</Tag>
+                                )}
+                              </Space>
+                            ),
+                          },
+                          {
+                            title: "当前价格",
+                            dataIndex: "priceNote",
+                            width: 230,
+                            render: (value: string) => (
+                              <span className="text-12">{value || "—"}</span>
+                            ),
+                          },
+                        ]}
+                      />
+                      <div>
+                        <div
+                          className="text-12 muted"
+                          style={{ marginBottom: 8 }}
+                        >
+                          消费限额（单位：积分；填 0
+                          表示不限，只统计平台默认模型通道）
+                        </div>
+                        <Space size={24} wrap>
+                          {(
+                            [
+                              ["perCallPoints", "单次调用最多扣"],
+                              ["dailyPoints", "每日上限"],
+                              ["monthlyPoints", "每月上限"],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <Space key={key} size={8}>
+                              <span className="text-12">{label}</span>
+                              <InputNumber
+                                min={0}
+                                precision={0}
+                                style={{ width: 120 }}
+                                value={platformDraft.limits[key]}
+                                onChange={(value) =>
+                                  setPlatformDraft((prev) => ({
+                                    ...prev,
+                                    limits: {
+                                      ...prev.limits,
+                                      [key]: Number(value) || 0,
+                                    },
+                                  }))
+                                }
+                              />
+                            </Space>
+                          ))}
+                        </Space>
+                      </div>
+                      <div>
+                        <div
+                          className="text-12 muted"
+                          style={{ marginBottom: 8 }}
+                        >
+                          变更记录
+                        </div>
+                        {platformDefaults.history.length ? (
+                          <Table
+                            size="small"
+                            rowKey="at"
+                            pagination={false}
+                            dataSource={platformDefaults.history}
+                            columns={[
+                              {
+                                title: "时间",
+                                dataIndex: "at",
+                                width: 180,
+                                render: (value: string) =>
+                                  value
+                                    ? new Date(value).toLocaleString()
+                                    : "—",
+                              },
+                              { title: "操作人", dataIndex: "by", width: 180 },
+                              { title: "变更内容", dataIndex: "summary" },
+                            ]}
+                          />
+                        ) : (
+                          <div className="text-12 muted">还没有变更记录。</div>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </Panel>
+              ),
+            },
+            {
               key: "usage",
               label: "全平台用量",
               children: (
                 <Panel
                   title="调用台账"
-                  titleExtra={<span className="text-12 muted">站内试用与对外 API 同口径记录</span>}
+                  titleExtra={
+                    <span className="text-12 muted">
+                      站内试用与对外 API 同口径记录
+                    </span>
+                  }
                   extra={
                     <Space>
                       <Select
@@ -1040,43 +1605,72 @@ export function ModelPlazaAdminTab() {
       >
         <Space orientation="vertical" size={12} style={{ width: "100%" }}>
           <Notice variant="info">
-            保存前会先用 Key 拉一次上游 /models 做连通性校验；校验不通过不会入库。
+            保存前会先用 Key 拉一次上游 /models
+            做连通性校验；校验不通过不会入库。
           </Notice>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>渠道名称</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              渠道名称
+            </div>
             <Input
               value={upstreamDraft.name}
               maxLength={64}
               placeholder="例如：自建 OpenAI 兼容网关"
-              onChange={(event) => setUpstreamDraft((prev) => ({ ...prev, name: event.target.value }))}
+              onChange={(event) =>
+                setUpstreamDraft((prev) => ({
+                  ...prev,
+                  name: event.target.value,
+                }))
+              }
             />
           </div>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>渠道标识</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              渠道标识
+            </div>
             <Input
               value={upstreamDraft.provider}
               maxLength={24}
               placeholder="LocalAPI / OpenAI / 火山引擎 …"
-              onChange={(event) => setUpstreamDraft((prev) => ({ ...prev, provider: event.target.value }))}
+              onChange={(event) =>
+                setUpstreamDraft((prev) => ({
+                  ...prev,
+                  provider: event.target.value,
+                }))
+              }
             />
           </div>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>接口地址（不含 /v1）</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              接口地址（不含 /v1）
+            </div>
             <Input
               value={upstreamDraft.baseUrl}
               className="mono"
               placeholder="https://api.example.com/v1"
-              onChange={(event) => setUpstreamDraft((prev) => ({ ...prev, baseUrl: event.target.value }))}
+              onChange={(event) =>
+                setUpstreamDraft((prev) => ({
+                  ...prev,
+                  baseUrl: event.target.value,
+                }))
+              }
             />
           </div>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>协议</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              协议
+            </div>
             <Select
               style={{ width: "100%" }}
               value={upstreamDraft.protocol}
-              onChange={(value) => setUpstreamDraft((prev) => ({ ...prev, protocol: value }))}
+              onChange={(value) =>
+                setUpstreamDraft((prev) => ({ ...prev, protocol: value }))
+              }
               options={[
-                { value: "openai", label: "OpenAI 兼容（/chat/completions、/models）" },
+                {
+                  value: "openai",
+                  label: "OpenAI 兼容（/chat/completions、/models）",
+                },
                 { value: "anthropic", label: "Anthropic 原生（/messages）" },
               ]}
             />
@@ -1088,21 +1682,35 @@ export function ModelPlazaAdminTab() {
             <Input.Password
               value={upstreamDraft.apiKey}
               placeholder={upstreamDraft.id ? "已保存的 Key 不会回显" : "必填"}
-              onChange={(event) => setUpstreamDraft((prev) => ({ ...prev, apiKey: event.target.value }))}
+              onChange={(event) =>
+                setUpstreamDraft((prev) => ({
+                  ...prev,
+                  apiKey: event.target.value,
+                }))
+              }
             />
           </div>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>备注</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              备注
+            </div>
             <Input
               value={upstreamDraft.remark}
               maxLength={200}
-              onChange={(event) => setUpstreamDraft((prev) => ({ ...prev, remark: event.target.value }))}
+              onChange={(event) =>
+                setUpstreamDraft((prev) => ({
+                  ...prev,
+                  remark: event.target.value,
+                }))
+              }
             />
           </div>
           <Space>
             <Switch
               checked={upstreamDraft.enabled}
-              onChange={(value) => setUpstreamDraft((prev) => ({ ...prev, enabled: value }))}
+              onChange={(value) =>
+                setUpstreamDraft((prev) => ({ ...prev, enabled: value }))
+              }
             />
             <span>启用该渠道</span>
           </Space>
@@ -1122,12 +1730,16 @@ export function ModelPlazaAdminTab() {
         <Space orientation="vertical" size={12} style={{ width: "100%" }}>
           <div className="form-2col">
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>所属渠道</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                所属渠道
+              </div>
               <Select
                 style={{ width: "100%" }}
                 value={catalogDraft.upstreamId}
                 onChange={(value) => {
-                  const target = upstreamOptions.find((item) => item.id === value);
+                  const target = upstreamOptions.find(
+                    (item) => item.id === value,
+                  );
                   setCatalogDraft((prev) => ({
                     ...prev,
                     upstreamId: value,
@@ -1141,46 +1753,81 @@ export function ModelPlazaAdminTab() {
               />
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>渠道标识</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                渠道标识
+              </div>
               <Input
                 value={catalogDraft.provider}
                 maxLength={24}
-                onChange={(event) => setCatalogDraft((prev) => ({ ...prev, provider: event.target.value }))}
+                onChange={(event) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    provider: event.target.value,
+                  }))
+                }
               />
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>模型标识（对外 model）</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                模型标识（对外 model）
+              </div>
               <Input
                 value={catalogDraft.modelKey}
                 className="mono"
                 maxLength={128}
                 placeholder="ap-deepseek-v4-flash"
-                onChange={(event) => setCatalogDraft((prev) => ({ ...prev, modelKey: event.target.value }))}
+                onChange={(event) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    modelKey: event.target.value,
+                  }))
+                }
               />
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>上游模型标识（留空＝同上）</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                上游模型标识（留空＝同上）
+              </div>
               <Input
                 value={catalogDraft.upstreamModelKey}
                 className="mono"
                 maxLength={128}
-                onChange={(event) => setCatalogDraft((prev) => ({ ...prev, upstreamModelKey: event.target.value }))}
+                onChange={(event) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    upstreamModelKey: event.target.value,
+                  }))
+                }
               />
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>展示名称</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                展示名称
+              </div>
               <Input
                 value={catalogDraft.displayName}
                 maxLength={128}
-                onChange={(event) => setCatalogDraft((prev) => ({ ...prev, displayName: event.target.value }))}
+                onChange={(event) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    displayName: event.target.value,
+                  }))
+                }
               />
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>厂商</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                厂商
+              </div>
               <Input
                 value={catalogDraft.vendor}
                 maxLength={64}
-                onChange={(event) => setCatalogDraft((prev) => ({ ...prev, vendor: event.target.value }))}
+                onChange={(event) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    vendor: event.target.value,
+                  }))
+                }
               />
             </div>
             <div>
@@ -1190,7 +1837,9 @@ export function ModelPlazaAdminTab() {
               <Select
                 style={{ width: "100%" }}
                 value={catalogDraft.category}
-                onChange={(value) => setCatalogDraft((prev) => ({ ...prev, category: value }))}
+                onChange={(value) =>
+                  setCatalogDraft((prev) => ({ ...prev, category: value }))
+                }
                 options={CATEGORY_OPTIONS}
               />
             </div>
@@ -1205,7 +1854,10 @@ export function ModelPlazaAdminTab() {
                   setCatalogDraft((prev) => ({ ...prev, billingUnit: value }))
                 }
                 options={[
-                  { value: "token", label: "Token（每百万 tokens，入/出分别计价）" },
+                  {
+                    value: "token",
+                    label: "Token（每百万 tokens，入/出分别计价）",
+                  },
                   { value: "image", label: "按张（图像）" },
                   { value: "second", label: "按秒（视频 / 语音识别）" },
                   { value: "call", label: "按次（上游确实按次计费时）" },
@@ -1213,11 +1865,18 @@ export function ModelPlazaAdminTab() {
               />
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>排序（越大越靠前）</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                排序（越大越靠前）
+              </div>
               <InputNumber
                 style={{ width: "100%" }}
                 value={catalogDraft.sort}
-                onChange={(value) => setCatalogDraft((prev) => ({ ...prev, sort: Number(value ?? 0) }))}
+                onChange={(value) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    sort: Number(value ?? 0),
+                  }))
+                }
               />
             </div>
           </div>
@@ -1226,43 +1885,71 @@ export function ModelPlazaAdminTab() {
             {catalogDraft.billingUnit === "token" ? (
               <>
                 <div>
-                  <div className="text-12 muted" style={{ marginBottom: 4 }}>官方输入价（元 / 百万 tokens）</div>
+                  <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                    官方输入价（元 / 百万 tokens）
+                  </div>
                   <InputNumber
                     style={{ width: "100%" }}
                     min={0}
                     step={0.01}
                     value={catalogDraft.inputRmbPrice}
-                    onChange={(value) => setCatalogDraft((prev) => ({ ...prev, inputRmbPrice: Number(value ?? 0) }))}
+                    onChange={(value) =>
+                      setCatalogDraft((prev) => ({
+                        ...prev,
+                        inputRmbPrice: Number(value ?? 0),
+                      }))
+                    }
                   />
                 </div>
                 <div>
-                  <div className="text-12 muted" style={{ marginBottom: 4 }}>官方输出价（元 / 百万 tokens）</div>
+                  <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                    官方输出价（元 / 百万 tokens）
+                  </div>
                   <InputNumber
                     style={{ width: "100%" }}
                     min={0}
                     step={0.01}
                     value={catalogDraft.outputRmbPrice}
-                    onChange={(value) => setCatalogDraft((prev) => ({ ...prev, outputRmbPrice: Number(value ?? 0) }))}
+                    onChange={(value) =>
+                      setCatalogDraft((prev) => ({
+                        ...prev,
+                        outputRmbPrice: Number(value ?? 0),
+                      }))
+                    }
                   />
                 </div>
                 <div>
-                  <div className="text-12 muted" style={{ marginBottom: 4 }}>缓存读价（元 / 百万 tokens）</div>
+                  <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                    缓存读价（元 / 百万 tokens）
+                  </div>
                   <InputNumber
                     style={{ width: "100%" }}
                     min={0}
                     step={0.01}
                     value={catalogDraft.cacheReadRmbPrice}
-                    onChange={(value) => setCatalogDraft((prev) => ({ ...prev, cacheReadRmbPrice: Number(value ?? 0) }))}
+                    onChange={(value) =>
+                      setCatalogDraft((prev) => ({
+                        ...prev,
+                        cacheReadRmbPrice: Number(value ?? 0),
+                      }))
+                    }
                   />
                 </div>
                 <div>
-                  <div className="text-12 muted" style={{ marginBottom: 4 }}>缓存写价（元 / 百万 tokens）</div>
+                  <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                    缓存写价（元 / 百万 tokens）
+                  </div>
                   <InputNumber
                     style={{ width: "100%" }}
                     min={0}
                     step={0.01}
                     value={catalogDraft.cacheWriteRmbPrice}
-                    onChange={(value) => setCatalogDraft((prev) => ({ ...prev, cacheWriteRmbPrice: Number(value ?? 0) }))}
+                    onChange={(value) =>
+                      setCatalogDraft((prev) => ({
+                        ...prev,
+                        cacheWriteRmbPrice: Number(value ?? 0),
+                      }))
+                    }
                   />
                 </div>
               </>
@@ -1277,7 +1964,12 @@ export function ModelPlazaAdminTab() {
                     min={0}
                     step={0.001}
                     value={catalogDraft.callRmbPrice}
-                    onChange={(value) => setCatalogDraft((prev) => ({ ...prev, callRmbPrice: Number(value ?? 0) }))}
+                    onChange={(value) =>
+                      setCatalogDraft((prev) => ({
+                        ...prev,
+                        callRmbPrice: Number(value ?? 0),
+                      }))
+                    }
                   />
                 </div>
                 <div>
@@ -1289,7 +1981,12 @@ export function ModelPlazaAdminTab() {
                     min={0}
                     step={0.001}
                     value={catalogDraft.minimumRmb}
-                    onChange={(value) => setCatalogDraft((prev) => ({ ...prev, minimumRmb: Number(value ?? 0) }))}
+                    onChange={(value) =>
+                      setCatalogDraft((prev) => ({
+                        ...prev,
+                        minimumRmb: Number(value ?? 0),
+                      }))
+                    }
                   />
                 </div>
               </>
@@ -1304,7 +2001,12 @@ export function ModelPlazaAdminTab() {
                 max={1}
                 step={0.01}
                 value={catalogDraft.discountRate}
-                onChange={(value) => setCatalogDraft((prev) => ({ ...prev, discountRate: Number(value ?? 1) }))}
+                onChange={(value) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    discountRate: Number(value ?? 1),
+                  }))
+                }
               />
               <div className="text-12 muted" style={{ marginTop: 4 }}>
                 {catalogDraft.discountRate < 0.9999
@@ -1313,33 +2015,48 @@ export function ModelPlazaAdminTab() {
               </div>
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>上下文窗口（tokens）</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                上下文窗口（tokens）
+              </div>
               <InputNumber
                 style={{ width: "100%" }}
                 min={0}
                 value={catalogDraft.contextWindow}
-                onChange={(value) => setCatalogDraft((prev) => ({ ...prev, contextWindow: Number(value ?? 0) }))}
+                onChange={(value) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    contextWindow: Number(value ?? 0),
+                  }))
+                }
               />
             </div>
             <div>
-              <div className="text-12 muted" style={{ marginBottom: 4 }}>最大输出（tokens）</div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>
+                最大输出（tokens）
+              </div>
               <InputNumber
                 style={{ width: "100%" }}
                 min={0}
                 value={catalogDraft.maxOutputTokens}
-                onChange={(value) => setCatalogDraft((prev) => ({ ...prev, maxOutputTokens: Number(value ?? 0) }))}
+                onChange={(value) =>
+                  setCatalogDraft((prev) => ({
+                    ...prev,
+                    maxOutputTokens: Number(value ?? 0),
+                  }))
+                }
               />
             </div>
           </div>
 
           <Notice variant="info">
-            积分价 = 折后人民币价 × 系统汇率（当前 1 元 = {num(rate, 0)} 积分），由系统设置统一决定，
-            此处不提供积分覆写。
+            积分价 = 折后人民币价 × 系统汇率（当前 1 元 = {num(rate, 0)}{" "}
+            积分），由系统设置统一决定， 此处不提供积分覆写。
           </Notice>
 
           <div>
             <div className="text-12 muted" style={{ marginBottom: 4 }}>
-              规格分档价（图片按像素尺寸 / 清晰度，视频按分辨率；不填＝用上面的基础单价）
+              规格分档价（图片按像素尺寸 /
+              清晰度，视频按分辨率；不填＝用上面的基础单价）
             </div>
             <Space orientation="vertical" size={8} style={{ width: "100%" }}>
               {tierRows.map((row, index) => (
@@ -1349,7 +2066,9 @@ export function ModelPlazaAdminTab() {
                     value={row.key}
                     onChange={(value) =>
                       setTierRows((prev) =>
-                        prev.map((item, i) => (i === index ? { ...item, key: value } : item)),
+                        prev.map((item, i) =>
+                          i === index ? { ...item, key: value } : item,
+                        ),
                       )
                     }
                     options={TIER_DIMENSIONS.map((item) => ({
@@ -1362,12 +2081,15 @@ export function ModelPlazaAdminTab() {
                     className="mono"
                     value={row.value}
                     placeholder={
-                      TIER_DIMENSIONS.find((item) => item.value === row.key)?.placeholder
+                      TIER_DIMENSIONS.find((item) => item.value === row.key)
+                        ?.placeholder
                     }
                     onChange={(event) =>
                       setTierRows((prev) =>
                         prev.map((item, i) =>
-                          i === index ? { ...item, value: event.target.value } : item,
+                          i === index
+                            ? { ...item, value: event.target.value }
+                            : item,
                         ),
                       )
                     }
@@ -1381,7 +2103,9 @@ export function ModelPlazaAdminTab() {
                     onChange={(value) =>
                       setTierRows((prev) =>
                         prev.map((item, i) =>
-                          i === index ? { ...item, unitRmb: Number(value ?? 0) } : item,
+                          i === index
+                            ? { ...item, unitRmb: Number(value ?? 0) }
+                            : item,
                         ),
                       )
                     }
@@ -1390,7 +2114,9 @@ export function ModelPlazaAdminTab() {
                     size="small"
                     danger
                     icon={<DeleteOutlined aria-hidden />}
-                    onClick={() => setTierRows((prev) => prev.filter((_, i) => i !== index))}
+                    onClick={() =>
+                      setTierRows((prev) => prev.filter((_, i) => i !== index))
+                    }
                   />
                 </Space>
               ))}
@@ -1401,7 +2127,10 @@ export function ModelPlazaAdminTab() {
                   setTierRows((prev) => [
                     ...prev,
                     {
-                      key: catalogDraft.billingUnit === "second" ? "video_resolution" : "size",
+                      key:
+                        catalogDraft.billingUnit === "second"
+                          ? "video_resolution"
+                          : "size",
                       value: "",
                       unitRmb: catalogDraft.callRmbPrice,
                     },
@@ -1426,12 +2155,16 @@ export function ModelPlazaAdminTab() {
           </div>
 
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>可用端点</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              可用端点
+            </div>
             <Select
               mode="multiple"
               style={{ width: "100%" }}
               value={catalogDraft.endpoints}
-              onChange={(value) => setCatalogDraft((prev) => ({ ...prev, endpoints: value }))}
+              onChange={(value) =>
+                setCatalogDraft((prev) => ({ ...prev, endpoints: value }))
+              }
               options={ENDPOINT_OPTIONS.map((item) => ({
                 value: item,
                 label: `${ENDPOINT_LABEL[item]}（${item}）`,
@@ -1439,28 +2172,41 @@ export function ModelPlazaAdminTab() {
             />
           </div>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>标签</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              标签
+            </div>
             <Select
               mode="tags"
               style={{ width: "100%" }}
               value={catalogDraft.tags}
-              onChange={(value) => setCatalogDraft((prev) => ({ ...prev, tags: value }))}
+              onChange={(value) =>
+                setCatalogDraft((prev) => ({ ...prev, tags: value }))
+              }
               placeholder="输入后回车添加，例如：低延迟"
             />
           </div>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>说明</div>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              说明
+            </div>
             <Input.TextArea
               rows={2}
               maxLength={500}
               value={catalogDraft.description}
-              onChange={(event) => setCatalogDraft((prev) => ({ ...prev, description: event.target.value }))}
+              onChange={(event) =>
+                setCatalogDraft((prev) => ({
+                  ...prev,
+                  description: event.target.value,
+                }))
+              }
             />
           </div>
           <Space>
             <Switch
               checked={catalogDraft.enabled}
-              onChange={(value) => setCatalogDraft((prev) => ({ ...prev, enabled: value }))}
+              onChange={(value) =>
+                setCatalogDraft((prev) => ({ ...prev, enabled: value }))
+              }
             />
             <span>保存后立即上架</span>
           </Space>
@@ -1472,7 +2218,9 @@ export function ModelPlazaAdminTab() {
         title="从上游拉取模型"
         onCancel={() => setPullModal(false)}
         footer={[
-          <Button key="close" onClick={() => setPullModal(false)}>关闭</Button>,
+          <Button key="close" onClick={() => setPullModal(false)}>
+            关闭
+          </Button>,
           <Button key="pull" loading={pulling} onClick={() => void runPull()}>
             拉取差异
           </Button>,
@@ -1508,17 +2256,24 @@ export function ModelPlazaAdminTab() {
               style={{ width: 120 }}
               value={pullCategory}
               onChange={setPullCategory}
-              options={[{ value: "ALL", label: "全部分类" }, ...CATEGORY_OPTIONS]}
+              options={[
+                { value: "ALL", label: "全部分类" },
+                ...CATEGORY_OPTIONS,
+              ]}
             />
-            <Checkbox checked={pullEnabled} onChange={(event) => setPullEnabled(event.target.checked)}>
+            <Checkbox
+              checked={pullEnabled}
+              onChange={(event) => setPullEnabled(event.target.checked)}
+            >
               导入后立即上架
             </Checkbox>
           </Space>
           {pullResult ? (
             <>
               <Notice variant="info">
-                {pullResult.provider} · {pullResult.baseUrl}：新增 {pullResult.added.length}、
-                已存在 {pullResult.existing.length}、上游已移除 {pullResult.removed.length}
+                {pullResult.provider} · {pullResult.baseUrl}：新增{" "}
+                {pullResult.added.length}、 已存在 {pullResult.existing.length}
+                、上游已移除 {pullResult.removed.length}
               </Notice>
               {pullResult.added.length ? (
                 <Table
@@ -1526,7 +2281,8 @@ export function ModelPlazaAdminTab() {
                   rowKey="modelKey"
                   pagination={false}
                   dataSource={pullResult.added.filter(
-                    (item) => pullCategory === "ALL" || item.category === pullCategory,
+                    (item) =>
+                      pullCategory === "ALL" || item.category === pullCategory,
                   )}
                   scroll={{ y: 260 }}
                   columns={[
@@ -1537,7 +2293,10 @@ export function ModelPlazaAdminTab() {
                         <Checkbox
                           checked={Boolean(pullPicked[row.modelKey])}
                           onChange={(event) =>
-                            setPullPicked((prev) => ({ ...prev, [row.modelKey]: event.target.checked }))
+                            setPullPicked((prev) => ({
+                              ...prev,
+                              [row.modelKey]: event.target.checked,
+                            }))
                           }
                         />
                       ),
@@ -1549,7 +2308,9 @@ export function ModelPlazaAdminTab() {
                       dataIndex: "category",
                       width: 90,
                       render: (value: string) => (
-                        <Tag color={CATEGORY_COLOR[value]}>{CATEGORY_LABEL[value] || value}</Tag>
+                        <Tag color={CATEGORY_COLOR[value]}>
+                          {CATEGORY_LABEL[value] || value}
+                        </Tag>
                       ),
                     },
                     {
@@ -1565,7 +2326,9 @@ export function ModelPlazaAdminTab() {
                         row.billingUnit === "token"
                           ? `¥${num(row.inputRmbPrice)} / ¥${num(row.outputRmbPrice)} · 每百万 tokens`
                           : `¥${num(row.callRmbPrice)} ${UNIT_SUFFIX[row.billingUnit]}${
-                              row.minimumRmb > 0 ? `（最低 ¥${num(row.minimumRmb)}）` : ""
+                              row.minimumRmb > 0
+                                ? `（最低 ¥${num(row.minimumRmb)}）`
+                                : ""
                             }`,
                     },
                     {
@@ -1585,18 +2348,21 @@ export function ModelPlazaAdminTab() {
               )}
               {pullResult.existing.length ? (
                 <div className="text-12 muted">
-                  已存在：{pullResult.existing.map((item) => item.modelKey).join("、")}
+                  已存在：
+                  {pullResult.existing.map((item) => item.modelKey).join("、")}
                 </div>
               ) : null}
               {pullResult.removed.length ? (
                 <div className="text-12 muted">
-                  上游已不再提供（不会自动下架）：{pullResult.removed.map((item) => item.modelKey).join("、")}
+                  上游已不再提供（不会自动下架）：
+                  {pullResult.removed.map((item) => item.modelKey).join("、")}
                 </div>
               ) : null}
             </>
           ) : (
             <Notice variant="info">
-              正在按新增 / 已存在 / 已移除三桶比对上游模型；切换渠道会自动重新拉取，勾选后即可导入上架。
+              正在按新增 / 已存在 /
+              已移除三桶比对上游模型；切换渠道会自动重新拉取，勾选后即可导入上架。
             </Notice>
           )}
         </Space>

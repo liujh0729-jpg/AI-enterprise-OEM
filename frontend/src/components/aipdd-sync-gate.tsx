@@ -8,7 +8,7 @@ import { aipddKeyApi } from "@/api/aipdd-key";
 import { useBusinessQuery } from "@/query/business";
 
 /**
- * 「自动同步到 AIworkin」的勾选门控（供求广场与招聘共用一套口径）：
+ * 「自动同步到 AIworkin」的勾选门控（招聘发布等场景共用一套口径）：
  * - 已绑定 AIPDD APIKey：打开弹层即默认勾选；
  * - 未绑定：点勾选只弹绑定引导，勾选态不变（绑完回来重开弹层才会默认勾上）；
  * - choice 为 "unset" 表示用户还没表过态，按绑定状态取默认；true/false 是用户自己选过的。
@@ -51,7 +51,7 @@ export function useAipddSyncGate(options: { panelOpen: boolean; subject: string 
             content: (
               <span>
                 本地发布不需要 Key，{options.subject}照常进本站信息流。要同步到 AIworkin 获得更多关注，
-                请先到「开放集成 → <Link href="/developer/keys">API Key 管理</Link>」粘贴 sk- Key 绑定，回来这一项会默认勾选。
+                请先到「模型服务 → <Link href="/developer/keys">API Key 管理</Link>」粘贴 sk- Key 绑定，回来这一项会默认勾选。
               </span>
             ),
             okText: "去绑定",

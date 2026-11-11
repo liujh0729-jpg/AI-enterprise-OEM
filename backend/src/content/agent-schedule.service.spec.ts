@@ -4,6 +4,7 @@ import { ContentAgentScheduleService } from './agent-schedule.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdentityService } from '../identity/identity.service';
 import { UserLookupService } from '../directory/user-lookup.service';
+import { HrmScopeService } from '../hrm/hrm.scope';
 import { ContentAgentService } from './agent.service';
 import { ContentAgentExpertService } from './agent-experts.service';
 import { stub } from '../../test/doubles';
@@ -58,11 +59,15 @@ function build(account: unknown = { passwordHash: HASH, status: 'ACTIVE' }) {
   });
   const identity = stub<IdentityService>({ audit: jest.fn() });
   const experts = stub<ContentAgentExpertService>({ bindable: jest.fn() });
+  const scope = stub<HrmScopeService>({
+    isStanding: jest.fn(async () => true),
+  });
   return {
     service: new ContentAgentScheduleService(
       prisma,
       identity,
       stub<UserLookupService>(),
+      scope,
       stub<ContentAgentService>(),
       experts,
     ),
@@ -132,5 +137,55 @@ describe('ContentAgentScheduleService.save 的写动作开关', () => {
       body({ allowWrite: true, password: 'hunter2-hunter' }),
     );
     expect(create.mock.calls[0][0].data.allowWrite).toBe(true);
+  });
+});
+
+describe('定时执行前的在册复核', () => {
+  function buildDue(standing: boolean) {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = stub<PrismaService>({
+      contentAgentSchedule: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ ...stored, status: 'enabled' }]),
+        update,
+      },
+    });
+    const users = stub<UserLookupService>({
+      lookup: jest.fn().mockResolvedValue([{ id: '9200', username: 'tester' }]),
+    });
+    const service = new ContentAgentScheduleService(
+      prisma,
+      stub<IdentityService>({ audit: jest.fn() }),
+      users,
+      stub<HrmScopeService>({
+        isStanding: jest.fn().mockResolvedValue(standing),
+      }),
+      stub<ContentAgentService>({}),
+      stub<ContentAgentExpertService>({}),
+    );
+    const execute = jest.fn().mockResolvedValue(undefined);
+    Object.assign(service, { execute });
+    return { service, update, execute };
+  }
+
+  it('账号已停用：不执行，任务自动暂停并清空下次时间', async () => {
+    const { service, update, execute } = buildDue(false);
+    await service.advanceDue();
+    expect(execute).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({
+        status: 'paused',
+        scheduledAt: null,
+        lastStatus: 'skipped',
+      }),
+    });
+  });
+
+  it('账号在册：照常安排下一轮并执行', async () => {
+    const { service, execute } = buildDue(true);
+    await service.advanceDue();
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });

@@ -38,11 +38,14 @@ export class AccountModule {
   readonly channels: NotifyChannelService;
   readonly account: AccountService;
   readonly aipdd: AipddKeyService;
+  /** 解绑 Key 时同步作废 AIworkin 社交身份与待执行的同步任务。 */
+  readonly socialAiworkin: Services['socialSync']['aiworkin'];
   /** 微信回调地址要按站点域名拼，路由层借它读后台站点设置。 */
   readonly prisma: Services['prisma'];
 
   constructor(services: Services) {
     this.prisma = services.prisma;
+    this.socialAiworkin = services.socialSync.aiworkin;
     this.settings = new AccountSettingsService(services.prisma);
     this.channels = new NotifyChannelService(services.prisma, this.settings);
     this.account = new AccountService(
@@ -50,6 +53,7 @@ export class AccountModule {
       this.settings,
       this.channels,
       services.points.ledger,
+      services.gaps.terms,
     );
     this.aipdd = new AipddKeyService(services.prisma);
   }
@@ -139,6 +143,8 @@ type WechatState = {
   redirectUri: string;
   next: string;
   remember: boolean;
+  /** 扫码前在登录页勾选认可的协议（编码/版本），自动注册时强校验并留痕。 */
+  terms: { code: string; version: string }[];
   exp: number;
 };
 type WechatProfile = {
@@ -200,6 +206,7 @@ export function registerAccountRoutes(
         availability,
         loginMethods: login.loginMethods,
         loginAvailability: login.loginAvailability,
+        passwordRecovery: login.passwordRecovery,
         wechat: login.wechat,
         captchaRequired: false,
       }),
@@ -230,9 +237,19 @@ export function registerAccountRoutes(
         code: z.string().max(64).optional(),
         /** 选填：他人的 6 位邀请码（大小写不敏感），填错直接报错。 */
         inviteCode: z.string().max(32).optional(),
+        /** 勾选认可的协议：后端按当前生效版本强校验，缺项/过期一律拒绝注册。 */
+        terms: z
+          .array(
+            z.object({
+              code: z.string().min(1).max(32),
+              version: z.string().min(1).max(24),
+            }),
+          )
+          .max(10)
+          .optional(),
       })
       .parse(await c.req.json());
-    const account = await module.account.register(body);
+    const account = await module.account.register(body, loginContext(c));
     return c.json(ok(account, '注册成功'));
   });
 
@@ -309,6 +326,12 @@ export function registerAccountRoutes(
       redirectUri,
       next: safeNext(c.req.query('next')),
       remember: c.req.query('remember') === '1',
+      // 前端按「code@version,code@version」传，避免再开一组 query 参数
+      terms: (c.req.query('terms') || '')
+        .split(',')
+        .map((item) => item.split('@'))
+        .filter(([code, version]) => code && version)
+        .map(([code, version]) => ({ code, version })),
       exp: Date.now() + WECHAT_STATE_TTL_MS,
     });
     const query = new URLSearchParams({
@@ -357,6 +380,7 @@ export function registerAccountRoutes(
           avatarUrl: profile.avatarUrl,
         },
         loginContext(c),
+        entry.terms,
       );
       if (result.status === 'LOGIN') {
         setSessionCookie(c, result.session, entry.remember);
@@ -465,6 +489,19 @@ export function registerAccountRoutes(
     );
     return c.json(ok({ reset: true }, '密码已重置，请用新密码登录'));
   });
+
+  // 邮件一次性链接：令牌换目标后重置，成功后旧会话全部失效（不自动登录）
+  app.post('/api/auth/local/reset-by-token', async (c) => {
+    rateLimit(clientIp(c));
+    const body = z
+      .object({
+        token: z.string().min(16).max(128),
+        password: z.string().min(1).max(128),
+      })
+      .parse(await c.req.json());
+    await module.account.resetPasswordByToken(body.token, body.password);
+    return c.json(ok({ reset: true }, '密码已重置，请用新密码登录'));
+  });
 }
 
 /** 写 Cookie 前自验一次签名，避免签发异常令牌落到浏览器。 */
@@ -493,6 +530,28 @@ export function registerAccountBusinessRoutes(
   /** 统一信封应答：与全站 {code,message,data} 口径一致。 */
   const json = (c: Context<ApiEnv>, data: unknown, message = 'ok') =>
     c.json(ok(data, message));
+  /** 改密/设密后换发当前设备 Cookie：其余旧会话由 tokenVersion 顶替失效。 */
+  const refreshSession = (
+    c: Context<ApiEnv>,
+    session: {
+      userId: string;
+      username: string;
+      role: string;
+      tokenVersion: number;
+    },
+  ) => {
+    const keepTtl = tokenRemainingSeconds(
+      getCookie(c, ACCESS_COOKIE) || c.req.header('authorization'),
+    );
+    const token = issueSsoSession(
+      session.userId,
+      session.username,
+      session.role,
+      session.tokenVersion,
+      keepTtl > 0 ? keepTtl : undefined,
+    );
+    setCookie(c, ACCESS_COOKIE, token, cookieOptions());
+  };
 
   app.get('/enterprise/account/profile', async (c) =>
     json(c, await module.account.me(userOf(c))),
@@ -520,20 +579,43 @@ export function registerAccountBusinessRoutes(
       body.oldPassword,
       body.newPassword,
     );
-    // 换发新会话 Cookie：当前设备保持登录，其他设备旧会话被 tokenVersion 顶替失效。
-    // 时长沿用当前令牌剩余寿命：30 天免登录会话改密后不被降级回默认时长。
-    const keepTtl = tokenRemainingSeconds(
-      getCookie(c, ACCESS_COOKIE) || c.req.header('authorization'),
-    );
-    const token = issueSsoSession(
-      result.session.userId,
-      result.session.username,
-      result.session.role,
-      result.session.tokenVersion,
-      keepTtl > 0 ? keepTtl : undefined,
-    );
-    setCookie(c, ACCESS_COOKIE, token, cookieOptions());
+    // 当前设备保持登录，其他设备旧会话被 tokenVersion 顶替失效。
+    refreshSession(c, result.session);
     return json(c, { changed: result.changed });
+  });
+
+  // 账号安全视图：绑定情况（脱敏）+ 可用的验证码设密通道
+  app.get('/enterprise/account/security', async (c) =>
+    json(c, await module.account.securityView(userOf(c))),
+  );
+
+  // 已登录验证码设密：独立 SET_PASSWORD 场景，只能发到当前账号已绑定目标
+  app.post('/enterprise/account/password/code', async (c) => {
+    const body = z
+      .object({ channel: z.enum(['EMAIL', 'SMS']) })
+      .parse(await c.req.json());
+    return json(
+      c,
+      await module.account.sendSetPasswordCode(userOf(c), body.channel),
+      '验证码已发送',
+    );
+  });
+  app.post('/enterprise/account/password/set-by-code', async (c) => {
+    const body = z
+      .object({
+        channel: z.enum(['EMAIL', 'SMS']),
+        code: z.string().min(4).max(128),
+        newPassword: z.string().min(1).max(128),
+      })
+      .parse(await c.req.json());
+    const result = await module.account.setPasswordByCode(
+      userOf(c),
+      body.channel,
+      body.code,
+      body.newPassword,
+    );
+    refreshSession(c, result.session);
+    return json(c, { changed: result.changed }, '密码已设置');
   });
 
   app.get('/enterprise/account/login-logs', async (c) =>
@@ -600,9 +682,11 @@ export function registerAccountBusinessRoutes(
       '绑定成功',
     );
   });
-  app.delete('/enterprise/account/aipdd-key', async (c) =>
-    json(c, await module.aipdd.unbind(userOf(c).userId), '已解绑'),
-  );
+  app.delete('/enterprise/account/aipdd-key', async (c) => {
+    const result = await module.aipdd.unbind(userOf(c).userId);
+    await module.socialAiworkin.revokeIdentity(userOf(c).userId);
+    return json(c, result, '已解绑');
+  });
 
   // ---------- 平台管理员 ----------
   app.get('/enterprise/admin/account/settings', async (c) => {

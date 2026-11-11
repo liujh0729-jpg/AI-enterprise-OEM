@@ -8,7 +8,14 @@
   overflow-y: auto;
   background: #f7f9fc;
   color: #1f2937;
-  font-family: AlibabaSans, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family:
+    AlibabaSans,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
 }
 
 .page::before,
@@ -26,7 +33,10 @@
   height: 640px;
   top: -360px;
   right: -210px;
-  box-shadow: 0 0 0 68px #f3f7fc, 0 0 0 69px #eaf0f9, 0 0 0 138px #f5f8fc;
+  box-shadow:
+    0 0 0 68px #f3f7fc,
+    0 0 0 69px #eaf0f9,
+    0 0 0 138px #f5f8fc;
 }
 
 .page::after {
@@ -34,7 +44,9 @@
   height: 460px;
   top: 430px;
   left: -330px;
-  box-shadow: 0 0 0 54px #f3f7fc, 0 0 0 55px #eaf0f9;
+  box-shadow:
+    0 0 0 54px #f3f7fc,
+    0 0 0 55px #eaf0f9;
 }
 
 .skipLink {
@@ -168,6 +180,20 @@
   font-size: 14px;
 }
 
+.rememberRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forgotLink {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #2563eb;
+  white-space: nowrap;
+}
+
 .formNote {
   display: flex;
   align-items: center;
@@ -274,7 +300,9 @@
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  transition: border-color 160ms ease, background-color 160ms ease;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
 }
 
 .account:hover {

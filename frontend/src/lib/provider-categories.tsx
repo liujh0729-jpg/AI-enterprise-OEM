@@ -327,7 +327,7 @@ export const SUBITEM_LABELS: Record<string, string> = {
 
 /**
  * 业务板块 → 所需服务类目（**备案审核通过即「开通」**；MICRO＝小微服务商，可做物流 / 供销）。
- * 侧栏菜单与高管驾驶舱「我的待办」卡片同源，避免两处口径漂移。
+ * 侧栏菜单与驾驶舱「我的待办」卡片同源，避免两处口径漂移。
  * 出海 / 营销 / 物流 / IT服务 / 资产的职员按细项挂靠，故这些板块同时列「备案类目 ∪ 细项」。
  */
 export const DOMAIN_TYPES: Record<string, string[]> = {

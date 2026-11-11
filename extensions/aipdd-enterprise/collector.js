@@ -433,6 +433,123 @@
     return urls;
   }
 
+  // ---------- 公开联系方式补抓（D7=B）----------
+  // 只在达人主页「已公开可见」的区域抽取邮箱/微信/电话/官网：节点必须可见（visible），
+  // 每条结果带可见性标注（PROFILE_PUBLIC=资料区命中节点；BIO_PUBLIC=公开简介文本命中）。
+  // 不读 Cookie、不点展开、不抓隐藏字段；抓不到就如实留空，绝不猜。
+
+  /** 资料区选择器：命中这些区域的联系方式算「主页公开资料」，可信度高于简介文本。 */
+  const PROFILE_PUBLIC_NODES = [
+    "[class*='profile']",
+    "[class*='Profile']",
+    "[class*='desc']",
+    "[class*='Desc']",
+    "[class*='bio']",
+    "[class*='Bio']",
+    "[class*='intro']",
+    "[class*='Intro']",
+    "[class*='signature']",
+    "[class*='Signature']",
+    "[class*='contact']",
+    "[class*='Contact']",
+  ];
+  const CONTACT_SCAN_MAX_NODES = 4000;
+  const CONTACT_VALUE_MAX = 200;
+  const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/;
+  const PHONE_RE = /(?:\+?86[-\s]?)?1[3-9]\d{9}/;
+  // 「微信/微 信/vx/wechat/威信」后接分隔符与账号名；账号名限定常见字符，避免误吃整句。
+  const WECHAT_RE =
+    /(?:微信|微\s*信|威信|vx|VX|Vx|wechat|WeChat|WECHAT)\s*[:：\-—]?\s*([A-Za-z0-9_-]{5,20})/;
+  const NON_HOMEPAGE_HOST = /(?:xiaohongshu|douyin|zhihu|weibo|bilibili|kuaishou|weixin|qq|toutiao)\./i;
+
+  /** 只扫「短文本 + 可见」的节点：整页文本会把导航/脚注里的噪声也当成联系方式。 */
+  function contactNodes() {
+    const nodes = document.querySelectorAll("div,span,p,li,a,section,header");
+    const out = [];
+    for (let index = 0; index < nodes.length && index < CONTACT_SCAN_MAX_NODES; index += 1) {
+      const node = nodes[index];
+      const own = String(node.textContent || "").trim();
+      if (!own || own.length > 400) continue;
+      if (!visible(node)) continue;
+      out.push(node);
+    }
+    return out;
+  }
+
+  function publicRegion(node) {
+    for (const selector of PROFILE_PUBLIC_NODES) {
+      try {
+        if (node.matches?.(selector)) return true;
+      } catch (_) {
+        // 非法选择器字符，跳过继续
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 从页面可见区域抽取公开联系方式；同名同类只留第一条，按 field 去重。
+   * 命中「资料区节点」标 PROFILE_PUBLIC，仅命中简介文本标 BIO_PUBLIC。
+   */
+  function extractContacts(rule) {
+    const found = new Map();
+    const push = (field, value, visibility) => {
+      const clean = String(value || "").trim().slice(0, CONTACT_VALUE_MAX);
+      if (!clean || found.has(field)) return;
+      found.set(field, { field, value: clean, visibility });
+    };
+    const nodes = contactNodes();
+    for (const node of nodes) {
+      const text = String(node.textContent || "").trim();
+      const visibility = publicRegion(node) ? "PROFILE_PUBLIC" : "BIO_PUBLIC";
+      const email = text.match(EMAIL_RE);
+      if (email && !found.has("email")) push("email", email[0], visibility);
+      const wechat = text.match(WECHAT_RE);
+      if (wechat && !found.has("wechat")) push("wechat", wechat[1], visibility);
+      const phone = text.match(PHONE_RE);
+      if (phone && !found.has("phone")) push("phone", phone[0].replace(/[\s-]/g, ""), visibility);
+      if (!found.has("homepage")) {
+        const link = node.matches?.("a[href]") ? node : node.querySelector?.("a[href]");
+        const href = link ? abs(link.getAttribute("href")) : "";
+        // 只认外链型个人官网；平台自身站点链接不是「联系方式」。
+        if (href && !NON_HOMEPAGE_HOST.test(new URL(href).hostname)) {
+          push("homepage", href, visibility);
+        }
+      }
+    }
+    return [...found.values()];
+  }
+
+  /** 主页（账号页）补抓：内容链接 + 公开联系方式，联系方式随一条 PROFILE 证据回传。 */
+  function extractProfile(rule, platform) {
+    const contacts = extractContacts(rule);
+    if (!contacts.length) return null;
+    const author = authorOf(document, rule, "post");
+    const bioNode = first(document, [
+      "[class*='desc']",
+      "[class*='bio']",
+      "[class*='signature']",
+      "[class*='intro']",
+      ".user-desc",
+      ".profile-desc",
+    ]);
+    const excerpt = (textOf(bioNode) || textOf(document.querySelector("main, #app, body"))).slice(
+      0,
+      EXCERPT_MAX,
+    );
+    return {
+      platform,
+      platformUserId: author.platformUserId,
+      nickname: author.nickname,
+      profileUrl: location.href.split("#")[0].slice(0, 500),
+      sourceType: "PROFILE",
+      url: location.href.split("#")[0].slice(0, 500),
+      excerpt,
+      metrics: {},
+      contacts,
+    };
+  }
+
   // ---------- 滚动加载 ----------
 
   /** 评论区往往在自己的滚动容器里（小红书/抖音），只滚 window 加载不出更多。 */
@@ -494,10 +611,12 @@
 
     if (kind === "account") {
       const nextUrls = extractAccountLinks(rule);
-      if (!nextUrls.length) {
-        return { items: [], nextUrls: [], stopReason: loginPrompt() ? "NEED_LOGIN" : "PAGE_CHANGED", error: "账号页没有解析到内容链接，可能未登录或页面结构已变化" };
+      const profile = extractProfile(rule, platform);
+      const items = profile && profile.platformUserId ? [profile] : [];
+      if (!nextUrls.length && !items.length) {
+        return { items: [], nextUrls: [], stopReason: loginPrompt() ? "NEED_LOGIN" : "PAGE_CHANGED", error: "账号页没有解析到内容链接或公开联系方式，可能未登录或页面结构已变化" };
       }
-      return { items: [], nextUrls, stopReason: "", error: "" };
+      return { items, nextUrls, stopReason: "", error: "" };
     }
 
     if (kind === "content") {

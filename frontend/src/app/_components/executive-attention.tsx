@@ -13,7 +13,7 @@ export type AttentionItem = {
 };
 
 /**
- * 高管驾驶舱「待我处理」：只给待回复 / 待确认 / 待审批的件数和入口，
+ * 驾驶舱「待我处理」：只给待回复 / 待确认 / 待审批的件数和入口，
  * 具体内容在对应模块处理（客服会话、CRM 审批、职员绑定、平台审核）。
  */
 export function ExecutiveAttention({

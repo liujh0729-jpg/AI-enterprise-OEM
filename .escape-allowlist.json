@@ -2,7 +2,7 @@
   "entries": [
     {
       "file": "backend/src/http/automation-routes.ts",
-      "line": 67,
+      "line": 68,
       "pattern": "asUnknownAs",
       "reason": "动态端点注册：endpoints 由契约聚合成运行时注册表，这里集中重建一次索引签名。"
     },

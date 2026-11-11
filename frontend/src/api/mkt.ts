@@ -10,6 +10,8 @@ export const mktApi = {
   runs: endpoint(endpoints.Mkt_listRuns),
   artifacts: endpoint(endpoints.Mkt_listArtifacts),
   saveArtifact: endpoint(endpoints.Mkt_saveArtifact),
+  reviewArtifact: endpoint(endpoints.Mkt_reviewArtifact),
+  publishArtifact: endpoint(endpoints.Mkt_publishArtifact),
 
   context: endpoint(endpoints.Mkt_readContext),
   saveContext: endpoint(endpoints.Mkt_updateContext),

@@ -9,7 +9,9 @@ import {
   FolderOpenOutlined,
 } from "@ant-design/icons";
 import { App, Button, Space, Steps, Table } from "antd";
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import { ApiError } from "@enterprise/contracts";
 import {
   ContactEditModal,
   type ContactEditTarget,
@@ -106,13 +108,28 @@ export function BoardTab({
     pack?.counts?.bank,
   ].filter(Boolean).length;
 
-  if (boardQuery.isError)
+  if (boardQuery.isError) {
+    // 后端守卫：账号名下没有已认证企业时回 403「请先完善企业信息」，
+    // 这不是可重试的故障，引导用户去「身份与资质」补材料而不是给「重试」。
+    const needsEnterprise =
+      boardQuery.error instanceof ApiError &&
+      boardQuery.error.status === 403 &&
+      boardQuery.error.message.includes("完善企业信息");
+    if (needsEnterprise)
+      return (
+        <Notice variant="warn">
+          报税工作台需以「企业」或「个体工商户」主体办理：请先到「
+          <Link href="/identity">身份与资质</Link>
+          」完善企业信息并完成认证，认证通过后即可录入材料、提交报税。
+        </Notice>
+      );
     return (
       <Notice variant="error">
         {boardQuery.error.message}{" "}
         <Button onClick={() => void load()}>重试</Button>
       </Notice>
     );
+  }
   return (
     <>
       <Panel

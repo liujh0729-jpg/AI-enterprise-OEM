@@ -25,6 +25,7 @@ import {
   type UsageEventRow,
 } from "@/api/points";
 import { billingRuleApi, type BillingRule } from "@/api/governance";
+import { CardSpecPane } from "./card-spec-pane";
 import { GapsPromoPanel } from "@/app/points/_components/gaps-promo";
 import {
   AI_MODULE_LABELS,
@@ -53,6 +54,7 @@ const TX_TYPE_LABEL: Record<string, string> = {
   SPEND: "消费",
   TRANSFER_IN: "收到赠送",
   TRANSFER_OUT: "赠送转出",
+  REFUND: "退款",
   ADMIN_ADJUST: "管理员调整",
 };
 
@@ -96,6 +98,7 @@ export function PointsTab() {
         { key: "billing", label: "用量计费", children: <BillingRulesPane /> },
         { key: "accounts", label: "账户与调整", children: <AccountsPane /> },
         { key: "orders", label: "充值订单", children: <OrdersPane /> },
+        { key: "cardSpec", label: "时长卡规格", children: <CardSpecPane /> },
         { key: "redeem", label: "兑换码", children: <GapsPromoPanel /> },
       ]}
     />
@@ -131,7 +134,6 @@ function SettingsPane() {
       transferDailyPoints: data.transferDailyPoints,
       transferFeePercent: data.transferFeePercent,
       arrearsGraceDays: data.arrearsGraceDays,
-      spendDailyCap: data.spendDailyCap,
     });
     setTiers(data.rechargeTiers.map((t) => ({ yuan: t.cents / 100, bonusPercent: t.bonusPercent })));
   }, [data, form]);
@@ -167,7 +169,6 @@ function SettingsPane() {
         transfer_daily_points: Number(values.transferDailyPoints),
         transfer_fee_percent: Number(values.transferFeePercent),
         arrears_grace_days: Number(values.arrearsGraceDays),
-        spend_daily_cap: Number(values.spendDailyCap),
       });
       message.success("积分与计费设置已保存，即时生效");
       await reload();
@@ -188,7 +189,7 @@ function SettingsPane() {
       >
         <Notice variant="info">
           <WalletOutlined aria-hidden /> 这里配置的是「赚分、花分」的全部数量口径：汇率、充值档位赠送、
-          注册/邀请奖励、赠送限额与风控（欠费宽限、单日消费熔断）。
+          注册/邀请奖励、赠送限额与风控（欠费宽限）。
         </Notice>
         <Form
           form={form}
@@ -292,9 +293,6 @@ function SettingsPane() {
             </Form.Item>
             <Form.Item name="arrearsGraceDays" label="欠费宽限天数" extra="宽限内资产只读不可新增，永不删除数据">
               <InputNumber min={0} max={90} step={1} style={{ width: "100%" }} />
-            </Form.Item>
-            <Form.Item name="spendDailyCap" label="单账号单日消费熔断（积分）" extra="0 = 不限">
-              <InputNumber min={0} step={100} style={{ width: "100%" }} />
             </Form.Item>
           </div>
 

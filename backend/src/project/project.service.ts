@@ -64,6 +64,10 @@ export class ProjectService extends ProjectBase {
     return this.projects.saveProject(user, body);
   }
 
+  async createFromContract(user: CurrentUser, body: Row) {
+    return this.projects.createFromContract(user, body);
+  }
+
   async removeProject(user: CurrentUser, body: Row) {
     return this.projects.removeProject(user, body);
   }

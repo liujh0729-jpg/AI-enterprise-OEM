@@ -6,6 +6,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
 import { mailApi } from "@/api/mail";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import Link from "next/link";
 import { fmtTime } from "@/lib/datetime";
 
 /**
@@ -91,7 +92,10 @@ export function MailDraftsTab({ accounts }: { accounts: MailAccount[] }) {
     >
       {error ? <Notice variant="error">{error}</Notice> : null}
       {!accounts.length ? (
-        <EmptyState text="还没有邮箱：先到「邮箱账号」页签添加一个" />
+        <EmptyState
+          text="还没有邮箱：先到「邮箱账号」页签添加一个"
+          action={<Link href="/mail?tab=accounts">去添加邮箱</Link>}
+        />
       ) : !accountId ? (
         <EmptyState text="先选一个邮箱查看它的草稿箱" />
       ) : account?.protocol === "pop3" ? (

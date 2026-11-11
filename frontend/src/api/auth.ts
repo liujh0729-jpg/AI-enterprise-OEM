@@ -18,11 +18,20 @@ export type RegisterMode = z.infer<typeof registerModeSchema>;
 export type LoginMethod = z.infer<typeof loginMethodSchema>;
 export type CodeChannel = z.infer<typeof codeChannelSchema>;
 
+export interface PasswordRecovery {
+  /** 至少一种验证码通道可用于找回密码。 */
+  enabled: boolean;
+  PASSWORD: boolean;
+  EMAIL: boolean;
+  SMS: boolean;
+}
+
 export interface AccountConfig {
   registerModes: RegisterMode[];
   availability: Record<RegisterMode, boolean>;
   loginMethods: LoginMethod[];
   loginAvailability: Record<LoginMethod, boolean>;
+  passwordRecovery: PasswordRecovery;
   wechat: { enabled: boolean };
   captchaRequired: boolean;
 }
@@ -41,6 +50,8 @@ export interface RegisterInput {
   phone?: string;
   code?: string;
   inviteCode?: string;
+  /** 勾选认可的协议编码与版本（后端按当前生效版本强校验并写入接受留痕）。 */
+  terms?: { code: string; version: string }[];
 }
 
 export interface WechatBindInput {
@@ -80,6 +91,12 @@ const accountConfig = apiEnvelope(
       SMS_CODE: z.boolean(),
       WECHAT: z.boolean(),
     }),
+    passwordRecovery: z.object({
+      enabled: z.boolean(),
+      PASSWORD: z.boolean(),
+      EMAIL: z.boolean(),
+      SMS: z.boolean(),
+    }),
     wechat: z.object({ enabled: z.boolean() }),
     captchaRequired: z.boolean(),
   }),
@@ -91,7 +108,8 @@ const wechatAuthorize = apiEnvelope(
 export const authApi = {
   /** 登录页配置：开启的注册方式 / 登录方式 + 各渠道可用性（微信只回开没开）。 */
   async accountConfig() {
-    const value = (await http("/api/auth/account-config", accountConfig)).data.data;
+    const value = (await http("/api/auth/account-config", accountConfig)).data
+      .data;
     if (!value) throw new Error("登录配置未返回");
     return value;
   },
@@ -140,10 +158,20 @@ export const authApi = {
     });
   },
   /** 微信扫码授权地址（一次性 state）；扫码结果由后端回调后 302 回登录页。 */
-  async wechatAuthorize(next: string, remember: boolean) {
+  async wechatAuthorize(
+    next: string,
+    remember: boolean,
+    consents: { code: string; version: string }[] = [],
+  ) {
     const value = (
       await http("/api/auth/local/wechat/authorize", wechatAuthorize, {
-        query: { next, remember: remember ? "1" : "0" },
+        query: {
+          next,
+          remember: remember ? "1" : "0",
+          ...(consents.length
+            ? { terms: consents.map((item) => `${item.code}@${item.version}`).join(",") }
+            : {}),
+        },
       })
     ).data.data;
     if (!value) throw new Error("微信授权地址未返回");
@@ -161,6 +189,37 @@ export const authApi = {
         ...(input.code ? { code: input.code.trim() } : {}),
         remember: input.remember === true,
       },
+    });
+  },
+  /** 未登录找回密码：发送验证码（账号不存在也返回已发送，不泄露注册信息）。 */
+  async forgotPassword(channel: CodeChannel, target: string) {
+    await http("/api/auth/local/forgot", result, {
+      method: "POST",
+      body: { channel, target: target.trim() },
+    });
+  },
+  /** 未登录找回密码：校验验证码并重置，成功后不自动登录。 */
+  async resetPassword(input: {
+    channel: CodeChannel;
+    target: string;
+    code: string;
+    password: string;
+  }) {
+    await http("/api/auth/local/reset", result, {
+      method: "POST",
+      body: {
+        channel: input.channel,
+        target: input.target.trim(),
+        code: input.code.trim(),
+        password: input.password,
+      },
+    });
+  },
+  /** 邮件一次性链接：令牌换目标后重置。 */
+  async resetPasswordByToken(token: string, password: string) {
+    await http("/api/auth/local/reset-by-token", result, {
+      method: "POST",
+      body: { token: token.trim(), password },
     });
   },
   async verifyPassword(password: string) {

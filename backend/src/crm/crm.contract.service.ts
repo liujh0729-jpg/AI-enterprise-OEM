@@ -55,6 +55,8 @@ export class CrmContractService {
           actorId: ctx.actorId,
           isOwner: ctx.isOwner,
           isAdmin: ctx.isAdmin,
+          roles: [],
+          positions: [],
           department: ctx.department,
         },
         event,

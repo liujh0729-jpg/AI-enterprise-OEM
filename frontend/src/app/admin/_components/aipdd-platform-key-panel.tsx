@@ -63,7 +63,7 @@ export function AipddPlatformKeyPanel() {
     >
       <Notice variant="info">
         平台统一 Key，用于加载省市字典、平台字典项等基础数据（参照数据与用户身份无关）。
-        用户发布需求、同步上游、查看建联资源等动作仍使用各自在「开放集成 → API Key 管理」
+        用户发布需求、同步上游、查看建联资源等动作仍使用各自在「模型服务 → API Key 管理」
         绑定的 Key，不受此处影响。Key 加密保存、只回显掩码；更换需重新填写。
       </Notice>
       {loading ? (

@@ -28,6 +28,7 @@ import {
 } from "@/components/contact-edit-modal";
 import { StatusBadge } from "@/components/status-badge";
 import { ColumnSwitch, EmptyState, Notice, Panel } from "@/components/ui/panel";
+import Link from "next/link";
 import { useFlexPayrolls, useFlexPayrollStats } from "@/query/workspaces";
 
 import { canWorkOn } from "@/lib/can-work-on";
@@ -262,7 +263,10 @@ export function PayrollTab({
               onClick={() => {
                 if (!usableContracts.length) {
                   message.warning(
-                    "暂无生效签约，请先在「代理人资源库」选择该代理人合作并待代理人确认",
+                    <>
+                      暂无生效签约，请先在「代理人资源库」选择该代理人合作并待代理人确认{" "}
+                      <Link href="/flex?tab=agents">立即去签约</Link>
+                    </>,
                   );
                   return;
                 }
@@ -274,6 +278,12 @@ export function PayrollTab({
           ) : null
         }
       >
+        {isEnterprise && sub === "all" && !usableContracts.length ? (
+          <Notice variant="warn">
+            新建发薪前需先与代理人在「代理人资源库」完成签约。{" "}
+            <Link href="/flex?tab=agents">立即去签约</Link>
+          </Notice>
+        ) : null}
         {subOptions.length > 1 ? (
           <ColumnSwitch
             value={sub}

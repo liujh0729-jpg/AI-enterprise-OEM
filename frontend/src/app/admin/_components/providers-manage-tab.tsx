@@ -325,7 +325,7 @@ export function ProvidersManageTab() {
         footer={null}
       >
         <p className="text-12 muted" style={{ marginTop: 0 }}>
-          {`一个服务商可同时开通多项服务类目（当前已备案 ${approvedCount} 项）。停用仅拦截对应类目的新建业务，存量业务不受影响；「未开通」类目由服务商在高管驾驶舱提交备案申请，审核通过后开通。`}
+          {`一个服务商可同时开通多项服务类目（当前已备案 ${approvedCount} 项）。停用仅拦截对应类目的新建业务，存量业务不受影响；「未开通」类目由服务商在驾驶舱提交备案申请，审核通过后开通。`}
         </p>
         <div className="text-12" style={{ fontWeight: 600, marginBottom: 6 }}>
           服务商类型

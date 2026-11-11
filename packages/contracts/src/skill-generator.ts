@@ -83,7 +83,7 @@ export const generatedSkillSchema = z
   .passthrough();
 export type GeneratedSkill = z.infer<typeof generatedSkillSchema>;
 
-/** 开放集成 → Skill 页签：平台管理员生成并已入库的技能包摘要（不含 zip 字节）。 */
+/** 模型服务 → API-MCP-Skill → Skill 页签：平台管理员生成并已入库的技能包摘要（不含 zip 字节）。 */
 export const generatedSkillSummarySchema = z
   .object({
     id: z.number(),

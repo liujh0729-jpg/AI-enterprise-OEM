@@ -13,7 +13,7 @@ export const IDENTITY_LABELS: Record<string, string> = {
   PLATFORM_ADMIN: "平台管理员",
 };
 
-/** 顶栏、高管驾驶舱及身份资料页共用同一名称，个人主体不显示为企业用户。 */
+/** 顶栏、驾驶舱及身份资料页共用同一名称，个人主体不显示为企业用户。 */
 export function identityLabel(identity?: string, subjectType?: unknown): string {
   if (identity === "ENTERPRISE_USER") {
     return `${subjectLabel(subjectType)}用户`;

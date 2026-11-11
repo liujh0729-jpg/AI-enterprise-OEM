@@ -26,7 +26,7 @@ function rolesText(value: unknown) {
 
 /**
  * 职员/代理人视角的「我的绑定」与「承办企业」。
- * 明细与解绑动作从高管驾驶舱迁入本模块统一处理。
+ * 明细与解绑动作从驾驶舱迁入本模块统一处理。
  * 后端：GET /enterprise/staff/my-work、POST /enterprise/identity/self-unbind
  */
 export function MyWorkPanels({

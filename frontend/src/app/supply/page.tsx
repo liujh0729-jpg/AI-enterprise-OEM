@@ -150,7 +150,7 @@ export default function SupplyPage() {
   const {refetch: refetchWorkspace} = workspace;
   const load = useCallback(async () => { await refetchWorkspace(); }, [refetchWorkspace]);
 
-  // 高管驾驶舱等入口用 /supply?tab=goods|purchase 直达对应页签（与 /tax?view= 同口径）
+  // 驾驶舱等入口用 /supply?tab=goods|purchase 直达对应页签（与 /tax?view= 同口径）
   const deepLinkDone = useRef(false);
   useEffect(() => {
     if (deepLinkDone.current || !me) return;

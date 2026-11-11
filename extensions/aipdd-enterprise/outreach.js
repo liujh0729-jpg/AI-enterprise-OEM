@@ -371,16 +371,20 @@
     }
     let result;
     try {
-      result = await chrome.tabs.sendMessage(tab.id, {
-        type: "AIPDD_OUTREACH",
-        payload: {
-          platform: String(job?.platform || ""),
-          action,
-          text,
-          targetUrl: url,
-          externalUserId: clip(job?.externalUserId, 160),
+      result = await sendToPage(
+        tab.id,
+        {
+          type: "AIPDD_OUTREACH",
+          payload: {
+            platform: String(job?.platform || ""),
+            action,
+            text,
+            targetUrl: url,
+            externalUserId: clip(job?.externalUserId, 160),
+          },
         },
-      });
+        ["outreach.js"],
+      );
     } catch (error) {
       result = {
         status: "failed",

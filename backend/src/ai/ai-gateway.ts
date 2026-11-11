@@ -9,8 +9,14 @@ import {
   type ChatMessage,
   type GeoChatResult,
 } from '../geo/geo-llm.client';
-import { aipddApiKey, tryChannelCredentials } from './ai-channels';
+import {
+  aipddApiKey,
+  computeProviderSupported,
+  tryChannelCredentials,
+} from './ai-channels';
 import { aiGuardDeny, assertAiAllowed } from './ai-guard.service';
+import { LOCALAPI_CHANNEL_ID } from '../model-plaza/localapi';
+import { platformModelFor } from '../model-plaza/platform-defaults.service';
 
 /**
  * 全系统统一 AI 网关（AI 底座方案 §4.1）。
@@ -29,7 +35,8 @@ import { aiGuardDeny, assertAiAllowed } from './ai-guard.service';
  * 绝不抛穿业务链路；只有 requireModel（用户主动点「AI 生成」这类明确动作）才抛引导性错误。
  */
 
-export type AiModelSource = 'override' | 'module' | 'account' | 'legacy';
+export type AiModelSource =
+  'override' | 'module' | 'account' | 'legacy' | 'platform';
 
 export type AiModel = {
   baseUrl: string;
@@ -181,6 +188,8 @@ async function level(
     return { ...credentials, model: trimmed, channelId, source };
   }
   if (channelId !== 0) return null;
+  // 平台管理员关闭了 AIPDD 算力渠道：算力不再回落 AIPDD Key（业务服务的 AIPDD Key 不受影响）。
+  if (!(await computeProviderSupported(prisma, 'aipdd'))) return null;
   const key = await aipddApiKey(prisma, userId, token);
   if (!key) return null;
   return {
@@ -194,8 +203,9 @@ async function level(
 }
 
 /**
- * 取这一轮真正要用的模型通道：按「本轮显式选择 → 模块自有默认 → 账号默认渠道 → 历史口径」
- * 顺序逐级试，四级都不成立返回 null（调用方走规则式兜底）。
+ * 取这一轮真正要用的模型通道：按「本轮显式选择 → 模块自有默认 → 账号默认渠道 → 历史口径
+ * → 平台默认模型」顺序逐级试，全不成立返回 null（调用方走规则式兜底）。
+ * 平台层只对完成真实充值的账号生效，并受平台设置的单次/日/月额度约束。
  */
 export async function resolveModel(
   prisma: PrismaService,
@@ -206,17 +216,15 @@ export async function resolveModel(
   // 主开关/限流闸在取模型前收口：静默链路返回 null 由调用方回落规则式产出。
   if (guard && (await aiGuardDeny(userId))) return null;
   const mediaType = String(query.mediaType || 'text').trim() || 'text';
+  const exactSlot = query.skipAccountSlot
+    ? null
+    : await accountSlot(prisma, userId, mediaType).catch(() => null);
   const account = query.skipAccountSlot
     ? null
-    : await accountSlot(prisma, userId, mediaType)
-        .catch(() => null)
-        .then(
-          async (slot) =>
-            slot ??
-            (mediaType === 'text'
-              ? null
-              : accountSlot(prisma, userId, 'text').catch(() => null)),
-        );
+    : (exactSlot ??
+      (mediaType === 'text'
+        ? null
+        : await accountSlot(prisma, userId, 'text').catch(() => null)));
   const ladder: Array<{
     channelId: number;
     model: string;
@@ -256,8 +264,34 @@ export async function resolveModel(
     if (resolved) return resolved;
   }
   const legacy = await legacyModel(prisma, userId).catch(() => '');
-  return legacy
-    ? level(prisma, userId, token, 0, legacy, 'legacy', mediaType)
+  if (legacy) {
+    const resolved = await level(
+      prisma,
+      userId,
+      token,
+      0,
+      legacy,
+      'legacy',
+      mediaType,
+    );
+    if (resolved) return resolved;
+  }
+  // 个人已配置模型调用失败时不自动切到收费的平台模型，避免配置故障变成意外扣费。
+  if (exactSlot?.model || legacy) return null;
+  // 平台默认模型：走本站模型广场的 LocalAPI 通道，按目录价从调用者积分扣费。
+  const platform = await platformModelFor(prisma, userId, mediaType).catch(
+    () => null,
+  );
+  return platform
+    ? level(
+        prisma,
+        userId,
+        token,
+        LOCALAPI_CHANNEL_ID,
+        platform.modelKey,
+        'platform',
+        mediaType,
+      )
     : null;
 }
 
@@ -273,8 +307,9 @@ export async function requireModel(
   const vision = String(query.mediaType || 'text') === 'vision';
   throw new BusinessException(
     ErrorCode.FORBIDDEN,
-    `还没有可用的${vision ? '视觉理解' : '文字'}模型：请在「内容创作 → 模型设置」为「${vision ? '视觉理解' : '文本'}」选择渠道与默认模型` +
-      '（自定义渠道需保存 Key），或在「开放集成 → API Key 管理」绑定 AIPDD API Key 并在 RPA/Workbuddy 里选一次默认模型',
+    `还没有可用的${vision ? '视觉理解' : '文字'}模型：请在「模型服务 → 模型设置」为「${vision ? '视觉理解' : '文本'}」选择渠道与默认模型` +
+      '（自定义渠道需保存 Key），或在「模型服务 → API Key 管理」绑定 AIPDD API Key 并在 RPA/Workbuddy 里选一次默认模型；' +
+      '完成充值并到账后，未单独配置的类型也会自动继承平台默认模型（需管理员开启）',
   );
 }
 
@@ -399,6 +434,23 @@ export async function aiJson<T = Record<string, unknown>>(
   };
 }
 
+/**
+ * 只记用量、不扣分的入口：给不走统一网关发请求（自带流式客户端）的链路补记用量事实，
+ * 让工作流、Agent 这类按运行汇总成本的场景与网关调用落在同一张 usage_events 上。
+ */
+export async function recordAiUsage(
+  userId: string,
+  usage: AiUsage,
+  meta: { module: string; operation: string; model: string },
+) {
+  if (!usage.call) return;
+  await meter(userId, undefined, usage, {
+    module: String(meta.module || 'ai').slice(0, 32),
+    operation: String(meta.operation || 'chat').slice(0, 64),
+    model: String(meta.model || '').slice(0, 128),
+  });
+}
+
 /** 逐块回调的对话流（抛错版；静默需求先 resolveModel 再 geoChatStream）。 */
 export async function aiStream(
   prisma: PrismaService,
@@ -446,12 +498,18 @@ export async function aiEmbed(
   const slot = await accountSlot(prisma, input.userId, 'embedding').catch(
     () => null,
   );
-  if (!slot) return null;
-  const embedModel = String(input.model || '').trim() || slot.model;
+  const platform = slot
+    ? null
+    : await platformModelFor(prisma, input.userId, 'embedding').catch(
+        () => null,
+      );
+  if (!slot && !platform) return null;
+  const embedModel =
+    String(input.model || '').trim() || slot?.model || platform?.modelKey || '';
   const credentials = await tryChannelCredentials({
     prisma,
     userId: input.userId,
-    channelId: slot.channelId,
+    channelId: slot ? slot.channelId : LOCALAPI_CHANNEL_ID,
     token: input.token,
     mediaType: 'embedding',
   });

@@ -16,7 +16,7 @@ const CATEGORY_COLOR: Record<string, string> = {
   platform: "#86909c",
 };
 
-/** 高管驾驶舱「新消息概览」：只列未读消息，点击标记已读并跳到对应模块处理。 */
+/** 驾驶舱「新消息概览」：只列未读消息，点击标记已读并跳到对应模块处理。 */
 export function ExecutiveNotifications({
   rows,
   count,

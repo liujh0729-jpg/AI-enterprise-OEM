@@ -277,6 +277,156 @@ export class GrowthCockpitService {
     };
   }
 
+  /**
+   * 合同履约四态（P4-7）：签约完成 → 服务已交付 → 客户验收通过 → 财务结算完成。
+   * 只按读侧聚合现有事实（合同审批 / 项目状态 / 应收结清），不回写、不新增主状态机。
+   */
+  async fulfillment(user: CurrentUser, query: Row) {
+    const org = await this.scope.resolve(user);
+    const days = Math.min(365, Math.max(7, Number(query.days) || 90));
+    const since = new Date(Date.now() - days * 86400000);
+    const orgKey = { orgType: org.orgType, orgUserId: org.orgUserId };
+    const contracts = await this.prisma.crmContract.findMany({
+      where: { ...orgKey, deletedAt: null, createdAt: { gte: since } },
+      select: {
+        id: true,
+        name: true,
+        amount: true,
+        approvalStatus: true,
+        voidReason: true,
+        createdAt: true,
+        customerId: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+    const contractIds = contracts.map((row) => row.id);
+    const customerIds = [...new Set(contracts.map((row) => row.customerId))];
+    const projects = contractIds.length
+      ? await this.prisma.pjProject.findMany({
+          where: { ...orgKey, contractId: { in: contractIds } },
+          select: { id: true, contractId: true, status: true },
+          orderBy: { id: 'asc' },
+        })
+      : [];
+    const receivables = contractIds.length
+      ? await this.prisma.erpReceivable.findMany({
+          where: {
+            ...orgKey,
+            status: { not: 'CANCELED' },
+            OR: [
+              { contractId: { in: contractIds } },
+              { sourceType: 'CONTRACT', sourceId: { in: contractIds } },
+            ],
+          },
+          select: {
+            contractId: true,
+            sourceId: true,
+            amount: true,
+            receivedAmount: true,
+          },
+        })
+      : [];
+    const customers = customerIds.length
+      ? await this.prisma.crmCustomer.findMany({
+          where: { ...orgKey, id: { in: customerIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const projectByContract = new Map<number, (typeof projects)[number]>();
+    for (const project of projects) {
+      if (!projectByContract.has(project.contractId))
+        projectByContract.set(project.contractId, project);
+    }
+    const customerNames = new Map(customers.map((row) => [row.id, row.name]));
+    const moneyOf = (rows: typeof receivables) => {
+      let amount = 0;
+      let received = 0;
+      for (const row of rows) {
+        amount += Number(row.amount);
+        received += Number(row.receivedAmount);
+      }
+      return { amount, received };
+    };
+    const gapLabels: Record<string, string> = {
+      SIGNED: '待开工',
+      DELIVERED: '待交付',
+      ACCEPTED: '待验收',
+      SETTLED: '待结算',
+      DONE: '已闭环',
+    };
+    let signed = 0;
+    let delivered = 0;
+    let accepted = 0;
+    let settled = 0;
+    let signedAmount = 0;
+    let receivedAmount = 0;
+    const list = contracts.map((row) => {
+      const project = projectByContract.get(row.id);
+      const related = receivables.filter(
+        (item) =>
+          item.contractId === row.id ||
+          (item.contractId === 0 && item.sourceId === row.id),
+      );
+      const { amount, received } = moneyOf(related);
+      const isSigned =
+        row.approvalStatus === 'APPROVED' && !String(row.voidReason || '');
+      const isDelivered =
+        isSigned &&
+        Boolean(project) &&
+        ['ACCEPTING', 'CLOSED'].includes(project?.status || '');
+      const isAccepted = isSigned && project?.status === 'CLOSED';
+      const isSettled =
+        isSigned && related.length > 0 && amount > 0 && received >= amount;
+      if (isSigned) {
+        signed += 1;
+        signedAmount += Number(row.amount);
+        receivedAmount += received;
+      }
+      if (isDelivered) delivered += 1;
+      if (isAccepted) accepted += 1;
+      if (isSettled) settled += 1;
+      const gap = !isSigned
+        ? 'SIGNED'
+        : !isDelivered
+          ? 'DELIVERED'
+          : !isAccepted
+            ? 'ACCEPTED'
+            : !isSettled
+              ? 'SETTLED'
+              : 'DONE';
+      return {
+        contractId: row.id,
+        contractName: row.name,
+        customerName: customerNames.get(row.customerId) || '',
+        amount: Number(row.amount).toFixed(2),
+        signedAt: row.createdAt.toISOString(),
+        projectId: project?.id || 0,
+        projectStatus: project?.status || '',
+        signed: isSigned,
+        delivered: isDelivered,
+        accepted: isAccepted,
+        settled: isSettled,
+        receivableAmount: amount.toFixed(2),
+        receivedAmount: received.toFixed(2),
+        gap,
+        gapLabel: gapLabels[gap],
+      };
+    });
+    return {
+      summary: {
+        signed,
+        delivered,
+        accepted,
+        settled,
+        total: contracts.length,
+        signedAmount: signedAmount.toFixed(2),
+        receivedAmount: receivedAmount.toFixed(2),
+      },
+      list,
+    };
+  }
+
   private paymentCount(ownerUserId: string, since: Date) {
     return this.prisma.crmPaymentRecord.count({
       where: { ownerUserId, createdAt: { gte: since } },

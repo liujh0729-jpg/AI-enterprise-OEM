@@ -30,9 +30,9 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/admin", destination: "/admin/users", permanent: false },
-      // 平台数据总览已并入高管驾驶舱，旧地址重定向避免站内收藏/历史链接失效
+      // 平台数据总览已并入驾驶舱，旧地址重定向避免站内收藏/历史链接失效
       { source: "/admin/overview", destination: "/dashboard", permanent: false },
-      // AIPDD Key 绑定已并入「开放集成 → API Key 管理」，旧地址重定向避免站内收藏/历史链接失效
+      // AIPDD Key 绑定已并入「模型服务 → API Key 管理」，旧地址重定向避免站内收藏/历史链接失效
       {
         source: "/developer/aipdd",
         destination: "/developer/keys",

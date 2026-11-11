@@ -99,6 +99,18 @@ export function registerGapsPublic(
     });
   });
 
+  // 注册页必读清单：编码 / 标题 / 当前生效版本 / 正文，未发布时含平台默认文本
+  // 必须声明在 /api/public/terms/:code 之前，否则会被 :code 抢先匹配成 404
+  app.get('/api/public/terms/register-consents', async (c) => {
+    if (limited(`terms:consent:${clientIp(c)}`, 120)) {
+      throw new BusinessException(
+        ErrorCode.RATE_LIMITED,
+        '访问太频繁，请稍后再试',
+      );
+    }
+    return c.json(ok(await services.gaps.terms.requiredConsents()));
+  });
+
   app.get('/api/public/terms/:code', async (c) => {
     if (limited(`terms:get:${clientIp(c)}`, 120)) {
       throw new BusinessException(
@@ -107,7 +119,7 @@ export function registerGapsPublic(
       );
     }
     return c.json(
-      ok(await services.gaps.terms.publicLatest(c.req.param('code'))),
+      ok(await services.gaps.terms.publicAgreement(c.req.param('code'))),
     );
   });
 }

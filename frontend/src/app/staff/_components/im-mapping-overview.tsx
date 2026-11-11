@@ -2,6 +2,7 @@
 
 import { App, Button, Modal, Select, Space, Table, Tag } from "antd";
 import type { TableProps } from "antd";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { ImConnector, ImStaffDirectory } from "@enterprise/contracts";
 import { imApi } from "@/api/im";
@@ -367,7 +368,8 @@ export function ImMappingOverview({
             onChange={(value: string) => setTargetUserId(value)}
           />
           <div className="text-12 muted">
-            对应只建立 IM 与账号的映射，不会自动建账号；目标账号不在此列表时，先到「管理」页添加成员。
+            对应只建立 IM 与账号的映射，不会自动建账号；目标账号不在此列表时，先到「管理」页添加成员。{" "}
+            <Link href="/staff?tab=manage">去添加成员</Link>
           </div>
         </div>
       </Modal>

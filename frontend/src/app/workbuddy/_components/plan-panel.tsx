@@ -3,6 +3,7 @@
 import { App, Button, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
 import { fmtTime } from "@/lib/datetime";
@@ -658,6 +659,7 @@ export function PlanPanel({
           <Notice variant="warn">
             还没有 API Key：AI 澄清任务书暂不可用。可以先新建计划后手写任务，
             或到「API Key 管理」生成一把 Key。
+            <Link href="/developer/keys"> 立即配置 API Key</Link>
           </Notice>
         </div>
       ) : null}

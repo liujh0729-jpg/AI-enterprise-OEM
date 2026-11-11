@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, ConfigProvider, Select, Spin } from "antd";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   OA_LINK_TARGETS,
@@ -393,7 +394,10 @@ export function OaShell({ defaultTab = "todo" }: { defaultTab?: string }) {
 
       {workspace && !workspace.orgs.length && !mainError ? (
         <Panel title="OA">
-          <EmptyState text="你还没有可用的组织身份：OA 按组织运行，请先完成企业备案，或绑定一家开通 OA 板块的服务机构。" />
+          <EmptyState
+            text="你还没有可用的组织身份：OA 按组织运行，请先完成企业备案，或绑定一家开通 OA 板块的服务机构。"
+            action={<Link href="/identity">去完成企业备案</Link>}
+          />
         </Panel>
       ) : null}
 
@@ -448,6 +452,10 @@ export function OaShell({ defaultTab = "todo" }: { defaultTab?: string }) {
         presetTitle={presetTitle}
         onClose={closeDrawer}
         onSaved={(app, submitted) => void onSaved(app, submitted)}
+        onGoTemplates={() => {
+          closeDrawer();
+          goTab("templates");
+        }}
       />
     </ConfigProvider>
   );

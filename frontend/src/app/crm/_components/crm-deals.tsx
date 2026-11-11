@@ -23,6 +23,7 @@ import type {
   CrmProductRow,
 } from "@enterprise/contracts";
 import { crmApi } from "@/api/crm";
+import { projectApi } from "@/api/project";
 import { Panel } from "@/components/ui/panel";
 import { OaLaunchButton } from "@/app/oa/_components/oa-launch-button";
 import { moneyCny } from "@/lib/money";
@@ -424,6 +425,27 @@ export function ContractsTab({ customers }: { customers: { id: number; name: str
           detail ? (
             <Space>
               <Button onClick={() => setPlanOpen(true)}>回款计划</Button>
+              <Button
+                disabled={Boolean(detail.contract.voidReason)}
+                onClick={() => {
+                  Modal.confirm({
+                    title: "生成履约计划",
+                    content: "将按本合同生成履约项目（交付物按合同明细）与回款计划（应收）；重复点击不会重复生成。",
+                    onOk: async () => {
+                      try {
+                        const project = await projectApi.createProjectFromContract({
+                          body: { contractId: detail.contract.id },
+                        });
+                        message.success(`履约项目已生成：${project?.name || ""}`);
+                      } catch (error) {
+                        message.error(errText(error));
+                      }
+                    },
+                  });
+                }}
+              >
+                生成履约计划
+              </Button>
               <Button type="primary" onClick={() => setRecordOpen(true)}>登记回款</Button>
               <Button onClick={() => setInvoiceOpen(true)}>发票</Button>
               <OaLaunchButton

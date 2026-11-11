@@ -75,6 +75,27 @@ export class OkrObjectiveService extends OkrBase {
       await this.scope.requireMember(ctx, ownerMemberUserId);
     }
     if (ownerMemberUserId === ctx.ownerUserId) ownerMemberUserId = '';
+    // 人员闭环（docs §5.3）：入职引导未完成（流程 ACTIVE）的成员暂不建立目标；
+    // 仅拦新建，避免影响已有目标的编辑与打分。
+    if (created) {
+      const owner = ownerMemberUserId || ctx.actorId;
+      if (owner && owner !== ctx.ownerUserId) {
+        const onboarding = await this.prisma.onboardingRun.count({
+          where: {
+            orgType: ctx.orgType,
+            orgUserId: ctx.ownerUserId,
+            staffUserId: owner,
+            status: 'ACTIVE',
+          },
+        });
+        if (onboarding > 0) {
+          throw new BusinessException(
+            ErrorCode.BAD_REQUEST,
+            '该成员入职引导尚未完成，入职后再建立目标',
+          );
+        }
+      }
+    }
     const parentId = int(body['parentId']);
     if (parentId > 0) {
       const parent = await this.prisma.okrObjective.findFirst({

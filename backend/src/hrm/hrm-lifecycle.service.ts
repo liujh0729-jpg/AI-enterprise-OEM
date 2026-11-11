@@ -180,6 +180,14 @@ export class HrmLifecycleService {
         },
         update: { status: 'ACTIVE', department },
       });
+      // 再入职（上一次离职已清空角色）时补回基础职员角色，保留已有的其它角色。
+      const roles = Array.isArray(staff.roles) ? (staff.roles as unknown[]) : [];
+      if (!roles.length) {
+        await tx.orgStaff.update({
+          where: { id: staff.id },
+          data: { roles: ['STAFF'] },
+        });
+      }
       await tx.hrmEmployeeProfile.upsert({
         where: {
           orgType_orgUserId_memberUserId: {
@@ -219,6 +227,7 @@ export class HrmLifecycleService {
       offerId: updated.id,
       staffUserId: memberUserId,
       memberUserId,
+      positionName: job?.title || '',
     });
     return this.offerView(updated);
   }
@@ -228,6 +237,17 @@ export class HrmLifecycleService {
     user: CurrentUser,
   ) {
     const org = await this.scope.resolve(user);
+    // 到岗日期已过仍未处理的 Offer 视为过期，避免待处理清单长期挂着无效 Offer。
+    const todayStr = new Date().toISOString().slice(0, 10);
+    await this.prisma.hrmOffer.updateMany({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        status: 'PENDING',
+        startAt: { lt: todayStr, not: '' },
+      },
+      data: { status: 'EXPIRED' },
+    });
     const where = {
       orgType: org.orgType,
       orgUserId: org.orgUserId,

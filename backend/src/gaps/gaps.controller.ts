@@ -131,6 +131,10 @@ export class AssistantController {
   registry() {
     return this.service.registry();
   }
+
+  extractActions(user: CurrentUser, body: Row) {
+    return this.service.extractActions(user, body);
+  }
 }
 
 export class TranscriptionController {

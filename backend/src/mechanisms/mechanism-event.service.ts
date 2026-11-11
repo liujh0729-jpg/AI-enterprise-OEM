@@ -19,6 +19,24 @@ import type { NotificationService } from '../notifications/notification.service'
 import type { MechanismWebhookService } from './mechanism-webhook.service';
 import { MechanismBase } from './mechanism.base';
 
+/** 规则动作 run_workflow 的进程内执行器（装配时由 services.ts 回填）。 */
+export type RuleWorkflowInvoke = (input: {
+  ownerUserId: string;
+  workflowId?: number;
+  businessKey?: string;
+  input: Row;
+  dedupeKey: string;
+}) => Promise<unknown>;
+
+/** 规则动作 assign_task 的进程内执行器：直接写统一任务中心。 */
+export type RuleTaskAssign = (input: {
+  org: HrmOrg;
+  ruleId: number;
+  target: string;
+  payload: Row;
+  sourceId: string;
+}) => Promise<unknown>;
+
 /** 进程内领域事件、规则分派与动作执行。 */
 export class MechanismEventService extends MechanismBase {
   constructor(
@@ -33,6 +51,19 @@ export class MechanismEventService extends MechanismBase {
     super(prisma, scope, crypto, storage, notifications, requirePlatformAdmin);
   }
 
+  private workflowInvoker?: RuleWorkflowInvoke;
+  private taskAssigner?: RuleTaskAssign;
+
+  /** 规则 → 工作流：动作节点与手动运行走同一身份与权限判定。 */
+  useWorkflowInvoker(port: RuleWorkflowInvoke) {
+    this.workflowInvoker = port;
+  }
+
+  /** 规则 → 任务中心：派单入口只有 TaskCenterService，规则不直接写 my_task。 */
+  useTaskAssigner(port: RuleTaskAssign) {
+    this.taskAssigner = port;
+  }
+
   private readonly listeners: Array<{
     event: string;
     handler: MechanismListener;
@@ -42,11 +73,16 @@ export class MechanismEventService extends MechanismBase {
     this.listeners.push({ event, handler });
   }
 
-  private async runListeners(org: HrmOrg, event: string, payload: Row) {
+  private async runListeners(
+    org: HrmOrg,
+    event: string,
+    payload: Row,
+    eventLogId: number,
+  ) {
     for (const listener of this.listeners) {
       if (listener.event !== event && listener.event !== '*') continue;
       try {
-        await listener.handler(org, event, payload);
+        await listener.handler(org, event, payload, { eventLogId });
       } catch (failure) {
         logger.warn({
           operation: 'listener',
@@ -61,7 +97,7 @@ export class MechanismEventService extends MechanismBase {
     const log = await this.recordEvent(org, event, payload);
     // 调用方显式给了幂等键且已处理过：整条事件跳过，避免重复执行外部动作。
     if (log.duplicate) return;
-    await this.runListeners(org, event, payload);
+    await this.runListeners(org, event, payload, log.id);
     const subscriptions = await this.prisma.webhookSubscription.findMany({
       where: {
         orgType: org.orgType,
@@ -107,7 +143,7 @@ export class MechanismEventService extends MechanismBase {
         let status = 'DONE';
         let error = '';
         try {
-          await this.runAction(org, rule.id, action, payload);
+          await this.runAction(org, rule.id, log.id, action, payload);
         } catch (failure) {
           status = 'FAILED';
           error = clip(
@@ -207,6 +243,7 @@ export class MechanismEventService extends MechanismBase {
   private async runAction(
     org: HrmOrg,
     ruleId: number,
+    eventLogId: number,
     action: Row,
     payload: Row,
   ) {
@@ -288,6 +325,31 @@ export class MechanismEventService extends MechanismBase {
           priority: 'MEDIUM',
           createdBy: org.actorId,
         },
+      });
+      return;
+    }
+    if (type === 'run_workflow') {
+      if (!target)
+        throw new Error('run_workflow 动作未填写工作流编号或业务标识');
+      if (!this.workflowInvoker) throw new Error('工作流执行器尚未就绪');
+      const workflowId = Math.trunc(Number(target));
+      await this.workflowInvoker({
+        ownerUserId: org.orgUserId || org.actorId,
+        ...(workflowId > 0 ? { workflowId } : { businessKey: target }),
+        input: { ...payload, ...((action.payload || {}) as Row) },
+        dedupeKey: `${ruleId}:${eventLogId}`,
+      });
+      return;
+    }
+    if (type === 'assign_task') {
+      if (!target) throw new Error('assign_task 动作未填写承办人');
+      if (!this.taskAssigner) throw new Error('任务中心尚未就绪');
+      await this.taskAssigner({
+        org,
+        ruleId,
+        target,
+        payload: { ...payload, ...((action.payload || {}) as Row) },
+        sourceId: `${ruleId}:${eventLogId || randomUUID()}`,
       });
     }
   }

@@ -141,6 +141,13 @@ export const erpPurchaseOrderSchema = z.object({
   orderNo: z.string(),
   vendorId: z.number(),
   vendorName: z.string(),
+  /** 归属项目（0＝不归集到项目）：入库即自动落项目成本与应付。 */
+  projectId: z.number(),
+  projectName: z.string(),
+  /** 来源单关联：MANUAL（直接下单）| OA_PURCHASE（OA 采购申请转采购）。 */
+  sourceType: z.string(),
+  /** 来源单号：如 OA 采购申请单号，贯通「申请→采购→入库→应付」。 */
+  sourceNo: z.string(),
   warehouseId: z.number(),
   items: z.array(z.object({ variantId: z.number(), sku: z.string(), quantity: z.number(), price: z.number() })),
   amount: z.string(),
@@ -201,6 +208,12 @@ export const erpPayableSchema = z.object({
   recurrence: z.string(),
   nextAt: z.string(),
   status: z.string(),
+  /// 付款审批：大额应付（≥ 50000）需财务审批通过后才可登记付款
+  approvalStatus: z.string(),
+  approvalStatusLabel: z.string(),
+  approverId: z.string(),
+  decidedAt: z.string(),
+  approvalNote: z.string(),
   agingDays: z.number(),
   note: z.string(),
   createdAt: z.string(),
@@ -335,6 +348,11 @@ export const saveErpVendorBodySchema = z.object({
 export const saveErpPurchaseOrderBodySchema = z.object({
   id: z.number().int().positive().optional(),
   vendorId: z.number().int().positive(),
+  projectId: z.number().int().min(0).default(0),
+  sourceType: z
+    .enum(["MANUAL", "OA_PURCHASE", "STOCK_LOW"])
+    .default("MANUAL"),
+  sourceNo: z.string().max(40).default(""),
   warehouseId: z.number().int().positive(),
   items: z.array(z.object({ variantId: z.number().int().positive(), quantity: z.number().positive(), price: money })).min(1).max(200),
   expectedAt: z.string().max(16).default(""),
@@ -387,6 +405,11 @@ export const saveErpPayableBodySchema = z.object({
 export const payErpPayableBodySchema = z.object({
   id: z.number().int().positive(),
   amount: money,
+  note: z.string().max(500).default(""),
+});
+export const decideErpPayableBodySchema = z.object({
+  id: z.number().int().positive(),
+  decision: z.enum(["approve", "reject"]),
   note: z.string().max(500).default(""),
 });
 export const saveErpExpenseBodySchema = z.object({
@@ -693,7 +716,11 @@ export const erpEndpoints = {
     method: "get" as const,
     path: "/enterprise/erp/payables",
     params: z.object({}),
-    query: pageQuerySchema.extend({ status: z.string().optional(), q: z.string().optional() }),
+    query: pageQuerySchema.extend({
+      status: z.string().optional(),
+      q: z.string().optional(),
+      approvalStatus: z.string().optional(),
+    }),
     body: z.undefined(),
     response: envelope(pageSchema(erpPayableSchema)),
   },
@@ -711,6 +738,14 @@ export const erpEndpoints = {
     params: z.object({}),
     query: emptyQuery,
     body: payErpPayableBodySchema,
+    response: envelope(erpPayableSchema),
+  },
+  Erp_decidePayable: {
+    method: "post" as const,
+    path: "/enterprise/erp/payables/decide",
+    params: z.object({}),
+    query: emptyQuery,
+    body: decideErpPayableBodySchema,
     response: envelope(erpPayableSchema),
   },
   Erp_listExpenses: {

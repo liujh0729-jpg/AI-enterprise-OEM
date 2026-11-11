@@ -5,6 +5,7 @@ import { App, ConfigProvider } from "antd";
 import type { ReactNode } from "react";
 import { QueryProvider } from "@/query/client";
 import { SessionProvider } from "@/lib/session";
+import { PersonalizationProvider } from "@/lib/personalization";
 import { SiteBrandProvider } from "@/lib/site-brand";
 import { I18nProvider, useI18n } from "@/lib/i18n/i18n";
 
@@ -28,7 +29,11 @@ function LocaleBridge({ children }: { children: ReactNode }) {
   return (
     <ConfigProvider locale={antdLocale} direction={dir} theme={theme}>
       <App>
-        <QueryProvider><SessionProvider>{children}</SessionProvider></QueryProvider>
+        <QueryProvider>
+          <SessionProvider>
+            <PersonalizationProvider>{children}</PersonalizationProvider>
+          </SessionProvider>
+        </QueryProvider>
       </App>
     </ConfigProvider>
   );

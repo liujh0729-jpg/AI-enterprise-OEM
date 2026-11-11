@@ -19,6 +19,10 @@ import {
 import { RpaScriptService, type RpaScriptRow } from './rpa-script.service';
 import { RpaSettingService } from './rpa-setting.service';
 import {
+  RpaChromeDeviceService,
+  normalizeChromeAction,
+} from './chrome-device.service';
+import {
   ENV_TYPE_LABELS,
   REPORT_STATUSES,
   TASK_STATUSES,
@@ -57,6 +61,8 @@ type TaskRow = {
   name: string;
   scriptId: number;
   deviceType: string;
+  /** deviceType=chrome 时绑定的本地 Chrome 设备号；其他设备为空串 */
+  chromeClientId: string;
   accountIds: number[];
   params: Record<string, unknown>;
   status: string;
@@ -106,6 +112,7 @@ export class RpaTaskService {
     private readonly scripts: RpaScriptService,
     private readonly accounts: RpaAccountService,
     private readonly settings: RpaSettingService,
+    private readonly chromeDevices: RpaChromeDeviceService,
   ) {}
 
   // ---------- 界面侧 CRUD ----------
@@ -241,19 +248,26 @@ export class RpaTaskService {
         );
       }
     }
+    const isChrome = script.deviceType === 'chrome';
     const accountIds = parseIdList(body.accountIds, 'RPA 账号');
-    if (!accountIds.length) {
+    if (!isChrome && !accountIds.length) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
         '请至少绑定一个 RPA 账号（任务在本地要用它登录平台执行）',
       );
     }
+    // 本地 Chrome 任务跑在用户自己的浏览器里，目标平台由用户本人登录，服务端不中转口令，
+    // 所以只要求选定一台在线设备；账号可选，仅用于标识「这条任务面向哪个平台」。
+    const chromeClientId = isChrome
+      ? await this.requireChromeClient(user, body.chromeClientId)
+      : '';
     await this.bindAccounts(user, script.deviceType, accountIds);
     const data = {
       createdBy: user.userId,
       name: name.slice(0, 200),
       scriptId,
       deviceType: script.deviceType,
+      chromeClientId,
       accountIds: toJsonArray(accountIds),
       params: toJsonObject(resolveParams(script.paramsSchema, body.params)),
       status: 'pending',
@@ -295,8 +309,9 @@ export class RpaTaskService {
         );
       }
     }
+    const isChrome = script.deviceType === 'chrome';
     const accountIds = parseIdList(body.accountIds, 'RPA 账号');
-    if (!accountIds.length) {
+    if (!isChrome && !accountIds.length) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
         '请至少绑定一个 RPA 账号',
@@ -308,9 +323,13 @@ export class RpaTaskService {
         '单次最多选 50 个账号批量建任务，请分批操作',
       );
     }
-    if (accountIds.length === 1) {
+    if (accountIds.length <= 1) {
+      // 无账号（本地 Chrome）或只选一个账号：不需要拆分，直接按单任务建
       return [await this.create(user, body)];
     }
+    const chromeClientId = isChrome
+      ? await this.requireChromeClient(user, body.chromeClientId)
+      : '';
     await this.bindAccounts(user, script.deviceType, accountIds);
     const accounts = await this.prisma.rpaAccount.findMany({
       where: { id: { in: accountIds }, createdBy: user.userId },
@@ -344,6 +363,7 @@ export class RpaTaskService {
             name: taskName,
             scriptId,
             deviceType: script.deviceType,
+            chromeClientId,
             accountIds: toJsonArray([accountId]),
             params: resolvedParams,
             status: 'pending',
@@ -391,6 +411,24 @@ export class RpaTaskService {
       data.deviceType = script.deviceType;
     }
     const deviceType = script ? script.deviceType : row.deviceType;
+    // 本地 Chrome 任务：设备必须重选一次（换脚本即换设备），换到别的设备类型则清空设备号
+    if (deviceType === 'chrome') {
+      const clientId =
+        body.chromeClientId !== undefined
+          ? await this.requireChromeClient(user, body.chromeClientId)
+          : row.deviceType === 'chrome'
+            ? row.chromeClientId
+            : '';
+      if (!clientId) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          '本地 Chrome 任务要选定一台在线的设备',
+        );
+      }
+      if (clientId !== row.chromeClientId) data.chromeClientId = clientId;
+    } else if (row.deviceType === 'chrome') {
+      data.chromeClientId = '';
+    }
     let accountIds = row.accountIds;
     let accountsChanged = false;
     if (body.accountIds !== undefined) {
@@ -569,12 +607,21 @@ export class RpaTaskService {
       body.deviceType === undefined || text(body.deviceType).trim() === ''
         ? ''
         : normalizeDeviceType(body.deviceType);
+    // 本地 Chrome 任务不走一次性认领：它由插件心跳通道驱动，且派发报文不含任何口令，
+    // 与比特浏览器执行端认领的语义不同，混在一起会让 PC 执行端抢到跑不了的任务。
+    if (deviceType === 'chrome') {
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        '本地 Chrome 任务不通过接口认领：请在「本地 Chrome」页签发起，由插件心跳通道执行',
+      );
+    }
     await this.sweepTimeouts(user.userId);
     const now = new Date();
     const targetId =
       body.taskId === undefined ? 0 : Number(text(body.taskId) || 0);
     if (targetId) {
       const row = await this.loadOwned(user, targetId);
+      this.rejectChromeClaim(row.deviceType);
       if (deviceType && row.deviceType !== deviceType) {
         throw new BusinessException(
           ErrorCode.CONFLICT,
@@ -603,7 +650,8 @@ export class RpaTaskService {
       where: {
         createdBy: user.userId,
         status: 'pending',
-        ...(deviceType ? { deviceType } : {}),
+        // 不显式声明设备时，本地 Chrome 任务不进比特浏览器执行端的候选（它归插件通道）
+        deviceType: deviceType || { not: 'chrome' },
         OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
       },
       orderBy: { createdAt: 'asc' },
@@ -635,17 +683,65 @@ export class RpaTaskService {
     executionId: number,
     body: Record<string, unknown>,
   ) {
+    return this.sealExecution(
+      user.userId,
+      executionId,
+      body,
+      '该执行记录属于其他账号的执行端',
+    );
+  }
+
+  /**
+   * 本地 Chrome 会话收尾：把会话结果回写成执行终态 + 同步任务状态。
+   * 与比特浏览器回传共用同一套「失败且有重试次数则退回 pending」语义（B3 复用台账）；
+   * 已收尾 / 不属于本人 / 记录不存在时静默跳过，避免会话收尾路径二次回写抛错。
+   */
+  async finishChromeExecution(
+    userId: string,
+    executionId: number,
+    outcome: {
+      status: string;
+      output?: Record<string, unknown>;
+      errorMessage?: string;
+    },
+  ) {
+    if (executionId <= 0) return null;
+    const run = await this.prisma.rpaTaskExecution.findUnique({
+      where: { id: executionId },
+      select: { finishedAt: true, createdBy: true },
+    });
+    if (!run || run.finishedAt || run.createdBy !== userId) return null;
+    try {
+      return await this.sealExecution(
+        userId,
+        executionId,
+        {
+          status: outcome.status,
+          output: outcome.output ?? {},
+          errorMessage: outcome.errorMessage ?? '',
+        },
+        '该执行记录不属于本次会话的发起人',
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /** 执行记录收口（claim 通道与本地 Chrome 通道共用）：终态落库 + 任务状态同步。 */
+  private async sealExecution(
+    userId: string,
+    executionId: number,
+    body: Record<string, unknown>,
+    mismatchMessage: string,
+  ) {
     const run = await this.prisma.rpaTaskExecution.findUnique({
       where: { id: executionId },
     });
     if (!run) {
       throw new BusinessException(ErrorCode.NOT_FOUND, '执行记录不存在');
     }
-    if (run.createdBy !== user.userId) {
-      throw new BusinessException(
-        ErrorCode.ROLE_MISMATCH,
-        '该执行记录属于其他账号的执行端',
-      );
+    if (run.createdBy !== userId) {
+      throw new BusinessException(ErrorCode.ROLE_MISMATCH, mismatchMessage);
     }
     if (run.finishedAt) {
       throw new BusinessException(
@@ -708,11 +804,92 @@ export class RpaTaskService {
       return execution;
     });
     await this.identity.audit(
-      user.userId,
+      userId,
       'RPA回传执行结果',
       `执行#${executionId} 任务#${run.taskId} ${status}`,
     );
     return decorateExecution(saved);
+  }
+
+  /**
+   * 本地 Chrome 会话认领任务：与 `claim` 同一套「原子抢单 + 落执行记录」语义，但有三点不同：
+   *   1) 只认 chrome 设备任务，且 clientId 必须与任务绑定的设备一致；
+   *   2) 设备必须在线（离线领不到任务）；
+   *   3) 不回传任何目标平台口令（D3-A：口令永不经过服务端中转）。
+   * 返回执行记录 ID 与确定性动作序列，供会话引擎回放、收尾时按 executionId 回写。
+   */
+  async claimChrome(userId: string, taskId: number, clientId: string) {
+    const row = await this.loadOwnedById(userId, taskId);
+    if (row.deviceType !== 'chrome') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        `任务 #${taskId} 不是本地 Chrome 任务`,
+      );
+    }
+    if (!row.chromeClientId) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        `任务 #${taskId} 没有绑定本地 Chrome 设备，请先在任务里补齐`,
+      );
+    }
+    if (row.chromeClientId !== clientId) {
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        `任务 #${taskId} 绑定的是设备「${row.chromeClientId}」，与当前设备「${clientId}」不一致`,
+      );
+    }
+    if (row.status !== 'pending') {
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        `任务 #${taskId} 当前是「${statusLabel(row.status)}」，不能执行`,
+      );
+    }
+    if (!(await this.chromeDevices.deviceOnline(userId, clientId))) {
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        '设备当前离线（超过心跳阈值没有上报），无法执行任务',
+      );
+    }
+    if (!(await this.tryGrab(row.id))) {
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        `任务 #${taskId} 刚被其他会话认领`,
+      );
+    }
+    const [script, attempt] = await Promise.all([
+      this.prisma.rpaScript.findUnique({ where: { id: row.scriptId } }),
+      this.prisma.rpaTaskExecution
+        .count({ where: { taskId: row.id } })
+        .then((count) => count + 1),
+    ]);
+    const run = await this.prisma.rpaTaskExecution.create({
+      data: {
+        taskId: row.id,
+        createdBy: userId,
+        deviceType: 'chrome',
+        status: 'running',
+        attempt,
+        executor: `chrome:${clientId}`.slice(0, 64),
+      },
+    });
+    return {
+      taskId: row.id,
+      executionId: run.id,
+      attempt,
+      goal: row.name,
+      startUrl: text(row.params?.startUrl).trim(),
+      actions: chromeActionsOf(script?.content ?? ''),
+      scriptName: script?.name || '',
+    };
+  }
+
+  /** 会话没能起来时把已抢到的任务退回 pending，避免设备离线后任务永久卡在「执行中」。 */
+  async releaseChrome(userId: string, taskId: number) {
+    if (taskId <= 0) return;
+    await this.prisma.rpaTask.updateMany({
+      where: { id: taskId, createdBy: userId, status: 'running' },
+      data: { status: 'pending', startedAt: null, lastError: '' },
+    });
   }
 
   /** 执行端一次取多条待办时用的清单（不含口令）。 */
@@ -731,7 +908,7 @@ export class RpaTaskService {
       where: {
         createdBy: user.userId,
         ...(status ? { status } : {}),
-        ...(deviceType ? { deviceType } : {}),
+        deviceType: deviceType || { not: 'chrome' },
       },
       orderBy: { createdAt: 'asc' },
       take: limit,
@@ -1014,6 +1191,44 @@ export class RpaTaskService {
     }
     return plainTask(row);
   }
+
+  private async loadOwnedById(userId: string, id: number): Promise<TaskRow> {
+    const row = await this.prisma.rpaTask.findUnique({ where: { id } });
+    if (!row)
+      throw new BusinessException(ErrorCode.NOT_FOUND, 'RPA 任务不存在');
+    if (row.createdBy !== userId) {
+      throw new BusinessException(
+        ErrorCode.ROLE_MISMATCH,
+        '该 RPA 任务归他人所有',
+      );
+    }
+    return plainTask(row);
+  }
+
+  /** 本地 Chrome 任务必须选一台在线设备：离线设备领不到任务，也不在候选清单里。 */
+  private async requireChromeClient(
+    user: CurrentUser,
+    raw: unknown,
+  ): Promise<string> {
+    const clientId = text(raw).trim();
+    if (!clientId) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '本地 Chrome 任务要选定一台在线的设备（在「本地 Chrome」页签里可见）',
+      );
+    }
+    await this.chromeDevices.requireOnlineDevice(user, clientId);
+    return clientId;
+  }
+
+  private rejectChromeClaim(deviceType: string) {
+    if (deviceType === 'chrome') {
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        '本地 Chrome 任务不通过接口认领：请在「本地 Chrome」页签发起，由插件心跳通道执行',
+      );
+    }
+  }
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -1036,6 +1251,7 @@ function plainTask(row: {
   name: string;
   scriptId: number;
   deviceType: string;
+  chromeClientId: string;
   accountIds: Prisma.JsonValue;
   params: Prisma.JsonValue;
   status: string;
@@ -1100,6 +1316,27 @@ function decorateExecution(row: {
 
 function isObject(value: unknown) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** 从 chrome_actions 脚本正文里取出确定性动作序列（供会话引擎无 LLM 顺序回放）。 */
+function chromeActionsOf(content: string): Record<string, unknown>[] {
+  const raw = text(content).trim();
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(parsed)
+    ? parsed
+    : isObject(parsed) &&
+        Array.isArray((parsed as { actions?: unknown }).actions)
+      ? (parsed as { actions: unknown[] }).actions
+      : [];
+  return list
+    .map((item) => normalizeChromeAction(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item));
 }
 
 function nonNegativeInt(raw: unknown, fallback: number, label: string): number {

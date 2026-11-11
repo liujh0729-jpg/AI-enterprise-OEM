@@ -15,7 +15,7 @@ function errText(error: unknown) {
 }
 
 /**
- * 开放集成 → API-MCP-Skill → Skill：
+ * 模型服务 → API-MCP-Skill → Skill：
  * 平台管理员在后台按业务域生成的技能包（根目录带 SKILL.md），生成即入库，全站账号可下载。
  */
 export function SkillTab({ onOpenMcp }: { onOpenMcp: () => void }) {

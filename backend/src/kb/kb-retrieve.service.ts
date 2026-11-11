@@ -158,7 +158,7 @@ export class KbRetrieveService {
       }
     }
     if (sources.includes('help')) {
-      const hits = this.help.search({ keyword: query });
+      const hits = this.help.search(user, { keyword: query });
       candidates.push(
         ...hits.slice(0, topK).map<RetrieveSnippet>((hit) => ({
           source: 'help',

@@ -47,6 +47,7 @@ export const erpApi = {
   payables: endpoint(endpoints.Erp_listPayables),
   savePayable: endpoint(endpoints.Erp_savePayable),
   payPayable: endpoint(endpoints.Erp_payPayable),
+  decidePayable: endpoint(endpoints.Erp_decidePayable),
 
   expenses: endpoint(endpoints.Erp_listExpenses),
   saveExpense: endpoint(endpoints.Erp_saveExpense),

@@ -1,10 +1,11 @@
 "use client";
 
 import { CopyOutlined, ExperimentOutlined } from "@ant-design/icons";
-import { App, Button, Drawer, Select, Space, Tag } from "antd";
+import { App, Button, Drawer, Input, Select, Space, Tag } from "antd";
 import { useMemo, useState } from "react";
 import type { MpModel } from "@enterprise/contracts";
 import { Notice, PillTabs } from "@/components/ui/panel";
+import { HelpTopicButton } from "@/components/ui/help-topic-button";
 import {
   UNIT_LABEL,
   UNIT_TAG_COLOR,
@@ -443,6 +444,16 @@ export function CallGuideDrawer({
     }
   };
 
+  /** Base URL 与 Model ID 是外部客户端（Qoder / Codex）唯一要手填的两项，单独可复制。 */
+  const copyValue = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      message.success(`${label} 已复制`);
+    } catch {
+      message.error("复制失败，请手动选择复制");
+    }
+  };
+
   return (
     <Drawer
       open={Boolean(model)}
@@ -469,9 +480,34 @@ export function CallGuideDrawer({
       {model && snippets ? (
         <Space orientation="vertical" size={14} style={{ width: "100%" }}>
           <div>
-            <div className="text-12 muted" style={{ marginBottom: 4 }}>模型标识</div>
-            <span className="mono">{model.modelKey}</span>
+            <div className="text-12 muted" style={{ marginBottom: 4 }}>
+              模型标识（Model ID）
+            </div>
+            <Space.Compact style={{ width: "100%", maxWidth: 560 }}>
+              <Input readOnly value={model.modelKey} className="mono" />
+              <Button
+                icon={<CopyOutlined aria-hidden />}
+                onClick={() => void copyValue(model.modelKey, "Model ID")}
+              >
+                复制
+              </Button>
+            </Space.Compact>
           </div>
+
+          {baseUrl ? (
+            <div>
+              <div className="text-12 muted" style={{ marginBottom: 4 }}>Base URL</div>
+              <Space.Compact style={{ width: "100%", maxWidth: 560 }}>
+                <Input readOnly value={baseUrl} className="mono" />
+                <Button
+                  icon={<CopyOutlined aria-hidden />}
+                  onClick={() => void copyValue(baseUrl, "Base URL")}
+                >
+                  复制
+                </Button>
+              </Space.Compact>
+            </div>
+          ) : null}
 
           {endpoints.length > 1 ? (
             <div>
@@ -582,7 +618,18 @@ export function CallGuideDrawer({
             ) : null}
             <div className="text-12 muted" style={{ marginTop: 4 }}>
               计费单位与上游一致；积分按系统汇率换算，用户不可单独设置。
+              命中模型且仍有额度的时长卡优先扣卡，卡未覆盖部分才扣积分。
             </div>
+          </div>
+
+          <div>
+            <div className="text-12" style={{ marginBottom: 6 }}>
+              外部客户端配置：在 Qoder / Codex 里填
+              <b> Base URL </b>、<b>API Key</b> 与 <b>Model ID</b>（就是上面的
+              Model ID），计费与站内试用同一套规则；只认 Responses 协议的客户端可直接指向
+              <b> /v1/responses</b>。
+            </div>
+            <HelpTopicButton topic="in-external-clients" label="在 Qoder / Codex 里怎么配" />
           </div>
         </Space>
       ) : null}

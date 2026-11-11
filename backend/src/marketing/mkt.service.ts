@@ -9,6 +9,7 @@ import { ErrorCode } from '../common/error-code';
 import { clip, orgKey } from '../hrm/hrm.helpers';
 import { kbChatMulti, parseJsonObject, resolveKbLlm } from '../kb/kb-llm';
 import { httpRequest } from '../http/transport';
+import type { TaskDraft } from '../task-center/task-source';
 import type { Prisma } from '../../generated/prisma';
 
 type Row = Record<string, unknown>;
@@ -419,6 +420,42 @@ function nextRunAt(cron: string, from = new Date()): Date {
  * 运行走统一 LLM 通道，缺 Key 时规则式产出；结果可沉淀为内容资产并发 `mkt.*` 事件。
  * 平台账号仅存密文凭据；能力调用优先走配置的 webhook，否则落本地内容资产（不外发）。
  */
+/** 任务中心只用到「派发 + 回写状态」两个写入口（与 TaskCenterService 同签名）。 */
+type TaskPort = {
+  assign(draft: TaskDraft): Promise<unknown>;
+  syncStatus(input: {
+    source: string;
+    sourceId: string;
+    assigneeUserId: string;
+    sourceStatus?: string;
+    sourceStatusLabel?: string;
+    terminal?: boolean;
+  }): Promise<unknown>;
+};
+
+/** 审核岗位口径（docs §8.4：品牌负责人/审核岗位）：角色码或岗位名称任一命中即可。 */
+const MKT_REVIEW_ROLES = [
+  'ADMIN',
+  'OWNER',
+  'MARKETING',
+  'BRAND',
+  'CONTENT',
+  'OPS',
+  'OPERATION',
+  'REVIEWER',
+];
+const MKT_REVIEW_KEYWORDS = ['品牌', '市场', '营销', '审核', '内容'];
+/** 发布岗位口径（运营人员或代运营服务商）：角色码或岗位名称任一命中即可。 */
+const MKT_PUBLISH_ROLES = [
+  'ADMIN',
+  'OWNER',
+  'MARKETING',
+  'OPS',
+  'OPERATION',
+  'CONTENT',
+];
+const MKT_PUBLISH_KEYWORDS = ['运营', '投放', '发布', '市场', '新媒体'];
+
 export class MktService {
   constructor(
     private readonly prisma: PrismaService,
@@ -426,6 +463,8 @@ export class MktService {
     private readonly mechanisms: MechanismService,
     private readonly aiEval: AiEvalService,
     private readonly crypto: AccountCrypto,
+    /** 任务中心（docs §8.4）：内容生成→审核→渠道发布的任务派发与收口。 */
+    private readonly tasks?: TaskPort,
   ) {}
 
   private async org(user: CurrentUser): Promise<HrmOrg> {
@@ -434,6 +473,132 @@ export class MktService {
 
   private emit(org: HrmOrg, event: string, payload: Row) {
     void this.mechanisms.dispatch(org, event, payload).catch(() => undefined);
+  }
+
+  /** 按「角色码 → 岗位名称关键词」找承办人；找不到回落组织负责人。 */
+  private async staffOf(
+    org: HrmOrg,
+    roles: readonly string[],
+    keywords: readonly string[],
+  ): Promise<string> {
+    const rows = await this.prisma.orgStaff.findMany({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        status: 'ACTIVE',
+      },
+      select: { memberUserId: true, roles: true, positions: true },
+    });
+    const hit = rows.find((row) => {
+      const codes = Array.isArray(row.roles)
+        ? (row.roles as unknown[]).map((item) => String(item).toUpperCase())
+        : [];
+      if (codes.some((code) => roles.includes(code))) return true;
+      const names = Array.isArray(row.positions)
+        ? (row.positions as { name?: unknown }[])
+            .map((item) =>
+              typeof item?.name === 'string' ? item.name.toLowerCase() : '',
+            )
+            .filter(Boolean)
+        : [];
+      return names.some((name) =>
+        keywords.some((keyword) => name.includes(keyword)),
+      );
+    });
+    return hit?.memberUserId || org.orgUserId;
+  }
+
+  /** 审核权限：组织管理员或审核岗位（角色码/岗位名称任一命中）。 */
+  private canReview(org: HrmOrg): boolean {
+    if (org.isAdmin || org.isOwner) return true;
+    const roles = org.roles.map((role) => role.toUpperCase());
+    if (roles.some((role) => MKT_REVIEW_ROLES.includes(role))) return true;
+    return org.positions.some((position) =>
+      MKT_REVIEW_KEYWORDS.some((keyword) =>
+        position.toLowerCase().includes(keyword),
+      ),
+    );
+  }
+
+  /** 内容生成完成 → 「内容审核」待办（幂等锚＝资产 + 审核轮次）。 */
+  private async openReviewTask(
+    org: HrmOrg,
+    artifact: { id: number; title: string; reviewRound: number },
+  ) {
+    if (!this.tasks) return;
+    const assignee = await this.staffOf(
+      org,
+      MKT_REVIEW_ROLES,
+      MKT_REVIEW_KEYWORDS,
+    );
+    await this.tasks
+      .assign({
+        assigneeUserId: assignee,
+        source: 'mkt',
+        sourceId: `review:${artifact.id}:r${artifact.reviewRound}`,
+        title: `内容审核：${artifact.title}`,
+        description: `生成完成的内容资产 #${artifact.id} 待审核；通过后自动派发渠道发布待办，驳回则退回修改。`,
+        link: '/marketing-tools',
+        category: 'audit',
+        priority: 'HIGH',
+        createdBy: org.actorId,
+        sourceStatus: 'PENDING',
+        sourceStatusLabel: '待审核',
+      })
+      .catch(() => null);
+  }
+
+  /** 内容审核通过 → 「渠道发布」待办（幂等锚＝资产 + 审核轮次）。 */
+  private async openPublishTask(
+    org: HrmOrg,
+    artifact: { id: number; title: string; reviewRound: number },
+  ) {
+    if (!this.tasks) return;
+    const assignee = await this.staffOf(
+      org,
+      MKT_PUBLISH_ROLES,
+      MKT_PUBLISH_KEYWORDS,
+    );
+    await this.tasks
+      .assign({
+        assigneeUserId: assignee,
+        source: 'mkt',
+        sourceId: `publish:${artifact.id}:r${artifact.reviewRound}`,
+        title: `渠道发布：${artifact.title}`,
+        description: `内容已审核通过，请按渠道发布并在内容资产回填执行回执（渠道、结果）。`,
+        link: '/marketing-tools',
+        category: 'matter',
+        priority: 'HIGH',
+        createdBy: org.actorId,
+        sourceStatus: 'PENDING',
+        sourceStatusLabel: '待发布',
+      })
+      .catch(() => null);
+  }
+
+  /** 审核/发布任务回写：同一轮次的任务终态收口（状态文案留痕）。 */
+  private async syncArtifactTask(
+    org: HrmOrg,
+    kind: 'review' | 'publish',
+    artifactId: number,
+    round: number,
+    label: string,
+    terminal: boolean,
+  ) {
+    if (!this.tasks) return;
+    const assignee =
+      kind === 'review'
+        ? await this.staffOf(org, MKT_REVIEW_ROLES, MKT_REVIEW_KEYWORDS)
+        : await this.staffOf(org, MKT_PUBLISH_ROLES, MKT_PUBLISH_KEYWORDS);
+    await this.tasks
+      .syncStatus({
+        source: 'mkt',
+        sourceId: `${kind}:${artifactId}:r${round}`,
+        assigneeUserId: assignee,
+        sourceStatusLabel: label,
+        terminal,
+      })
+      .catch(() => null);
   }
 
   private async ensureBuiltinSkills(org: HrmOrg) {
@@ -925,10 +1090,15 @@ export class MktService {
           body: output,
           status: 'READY',
           sourceRunId: run.id,
+          // 生成完成即进入内容审核（docs §8.4）；审核通过后再派渠道发布待办。
+          reviewStatus: 'PENDING',
+          reviewRound: 1,
+          publishStatus: 'NONE',
           createdBy: org.actorId,
         },
       });
       artifactId = artifact.id;
+      await this.openReviewTask(org, artifact);
     }
     const tokens = llm
       ? (llm.promptTokens || 0) + (llm.completionTokens || 0)
@@ -1010,6 +1180,15 @@ export class MktService {
     body: string;
     status: string;
     sourceRunId: number | null;
+    reviewStatus: string;
+    reviewRound: number;
+    reviewerId: string;
+    reviewedAt: Date | null;
+    reviewNote: string;
+    publishStatus: string;
+    publishChannel: string;
+    publishNote: string;
+    publishedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -1020,6 +1199,16 @@ export class MktService {
       body: row.body,
       status: row.status as 'DRAFT' | 'READY' | 'ARCHIVED',
       sourceRunId: row.sourceRunId,
+      reviewStatus: row.reviewStatus as
+        'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED',
+      reviewRound: row.reviewRound,
+      reviewerId: row.reviewerId,
+      reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : '',
+      reviewNote: row.reviewNote,
+      publishStatus: row.publishStatus as 'NONE' | 'PENDING' | 'PUBLISHED',
+      publishChannel: row.publishChannel,
+      publishNote: row.publishNote,
+      publishedAt: row.publishedAt ? row.publishedAt.toISOString() : '',
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -1027,7 +1216,13 @@ export class MktService {
 
   async listArtifacts(
     user: CurrentUser,
-    query: PageQuery & { kind?: string; status?: string; q?: string },
+    query: PageQuery & {
+      kind?: string;
+      status?: string;
+      reviewStatus?: string;
+      publishStatus?: string;
+      q?: string;
+    },
   ) {
     const org = await this.org(user);
     const where: Prisma.MktArtifactWhereInput = {
@@ -1036,6 +1231,8 @@ export class MktService {
     };
     if (query.kind) where.kind = query.kind;
     if (query.status) where.status = query.status;
+    if (query.reviewStatus) where.reviewStatus = query.reviewStatus;
+    if (query.publishStatus) where.publishStatus = query.publishStatus;
     if (query.q)
       where.OR = [
         { title: { contains: query.q } },
@@ -1080,13 +1277,197 @@ export class MktService {
       });
       if (!existing)
         throw new BusinessException(ErrorCode.NOT_FOUND, '内容资产不存在');
-      const row = await this.prisma.mktArtifact.update({ where: { id }, data });
+      // 已进入审核链路的内容（生成产出）一改就要重新审：内容版本变了，
+      // 原审核结论不再成立；旧轮次的审核/发布任务就地收口，避免留下僵尸待办。
+      const changed =
+        data.body !== existing.body ||
+        data.title !== existing.title ||
+        data.kind !== existing.kind;
+      const needsReview = changed && existing.reviewStatus !== 'NONE';
+      const roundBump =
+        needsReview &&
+        (existing.reviewStatus === 'APPROVED' ||
+          existing.reviewStatus === 'REJECTED');
+      const reviewRound = roundBump
+        ? existing.reviewRound + 1
+        : existing.reviewRound;
+      const row = await this.prisma.mktArtifact.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(needsReview
+            ? {
+                status: 'READY',
+                reviewStatus: 'PENDING',
+                reviewRound,
+                reviewerId: '',
+                reviewedAt: null,
+                reviewNote: '',
+                publishStatus: 'NONE',
+                publishChannel: '',
+                publishNote: '',
+                publishedAt: null,
+              }
+            : {}),
+        },
+      });
+      if (roundBump) {
+        await this.syncArtifactTask(
+          org,
+          'review',
+          existing.id,
+          existing.reviewRound,
+          '内容已更新，原审核结论失效',
+          true,
+        );
+        await this.syncArtifactTask(
+          org,
+          'publish',
+          existing.id,
+          existing.reviewRound,
+          '内容已更新，需重新审核后发布',
+          true,
+        );
+      }
+      if (needsReview) await this.openReviewTask(org, row);
       return this.artifactView(row);
     }
     const row = await this.prisma.mktArtifact.create({
       data: { ...orgKey(org), ...data, createdBy: org.actorId },
     });
     return this.artifactView(row);
+  }
+
+  /**
+   * 内容审核（docs §8.4）：通过 → 资产可用并派「渠道发布」待办；驳回 → 退回草稿。
+   * 审核结论与内容版本绑在资产上，任务中心只做派发与收口。
+   */
+  async reviewArtifact(user: CurrentUser, body: Row) {
+    const org = await this.org(user);
+    if (!this.canReview(org)) {
+      throw new BusinessException(
+        ErrorCode.FORBIDDEN,
+        '只有品牌负责人或审核岗位可以审核内容',
+      );
+    }
+    const decision =
+      body.decision === 'approve'
+        ? 'approve'
+        : body.decision === 'reject'
+          ? 'reject'
+          : '';
+    if (!decision) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '请选择审核结论');
+    }
+    const id = num(body.id);
+    const row = await this.prisma.mktArtifact.findFirst({
+      where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+    });
+    if (!row)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '内容资产不存在');
+    if (row.reviewStatus !== 'PENDING') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        row.reviewStatus === 'APPROVED'
+          ? '该内容已审核通过，无需重复审核'
+          : row.reviewStatus === 'REJECTED'
+            ? '该内容已被驳回，请修改后重新提交审核'
+            : '该内容不在待审核状态',
+      );
+    }
+    const approve = decision === 'approve';
+    const note = clip(body.note, 500);
+    const updated = await this.prisma.mktArtifact.update({
+      where: { id: row.id },
+      data: {
+        reviewStatus: approve ? 'APPROVED' : 'REJECTED',
+        reviewerId: org.actorId,
+        reviewedAt: new Date(),
+        reviewNote: note,
+        status: approve ? 'READY' : 'DRAFT',
+        publishStatus: approve ? 'PENDING' : 'NONE',
+        ...(approve
+          ? {}
+          : {
+              publishChannel: '',
+              publishNote: '',
+              publishedAt: null,
+            }),
+      },
+    });
+    await this.syncArtifactTask(
+      org,
+      'review',
+      row.id,
+      row.reviewRound,
+      approve ? '审核通过' : '审核驳回',
+      true,
+    );
+    if (approve) {
+      await this.openPublishTask(org, updated);
+    }
+    this.emit(
+      org,
+      approve ? 'mkt.artifact.approved' : 'mkt.artifact.rejected',
+      {
+        artifactId: row.id,
+        reviewRound: row.reviewRound,
+        reviewerId: org.actorId,
+        note,
+      },
+    );
+    return this.artifactView(updated);
+  }
+
+  /** 渠道发布回执（docs §8.4）：审核通过后回填渠道与执行结果，发布任务收口。 */
+  async publishArtifact(user: CurrentUser, body: Row) {
+    const org = await this.org(user);
+    const id = num(body.id);
+    const row = await this.prisma.mktArtifact.findFirst({
+      where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+    });
+    if (!row)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '内容资产不存在');
+    if (row.publishStatus === 'PUBLISHED') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '该内容已发布，请勿重复回填',
+      );
+    }
+    if (row.reviewStatus !== 'APPROVED') {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '内容需审核通过后才能发布',
+      );
+    }
+    const channel = clip(body.channel, 60).trim();
+    if (!channel) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '请填写发布渠道');
+    }
+    const note = clip(body.note, 500);
+    const updated = await this.prisma.mktArtifact.update({
+      where: { id: row.id },
+      data: {
+        publishStatus: 'PUBLISHED',
+        publishChannel: channel,
+        publishNote: note,
+        publishedAt: new Date(),
+      },
+    });
+    await this.syncArtifactTask(
+      org,
+      'publish',
+      row.id,
+      row.reviewRound,
+      `已发布：${channel}`,
+      true,
+    );
+    this.emit(org, 'mkt.artifact.published', {
+      artifactId: row.id,
+      channel,
+      publishRound: row.reviewRound,
+    });
+    return this.artifactView(updated);
   }
 
   async readContext(user: CurrentUser) {

@@ -8,6 +8,10 @@ import { ErrorCode } from '../common/error-code';
 import { httpRequest, TransportError } from '../http/transport';
 import { isLocalApiKey, parseLocalApiKey } from './localapi';
 import {
+  platformBudget,
+  readPlatformDefaults,
+} from './platform-defaults.service';
+import {
   computePlazaCost,
   estimateAudioSeconds,
   estimateMessagesTokens,
@@ -15,10 +19,20 @@ import {
   normalizeUsage,
 } from './model-plaza.pricing';
 import type { PlazaUsageInput } from './model-plaza.pricing';
+import {
+  ResponsesSseTranslator,
+  toChatPayload,
+  toResponseObject,
+} from './model-plaza.responses';
 
-/** 对外通道支持的 POST 路径（目录里登记端点用的同一套口径）。 */
+/**
+ * 对外通道支持的 POST 路径（目录里登记端点用的同一套口径）。
+ * `/v1/responses` 是 Responses 协议入口，收到后翻译成 `/chat/completions`，
+ * 因此模型目录只需登记 `/chat/completions` 即可同时服务两类客户端。
+ */
 const POST_PATHS = new Set([
   '/v1/chat/completions',
+  '/v1/responses',
   '/v1/embeddings',
   '/v1/images/generations',
   '/v1/images/edits',
@@ -88,7 +102,7 @@ function strings(value: unknown): string[] {
  * 模型广场对外网关：OpenAI 兼容的 `/v1/*`。
  *
  * 鉴权接受两种令牌：
- * - `ek_` 平台签发的 API Key（开放集成 → API Key 管理），受 `rateLimitDay` 日限额；
+ * - `ek_` 平台签发的 API Key（模型服务 → API Key 管理），受 `rateLimitDay` 日限额；
  * - `lk_` 站内 LocalAPI 渠道的派生令牌（用户在模型设置里选 LocalAPI 时自动带上），
  *   不受 Key 日限额约束，因为站内调用已由安全闸门与积分余额兜底。
  *
@@ -172,7 +186,7 @@ export function registerModelPlazaPublic(
       if (spent >= pointsQuota) {
         return errorResponse(
           402,
-          `该 API Key 的积分额度已用完（${pointsQuota} 积分），请在「开放集成 → API Key 管理」调高额度或重置`,
+          `该 API Key 的积分额度已用完（${pointsQuota} 积分），请在「模型服务 → API Key 管理」调高额度或重置`,
           'insufficient_quota',
           'points_quota_exhausted',
         );
@@ -225,17 +239,37 @@ export function registerModelPlazaPublic(
     const rate = (await services.points.settings.view()).rate;
     const cost = computePlazaCost(input.row, rate, input.usage);
     const success = (input.status ?? 'SUCCESS') === 'SUCCESS';
-    const charged = success
-      ? await plaza.usage.charge(input.principal.userId, cost.points, {
-          modelKey: input.row.modelKey,
-          provider: input.row.provider,
-          catalogId: input.row.id,
-          refId: input.taskId || input.requestId,
-          source: 'API',
-          promptTokens: cost.promptTokens,
-          completionTokens: cost.completionTokens,
-        })
-      : 0;
+    // 单次限额：站内平台模型调用最多按限额扣分；超出部分由平台承担（管理员显式设置的安全帽）。
+    const limits = input.principal.internal
+      ? await readPlatformDefaults(services.prisma)
+          .then((config) => config.limits)
+          .catch(() => null)
+      : null;
+    const billable =
+      limits && limits.perCallPoints > 0
+        ? Math.min(cost.points, limits.perCallPoints)
+        : cost.points;
+    const cardCharge = success
+      ? await plaza.usage.charge(
+          input.principal.userId,
+          billable,
+          {
+            modelKey: input.row.modelKey,
+            provider: input.row.provider,
+            catalogId: input.row.id,
+            refId: input.taskId || input.requestId,
+            source: 'API',
+            promptTokens: cost.promptTokens,
+            completionTokens: cost.completionTokens,
+          },
+          {
+            billingUnit: cost.billingUnit,
+            quantity: cost.quantity,
+            tier: input.usage.tier,
+          },
+        )
+      : null;
+    const charged = cardCharge?.points ?? 0;
     await plaza.usage.log({
       userId: input.principal.userId,
       catalogId: input.row.id,
@@ -254,11 +288,15 @@ export function registerModelPlazaPublic(
       billingQuantity: cost.quantity,
       billingUnit: cost.billingUnit,
       pointsCost: charged,
+      userCardId: cardCharge?.cardId ?? null,
+      cardDeduct: cardCharge?.cardDeduct ?? 0,
       rmbCost: success ? cost.rmb : 0,
       elapsedMs: input.elapsedMs,
       isStream: input.isStream,
       status: success ? 'SUCCESS' : 'FAILED',
-      message: input.message || '',
+      message: [input.message || '', cardCharge?.cardNote ?? '']
+        .filter(Boolean)
+        .join('；'),
     });
     if (input.principal.apiKeyId)
       await plaza.usage.touchKey(input.principal.apiKeyId);
@@ -354,6 +392,36 @@ export function registerModelPlazaPublic(
     }
     // /audio/speech：上游按次
     return { quantity: 1 };
+  };
+
+  /**
+   * 调用前估算：站内通道先按「提示词 + 请求的最大输出」预估本次大概要扣多少分，
+   * 避免一次超额调用直接把余额打穿；真实结算仍以调用后用量为准。
+   */
+  const estimateUsageOf = (input: {
+    endpoint: string;
+    payload: Record<string, unknown>;
+    form: FormData | null;
+  }): PlazaUsageInput => {
+    const { endpoint, payload, form } = input;
+    if (endpoint === '/chat/completions') {
+      const maxTokens = Number(
+        payload.max_tokens ?? payload.max_completion_tokens,
+      );
+      return {
+        promptTokens: estimateMessagesTokens(payload.messages),
+        completionTokens:
+          Number.isFinite(maxTokens) && maxTokens > 0
+            ? Math.floor(maxTokens)
+            : 1024,
+      };
+    }
+    if (endpoint === '/embeddings') {
+      return {
+        promptTokens: estimateTokens(JSON.stringify(payload.input ?? '')),
+      };
+    }
+    return usageOf({ endpoint, payload, parsed: {}, form });
   };
 
   app.all('/v1/*', async (c) => {
@@ -470,19 +538,81 @@ export function registerModelPlazaPublic(
         'model_not_found',
       );
     }
-    const endpoint = path.slice('/v1'.length);
+    // Responses 协议（Codex 一类客户端）翻译成 chat/completions 走同一条通道：
+    // 计量、闸门、结算全部沿用 chat 口径，只有出入参与事件形状换了外壳。
+    const isResponses = path === '/v1/responses';
+    if (isResponses) payload = toChatPayload(payload);
+    const endpoint = isResponses
+      ? '/chat/completions'
+      : path.slice('/v1'.length);
     if (!strings(row.endpoints).includes(endpoint)) {
       return errorResponse(
         400,
-        `模型 ${modelKey} 不支持 ${endpoint}，可用端点：${strings(row.endpoints).join('、') || '无'}`,
+        `模型 ${modelKey} 不支持 ${isResponses ? '/v1/responses（按 /chat/completions 处理）' : endpoint}，可用端点：${strings(row.endpoints).join('、') || '无'}`,
         'invalid_request_error',
         'unsupported_endpoint',
       );
     }
 
-    // 余额闸门：零余额/欠费先拒，避免烧上游额度
+    // 站内通道（平台默认模型 / LocalAPI）：先核日/月额度与预估费用，再动上游。
+    if (principal.internal) {
+      const limits = await readPlatformDefaults(services.prisma)
+        .then((config) => config.limits)
+        .catch(() => null);
+      if (limits) {
+        const budget = await platformBudget(
+          services.prisma,
+          principal.userId,
+          limits,
+        );
+        if (!budget.allowed) {
+          return errorResponse(
+            402,
+            `平台模型额度已用完（今日 ${budget.todayPoints} / 本月 ${budget.monthPoints} 积分），请明天再试或联系管理员调整限额`,
+            'insufficient_quota',
+            'insufficient_points',
+          );
+        }
+        const rate = (await services.points.settings.view()).rate;
+        const estimateInput = estimateUsageOf({ endpoint, payload, form });
+        const estimated = computePlazaCost(row, rate, estimateInput);
+        if (estimated.points > 0) {
+          // 卡感知闸门：有日卡时只按「卡没覆盖的差额」核余额，否则零余额用户明明持卡却被拦。
+          const cover = await plaza.usage.quoteCard(
+            principal.userId,
+            { provider: row.provider, modelKey: row.modelKey },
+            {
+              billingUnit: estimated.billingUnit,
+              quantity: estimated.quantity,
+              tier: estimateInput.tier,
+              promptTokens: estimated.promptTokens,
+              completionTokens: estimated.completionTokens,
+            },
+            estimated.points,
+          );
+          if (cover.points > 0) {
+            const summary = await services.points.ledger.summary(
+              principal.userId,
+            );
+            if (summary.balance < cover.points) {
+              return errorResponse(
+                402,
+                `${cover.hasCard ? '本次有时长卡抵扣，卡未覆盖部分' : '本次调用'}预计需要 ${cover.points.toFixed(4)} 积分，当前余额 ${summary.balance}，请充值后再试`,
+                'insufficient_quota',
+                'insufficient_points',
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // 余额闸门：零余额/欠费先拒，避免烧上游额度（持有该模型可用卡时放行）
     try {
-      await plaza.usage.assertCanCall(principal.userId);
+      await plaza.usage.assertCanCall(principal.userId, {
+        provider: row.provider,
+        modelKey: row.modelKey,
+      });
     } catch (error) {
       const code =
         error instanceof Error && 'errorCode' in error
@@ -502,7 +632,15 @@ export function registerModelPlazaPublic(
     const startedAt = Date.now();
 
     // 对话流式：强制上游回传 usage，边转发边观察最后一个 chunk
-    if (path === '/v1/chat/completions' && payload.stream === true) {
+    if (endpoint === '/chat/completions' && payload.stream === true) {
+      // Responses 客户端只认 response.* 事件，这里逐帧改写；计费仍读原始帧。
+      const translator = isResponses
+        ? new ResponsesSseTranslator(
+            row.modelKey,
+            `resp_${requestId.replace(/-/g, '')}`,
+          )
+        : null;
+      const encoder = new TextEncoder();
       const upstreamPayload = {
         ...payload,
         stream_options: {
@@ -600,14 +738,36 @@ export function registerModelPlazaPublic(
         }).catch(() => undefined);
       };
       const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          if (translator) {
+            controller.enqueue(encoder.encode(translator.start()));
+          }
+        },
         async pull(controller) {
           const chunk = await reader.read();
           if (chunk.done) {
+            if (translator) {
+              controller.enqueue(
+                encoder.encode(
+                  translator.end({
+                    usage: {
+                      prompt_tokens: measuredPrompt,
+                      completion_tokens: measuredCompletion,
+                    },
+                  }),
+                ),
+              );
+            }
             controller.close();
             await finish();
             return;
           }
-          controller.enqueue(chunk.value);
+          if (translator) {
+            const events = translator.feed(chunk.value);
+            controller.enqueue(encoder.encode(events));
+          } else {
+            controller.enqueue(chunk.value);
+          }
           observe(chunk.value);
         },
         async cancel(reason) {
@@ -708,9 +868,19 @@ export function registerModelPlazaPublic(
       requestId,
       taskId: taskId && taskId !== requestId ? taskId : '',
     });
-    return new Response(upstreamResponse.text, {
-      status: 200,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    });
+    return new Response(
+      isResponses
+        ? JSON.stringify(
+            toResponseObject(parsed, {
+              model: row.modelKey,
+              id: `resp_${requestId.replace(/-/g, '')}`,
+            }),
+          )
+        : upstreamResponse.text,
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      },
+    );
   });
 }

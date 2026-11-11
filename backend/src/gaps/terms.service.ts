@@ -13,6 +13,11 @@ import {
   Row,
   safeStatus,
 } from './gaps.helpers';
+import {
+  defaultAgreementContent,
+  defaultAgreementOf,
+  REGISTER_CONSENT_CODES,
+} from '../account/agreements.default';
 
 const CATEGORIES = ['SERVICE', 'PRIVACY', 'REGISTRATION', 'OTHER'] as const;
 const CATEGORY_LABELS: Record<string, string> = {
@@ -264,13 +269,11 @@ export class TermsService {
 
   /** 登录/注册页的公开读取：只返回最新 ACTIVE，正文与版本号。 */
   async publicLatest(code: string) {
+    const normalized = String(code || '')
+      .trim()
+      .toUpperCase();
     const doc = await this.prisma.termsDocument.findFirst({
-      where: {
-        code: String(code || '')
-          .trim()
-          .toUpperCase(),
-        status: 'ACTIVE',
-      },
+      where: { code: normalized, status: 'ACTIVE' },
       orderBy: [{ effectiveAt: 'desc' }, { id: 'desc' }],
     });
     if (!doc) throw new BusinessException(ErrorCode.NOT_FOUND, '条款不存在');
@@ -285,5 +288,79 @@ export class TermsService {
       requireReaccept: doc.requireReaccept,
       effectiveAt: isoOr(doc.effectiveAt),
     };
+  }
+
+  /**
+   * 注册协议 / 隐私政策：后台发布过 ACTIVE 版本就用后台正文，否则回落到平台默认文本（id=0），
+   * 保证开箱状态下注册页的勾选与全文查看就有内容。
+   */
+  async publicAgreement(code: string) {
+    const normalized = String(code || '')
+      .trim()
+      .toUpperCase();
+    const fallback = defaultAgreementOf(normalized);
+    if (!fallback)
+      throw new BusinessException(ErrorCode.NOT_FOUND, '协议不存在');
+    const doc = await this.prisma.termsDocument.findFirst({
+      where: { code: normalized, status: 'ACTIVE' },
+      orderBy: [{ effectiveAt: 'desc' }, { id: 'desc' }],
+    });
+    if (doc) {
+      return {
+        id: doc.id,
+        code: doc.code,
+        version: doc.version,
+        title: doc.title,
+        category: doc.category,
+        categoryLabel: CATEGORY_LABELS[doc.category] || doc.category,
+        content: doc.content,
+        requireReaccept: doc.requireReaccept,
+        effectiveAt: isoOr(doc.effectiveAt),
+        source: 'CUSTOM' as const,
+      };
+    }
+    return {
+      id: 0,
+      code: fallback.code,
+      version: fallback.version,
+      title: fallback.title,
+      category: fallback.category,
+      categoryLabel: CATEGORY_LABELS[fallback.category] || fallback.category,
+      content: defaultAgreementContent(normalized),
+      requireReaccept: true,
+      effectiveAt: fallback.effectiveAt,
+      source: 'DEFAULT' as const,
+    };
+  }
+
+  /** 注册前必须认可的协议清单：每个编码取最新生效版本（未发布时取平台默认版本）。 */
+  async requiredConsents() {
+    return Promise.all(
+      REGISTER_CONSENT_CODES.map((code) => this.publicAgreement(code)),
+    );
+  }
+
+  /**
+   * 注册链路强制同意：提交的版本必须等于当前生效版本，否则拒绝（防止改前端绕过勾选）。
+   * 返回账号已接受的全部「编码@版本」，供创建账号时一并写留痕。
+   */
+  async requireRegisterConsent(
+    submitted: { code: string; version: string }[] = [],
+  ) {
+    const required = await this.requiredConsents();
+    const pool = new Map(
+      submitted
+        .filter((item) => item?.code && item?.version)
+        .map((item) => [item.code.trim().toUpperCase(), item.version.trim()]),
+    );
+    for (const doc of required) {
+      if (pool.get(doc.code) !== doc.version) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          `请先阅读并同意《${doc.title}》`,
+        );
+      }
+    }
+    return required;
   }
 }

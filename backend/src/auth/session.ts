@@ -20,6 +20,7 @@ import type { AccountModule } from '../account/account.routes';
 
 const ACCESS = 'aiworkin_token',
   REFRESH = 'aiworkin_refresh_token';
+export const SESSION_COOKIE = ACCESS;
 const cookieOptions = () => ({
   httpOnly: true,
   sameSite: 'Lax' as const,
@@ -29,6 +30,13 @@ const cookieOptions = () => ({
   path: '/',
   maxAge: 90 * 86400,
 });
+/** 微信 H5 网页授权换发会话时复用同一 Cookie 口径，避免两套过期时间互相覆盖。 */
+export function writeSessionCookie(
+  c: Context<ApiEnv, string, Input>,
+  token: string,
+) {
+  setCookie(c, ACCESS, token, cookieOptions());
+}
 function normalize(value?: string) {
   let result = value
     ?.trim()
@@ -119,14 +127,21 @@ export function registerSessionRoutes(
     const body = registerSchema.parse(await c.req.json().catch(() => ({})));
     const email = String(body.email || '').trim();
     const emailCode = String(body.emailCode || '').trim();
-    await account.account.register({
-      ...(email && emailCode ? { mode: 'EMAIL' as const } : {}),
-      username: String(body.username || '').trim(),
-      password: String(body.password || ''),
-      ...(email ? { email } : {}),
-      ...(emailCode ? { code: emailCode } : {}),
-      ...(body.inviteCode ? { inviteCode: String(body.inviteCode) } : {}),
-    });
+    await account.account.register(
+      {
+        ...(email && emailCode ? { mode: 'EMAIL' as const } : {}),
+        username: String(body.username || '').trim(),
+        password: String(body.password || ''),
+        ...(email ? { email } : {}),
+        ...(emailCode ? { code: emailCode } : {}),
+        ...(body.inviteCode ? { inviteCode: String(body.inviteCode) } : {}),
+        terms: (Array.isArray(body.terms) ? body.terms : []).map((item) => ({
+          code: String(item?.code || ''),
+          version: String(item?.version || ''),
+        })),
+      },
+      { ip: clientIp(c), userAgent: c.req.header('user-agent') },
+    );
     return c.json(envelope(0, '注册成功'));
   });
   app.post('/api/auth/email-code', async (c) => {

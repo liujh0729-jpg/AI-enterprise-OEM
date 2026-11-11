@@ -6,7 +6,7 @@ import { ContentModelSettingService } from '../content/model-setting.service';
 import { geoChatMulti } from '../geo/geo-llm.client';
 import { PrismaService } from '../prisma/prisma.service';
 import { toJsonInput } from '../common/json-input';
-import { BiScopeService, BiContext } from './bi.scope';
+import { BiScopeService, BiContext, hiddenColumnsOf } from './bi.scope';
 import { BiQueryService, DatasetRow } from './bi.query.service';
 import { internalDataset } from './bi.internal';
 
@@ -222,46 +222,64 @@ export class BiChatService {
     dataset: DatasetRow,
     question: string,
   ) {
-    const [fields, terms, trainings, recommended] = await Promise.all([
-      this.prisma.biDatasetField.findMany({
-        where: { datasetId: dataset.id, visible: true },
-        orderBy: { sort: 'asc' },
-      }),
-      this.prisma.biTerm.findMany({
-        where: {
-          ownerUserId: ctx.ownerUserId,
-          enabled: true,
-          OR: [{ datasetId: dataset.id }, { datasetId: 0 }],
-        },
-        take: 30,
-      }),
-      this.prisma.biTraining.findMany({
-        where: {
-          ownerUserId: ctx.ownerUserId,
-          enabled: true,
-          OR: [{ datasetId: dataset.id }, { datasetId: 0 }],
-        },
-        take: 10,
-      }),
-      this.prisma.biRecommendedQuestion.findMany({
-        where: { ownerUserId: ctx.ownerUserId, datasetId: dataset.id },
-        orderBy: { sort: 'asc' },
-        take: 10,
-      }),
-    ]);
+    const [fields, terms, trainings, recommended, permission] =
+      await Promise.all([
+        this.prisma.biDatasetField.findMany({
+          where: { datasetId: dataset.id, visible: true },
+          orderBy: { sort: 'asc' },
+        }),
+        this.prisma.biTerm.findMany({
+          where: {
+            ownerUserId: ctx.ownerUserId,
+            enabled: true,
+            OR: [{ datasetId: dataset.id }, { datasetId: 0 }],
+          },
+          take: 30,
+        }),
+        this.prisma.biTraining.findMany({
+          where: {
+            ownerUserId: ctx.ownerUserId,
+            enabled: true,
+            OR: [{ datasetId: dataset.id }, { datasetId: 0 }],
+          },
+          take: 10,
+        }),
+        this.prisma.biRecommendedQuestion.findMany({
+          where: { ownerUserId: ctx.ownerUserId, datasetId: dataset.id },
+          orderBy: { sort: 'asc' },
+          take: 10,
+        }),
+        ctx.role === 'ADMIN'
+          ? Promise.resolve(null)
+          : this.prisma.biDatasetPermission.findUnique({
+              where: {
+                datasetId_role: {
+                  datasetId: dataset.id,
+                  role: ctx.role || 'VIEWER',
+                },
+              },
+            }),
+      ]);
     void recommended;
-    const fieldList = fields.length
-      ? fields.map(
+    // 列权限：喂模型的字段清单与结果集同口径收窄，避免 AI 引用到该角色不可见的列。
+    const hidden = hiddenColumnsOf(permission?.columnRules);
+    const visibleFields = hidden.size
+      ? fields.filter((item) => !hidden.has(item.fieldKey))
+      : fields;
+    const fieldList = visibleFields.length
+      ? visibleFields.map(
           (item) =>
             `${item.fieldKey}（${item.name}，${item.role === 'MEASURE' ? '指标' : '维度'}${item.comment ? `：${item.comment}` : ''}）`,
         )
       : (dataset.type === 'INTERNAL'
           ? internalDataset(dataset.internalKey || 'LEADS').fields
           : []
-        ).map(
-          (item) =>
-            `${item.key}（${item.name}，${item.role === 'MEASURE' ? '指标' : '维度'}：${item.comment}）`,
-        );
+        )
+          .filter((item) => !hidden.has(item.key))
+          .map(
+            (item) =>
+              `${item.key}（${item.name}，${item.role === 'MEASURE' ? '指标' : '维度'}：${item.comment}）`,
+          );
     return [
       `数据集：${dataset.name}${dataset.description ? `（${dataset.description}）` : ''}`,
       `字段：\n${fieldList.join('\n')}`,

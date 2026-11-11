@@ -334,6 +334,8 @@ export class CrmApprovalService {
           actorId: ctx.actorId,
           isOwner: ctx.isOwner,
           isAdmin: ctx.isAdmin,
+          roles: [],
+          positions: [],
           department: ctx.department,
         },
         'crm.order.approved',

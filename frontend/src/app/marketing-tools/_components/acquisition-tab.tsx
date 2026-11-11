@@ -33,12 +33,14 @@ import {
   onAcqEvent,
   pingExtension,
   renewAcqToken,
+  reportAcqTerminalReceipt,
   startAcqTask,
   type AcqMeta,
   type AcqPlaybook,
   type AcqSettings,
   type AcqState,
   type AcqTaskType,
+  onBrowserReceipt,
 } from "./acquisition-common";
 import { AcquisitionLeadsView } from "./acquisition-leads-view";
 import { AcquisitionOutreachView } from "./acquisition-outreach-view";
@@ -135,7 +137,9 @@ export function AcquisitionTab() {
     renewingRef.current = true;
     try {
       const type: AcqTaskType = taskType === "outreach" ? "outreach" : "collect";
-      const issued = await acqApi.pluginToken({ body: { type } });
+      const issued = await acqApi.pluginToken({
+        body: { type, pluginVersion: version || undefined },
+      });
       if (!issued) {
         message.error("令牌签发失败：接口未返回令牌");
         return;
@@ -147,7 +151,7 @@ export function AcquisitionTab() {
     } finally {
       renewingRef.current = false;
     }
-  }, [message]);
+  }, [message, version]);
 
   useEffect(() => {
     return onAcqEvent((event) => {
@@ -172,6 +176,15 @@ export function AcquisitionTab() {
     });
   }, [message, renew]);
 
+  // 统一回执（§10.7）：插件终态同时回一条标准信封，页面把它挂到服务端浏览器任务队列上，
+  // 任务状态不再只存在于插件本地；业务结果仍走 harvest / outreach-result 旧事件落库。
+  useEffect(() => {
+    return onBrowserReceipt((receipt) => {
+      if (receipt.capability !== "acquisition") return;
+      void reportAcqTerminalReceipt(receipt);
+    });
+  }, []);
+
   const start = async (type: AcqTaskType) => {
     if (!version) {
       message.warning("未检测到 AIPDD Enterprise 插件：请先按下方说明安装，并刷新本页");
@@ -179,7 +192,9 @@ export function AcquisitionTab() {
     }
     setStarting(type);
     try {
-      const issued = await acqApi.pluginToken({ body: { type } });
+      const issued = await acqApi.pluginToken({
+        body: { type, pluginVersion: version || undefined },
+      });
       if (!issued) {
         message.error("令牌签发失败：接口未返回令牌");
         return;
@@ -188,7 +203,7 @@ export function AcquisitionTab() {
       if (!ack.ok) {
         message.error(
           ack.errorMsg ||
-            "插件拒绝接单：请确认已在本页插件弹窗中「信任此站点」，并刷新页面",
+            "插件拒绝接单：请确认插件已安装并启用，然后刷新本页重试",
         );
         return;
       }
@@ -336,7 +351,7 @@ export function AcquisitionTab() {
                       {
                         title: "下载并解压",
                         content:
-                          "点右上角「下载插件」获取 zip，解压到固定文件夹（不要删除解压结果）。",
+                          "点右上角「下载插件」获取 zip，解压到任意固定文件夹；Windows 的「全部解压缩」会得到与压缩包同名的文件夹，里面直接就是 manifest.json。",
                       },
                       {
                         title: "打开扩展管理",
@@ -346,7 +361,7 @@ export function AcquisitionTab() {
                       {
                         title: "加载已解压的扩展程序",
                         content:
-                          "选择第 1 步解压出的 aipdd-enterprise 文件夹。",
+                          "选择第 1 步解压出的那个文件夹（不用再往里钻一层）。",
                       },
                       {
                         title: "登录各平台",
@@ -354,9 +369,9 @@ export function AcquisitionTab() {
                           "在同一个浏览器里登录要采集/触达的平台（小红书、抖音、知乎、微博、B站、视频号、公众号等）。",
                       },
                       {
-                        title: "信任本站并启动",
+                        title: "登录本系统并启动",
                         content:
-                          "点工具栏插件图标 →「信任此站点」；回到本页点「启动采集」或「启动触达」。",
+                          "点工具栏插件图标从右侧拉出侧边栏，在右上角「⋯」里填本系统地址与账号密码登录；回到本页点「启动采集」或「启动触达」。",
                       },
                     ]}
                   />

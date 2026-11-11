@@ -49,6 +49,7 @@ export function NewApplicationDrawer({
   presetTitle,
   onClose,
   onSaved,
+  onGoTemplates,
 }: {
   open: boolean;
   org: OaOrgQuery;
@@ -63,6 +64,8 @@ export function NewApplicationDrawer({
   presetTitle?: string;
   onClose: () => void;
   onSaved: (app: OaApplication, submitted: boolean) => void;
+  /** 无启用模板时的下一步入口：跳到「模板与流程」页签配置。 */
+  onGoTemplates?: () => void;
 }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
@@ -297,7 +300,16 @@ export function NewApplicationDrawer({
               </ToolCardGrid>
             </>
           ) : (
-            <EmptyState text="该组织还没有启用的申请模板，请先在「模板与流程」里配置" />
+            <EmptyState
+              text="该组织还没有启用的申请模板，请先在「模板与流程」里配置"
+              action={
+                onGoTemplates ? (
+                  <Button type="primary" onClick={onGoTemplates}>
+                    去配置模板
+                  </Button>
+                ) : undefined
+              }
+            />
           )}
         </Panel>
       ) : (
@@ -307,9 +319,8 @@ export function NewApplicationDrawer({
               <Alert
                 type="info"
                 showIcon
-                closable
-                onClose={() => setDraftNote(null)}
-                message={`AI 已按「${draftNote.templateName}」起草${
+                closable={{ onClose: () => setDraftNote(null) }}
+                title={`AI 已按「${draftNote.templateName}」起草${
                   draftNote.mode === "llm" ? "" : "（未配置文本模型，按关键词匹配）"
                 }`}
                 description={[

@@ -1,6 +1,8 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
+import type { SocialSyncService, SyncOutcome } from './social-sync.service';
+import type { FeedRanking } from './social-affinity.service';
 
 /** 社交板块本地服务：把原 NestJS SNS 的关系 / 动态 / 小组 / 私信 / 简历逻辑移植到 Hono + 本地 sns_ 表。 */
 export interface PersonBrief {
@@ -18,20 +20,32 @@ const anon = (): PersonBrief => ({
 });
 
 /**
- * 私信携带的链接卡片（沿用 sns_messages.link_cards 现成列）。
- * 现阶段只放简历：投递动作＝发一条带 RESUME 卡片的私信，雇主凭卡片回源看 HTML 简历。
+ * 私信携带的链接卡片（沿用 sns_messages.link_cards 现成列）：
+ * - RESUME：本地投递的 HTML 简历，点开回 `/resume/:userId`；
+ * - LINK：从 AIworkin 私信回流的外部链接，只展示不抓取。
  * 用 type 而非 interface：写入 Prisma JSON 列时才能隐式命中索引签名，免去强转。
  */
-export type LinkCard = {
-  kind: 'RESUME';
-  userId: string;
-  name: string;
-  headline: string;
-  updatedAt: string;
-};
+export type LinkCard =
+  | {
+      kind: 'RESUME';
+      userId: string;
+      name: string;
+      headline: string;
+      updatedAt: string;
+    }
+  | { kind: 'LINK'; title: string; url: string };
+
+const noSync = (reason = ''): SyncOutcome => ({
+  state: 'NONE',
+  peerHasKey: false,
+  reason,
+});
 
 export class SocialService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sync?: SocialSyncService,
+  ) {}
 
   // ---------- 人物名片（本地 users 表聚合） ----------
   private async person(userId: string): Promise<PersonBrief> {
@@ -132,7 +146,12 @@ export class SocialService {
   ): { userAId: string; userBId: string } {
     return a < b ? { userAId: a, userBId: b } : { userAId: b, userBId: a };
   }
-  async requestFriend(fromUserId: string, toUserId: string, message: string) {
+  async requestFriend(
+    fromUserId: string,
+    toUserId: string,
+    message: string,
+    opts?: { syncUpstream?: boolean },
+  ) {
     if (fromUserId === toUserId)
       throw new BusinessException(ErrorCode.BAD_REQUEST, '不能添加自己为好友');
     await this.person(toUserId);
@@ -152,20 +171,33 @@ export class SocialService {
     const existing = await this.prisma.friendship.findUnique({
       where: { userAId_userBId: this.friendKey(fromUserId, toUserId) },
     });
-    if (existing) return { accepted: true, requestId: 0 };
+    if (existing)
+      return {
+        accepted: true,
+        requestId: 0,
+        sync: noSync('ALREADY_FRIEND'),
+      };
     const pending = await this.prisma.friendRequest.findUnique({
       where: { fromUserId_toUserId: { fromUserId, toUserId } },
     });
-    // 反向已有待处理请求 → 直接接受，省去来回
+    // 反向已有待处理请求 → 直接接受，省去来回；同步按「接受」处理
     const reverse = await this.prisma.friendRequest.findUnique({
       where: {
         fromUserId_toUserId: { fromUserId: toUserId, toUserId: fromUserId },
       },
     });
     if (reverse && reverse.status === 'PENDING')
-      return this.acceptFriend(fromUserId, reverse.id);
+      return this.acceptFriend(fromUserId, reverse.id, opts);
     if (pending && pending.status === 'PENDING')
-      return { accepted: false, requestId: pending.id };
+      return {
+        accepted: false,
+        requestId: pending.id,
+        sync: {
+          state: pending.syncState as SyncOutcome['state'],
+          peerHasKey: false,
+          reason: 'ALREADY_PENDING',
+        },
+      };
     const created = await this.prisma.friendRequest.upsert({
       where: { fromUserId_toUserId: { fromUserId, toUserId } },
       create: {
@@ -173,14 +205,25 @@ export class SocialService {
         toUserId,
         message: String(message ?? '').slice(0, 500),
         status: 'PENDING',
+        source: 'LOCAL',
       },
       update: {
         message: String(message ?? '').slice(0, 500),
         status: 'PENDING',
         handledAt: null,
+        source: 'LOCAL',
       },
     });
-    return { accepted: false, requestId: created.id };
+    const sync = this.sync
+      ? await this.sync.afterFriendRequest({
+          fromUserId,
+          toUserId,
+          requestId: created.id,
+          message: String(message ?? '').slice(0, 500),
+          syncUpstream: opts?.syncUpstream,
+        })
+      : noSync();
+    return { accepted: false, requestId: created.id, sync };
   }
   async incomingRequests(userId: string) {
     const rows = await this.prisma.friendRequest.findMany({
@@ -193,29 +236,62 @@ export class SocialService {
       id: r.id,
       from: froms[r.fromUserId] || anon(),
       message: r.message,
+      source: r.source,
+      syncState: r.syncState,
       createdAt: r.createdAt.toISOString(),
     }));
   }
-  async acceptFriend(userId: string, requestId: number) {
+  async acceptFriend(
+    userId: string,
+    requestId: number,
+    opts?: { syncUpstream?: boolean },
+  ) {
     const req = await this.prisma.friendRequest.findUnique({
       where: { id: requestId },
     });
     if (!req || req.toUserId !== userId)
       throw new BusinessException(ErrorCode.NOT_FOUND, '好友请求不存在');
-    if (req.status !== 'PENDING') return { accepted: true };
+    if (req.status !== 'PENDING')
+      return {
+        accepted: true,
+        sync: {
+          state: req.syncState as SyncOutcome['state'],
+          peerHasKey: false,
+          reason: '',
+        },
+      };
     const key = this.friendKey(req.fromUserId, req.toUserId);
     await this.prisma.friendship.upsert({
       where: { userAId_userBId: key },
-      create: { ...key, createdAt: new Date() },
+      create: {
+        ...key,
+        createdAt: new Date(),
+        source: req.source === 'AIWORKIN' ? 'AIWORKIN' : 'LOCAL',
+        syncState: 'NONE',
+      },
       update: {},
     });
     await this.prisma.friendRequest.update({
       where: { id: requestId },
       data: { status: 'ACCEPTED', handledAt: new Date() },
     });
-    return { accepted: true, friendId: req.fromUserId };
+    const sync = this.sync
+      ? await this.sync.afterFriendHandle({
+          userId,
+          requestId,
+          fromUserId: req.fromUserId,
+          upstreamRequestId: req.upstreamRequestId,
+          action: 'ACCEPT',
+          syncUpstream: opts?.syncUpstream,
+        })
+      : noSync();
+    return { accepted: true, friendId: req.fromUserId, sync };
   }
-  async rejectFriend(userId: string, requestId: number) {
+  async rejectFriend(
+    userId: string,
+    requestId: number,
+    opts?: { syncUpstream?: boolean },
+  ) {
     const req = await this.prisma.friendRequest.findUnique({
       where: { id: requestId },
     });
@@ -225,7 +301,17 @@ export class SocialService {
       where: { id: requestId },
       data: { status: 'REJECTED', handledAt: new Date() },
     });
-    return { rejected: true };
+    const sync = this.sync
+      ? await this.sync.afterFriendHandle({
+          userId,
+          requestId,
+          fromUserId: req.fromUserId,
+          upstreamRequestId: req.upstreamRequestId,
+          action: 'REJECT',
+          syncUpstream: opts?.syncUpstream,
+        })
+      : noSync();
+    return { rejected: true, sync };
   }
   async listFriends(userId: string) {
     const rows = await this.prisma.friendship.findMany({
@@ -302,7 +388,20 @@ export class SocialService {
     await this.prisma.post.delete({ where: { id: postId } });
     return { deleted: true };
   }
-  async feed(userId: string, limit = 30) {
+  async feed(
+    userId: string,
+    limit = 30,
+    rank?: (
+      posts: {
+        id: number;
+        userId: string;
+        body: string;
+        visibility: string;
+        createdAt: Date;
+      }[],
+    ) => Promise<Map<number, FeedRanking>>,
+  ) {
+    const take = Math.max(1, Math.min(100, Math.floor(limit) || 30));
     const friends = await this.listFriends(userId);
     const friendIds = new Set([userId, ...friends.map((f) => f.userId)]);
     const blocked = await this.blockedPairs(userId);
@@ -315,7 +414,19 @@ export class SocialService {
       if (p.visibility === 'PUBLIC') return true;
       return friendIds.has(p.userId);
     });
-    const page = visible.slice(0, Math.min(limit, 100));
+    const candidates = visible.slice(0, 500);
+    let ordered = candidates;
+    let ranks: Map<number, FeedRanking> | null = null;
+    if (rank) {
+      ranks = await rank(candidates);
+      ordered = [...candidates].sort(
+        (a, b) =>
+          (ranks!.get(b.id)?.score ?? 0) - (ranks!.get(a.id)?.score ?? 0) ||
+          b.createdAt.getTime() - a.createdAt.getTime() ||
+          b.id - a.id,
+      );
+    }
+    const page = ordered.slice(0, take);
     const authors = await this.persons(page.map((p) => p.userId));
     return page.map((p) => ({
       id: p.id,
@@ -323,6 +434,7 @@ export class SocialService {
       body: p.body,
       visibility: p.visibility,
       createdAt: p.createdAt.toISOString(),
+      reasons: ranks?.get(p.id)?.reasons ?? [],
     }));
   }
   async myPosts(userId: string) {
@@ -1076,8 +1188,28 @@ export class SocialService {
     toUserId: string,
     subject: string,
     body: string,
+    opts?: { syncUpstream?: boolean },
   ) {
-    return this.createMessage(fromUserId, toUserId, subject, body, []);
+    const result = await this.createMessage(
+      fromUserId,
+      toUserId,
+      subject,
+      body,
+      [],
+    );
+    const sync = this.sync
+      ? await this.sync.afterMail({
+          fromUserId,
+          toUserId,
+          messageId: result.id,
+          threadId: result.threadId,
+          subject: String(subject ?? '').slice(0, 200),
+          body: String(body ?? '').trim(),
+          linkCards: [],
+          syncUpstream: opts?.syncUpstream,
+        })
+      : noSync();
+    return { ...result, sync };
   }
   /** 落一条私信；linkCards 为随信卡片（如简历卡片），空数组＝纯文本私信。 */
   private async createMessage(
@@ -1202,7 +1334,10 @@ export class SocialService {
       toUserId: m.toUserId,
       subject: m.subject,
       body: m.body,
-      linkCards: this.resumeCards(m.linkCards),
+      source: m.source,
+      syncState: m.syncState,
+      upstreamMessageId: m.upstreamMessageId,
+      linkCards: this.messageCards(m.linkCards),
       createdAt: m.createdAt.toISOString(),
     }));
   }
@@ -1211,16 +1346,27 @@ export class SocialService {
       Array.isArray(readUserIds) && (readUserIds as unknown[]).includes(userId)
     );
   }
-  /** 取私信里的简历卡片：link_cards 是宽松 JSON，逐项按形状筛，脏数据不影响会话渲染。 */
-  private resumeCards(raw: unknown): LinkCard[] {
+  /** 取私信里的卡片：resume_cards 是宽松 JSON，逐项按形状筛，脏数据不影响会话渲染。 */
+  private messageCards(raw: unknown): LinkCard[] {
     if (!Array.isArray(raw)) return [];
-    return (raw as LinkCard[]).filter(
-      (card) =>
-        card &&
-        typeof card === 'object' &&
-        card.kind === 'RESUME' &&
-        typeof card.userId === 'string',
-    );
+    const cards: LinkCard[] = [];
+    for (const card of raw as LinkCard[]) {
+      if (!card || typeof card !== 'object') continue;
+      if (card.kind === 'RESUME' && typeof card.userId === 'string') {
+        cards.push(card);
+      } else if (
+        card.kind === 'LINK' &&
+        typeof card.url === 'string' &&
+        /^https?:\/\//i.test(card.url)
+      ) {
+        cards.push({
+          kind: 'LINK',
+          title: String(card.title || '链接').slice(0, 120),
+          url: card.url.slice(0, 500),
+        });
+      }
+    }
+    return cards;
   }
 
   // ---------- 简历 ----------
@@ -1391,7 +1537,9 @@ export class SocialService {
         take: 200,
       });
       const delivered = messages.some((m) =>
-        this.resumeCards(m.linkCards).some((card) => card.userId === targetId),
+        this.messageCards(m.linkCards).some(
+          (card) => card.kind === 'RESUME' && card.userId === targetId,
+        ),
       );
       if (!delivered)
         throw new BusinessException(

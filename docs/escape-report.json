@@ -1,23 +1,22 @@
 {
   "tool": "escape-audit",
   "version": 2,
-  "commit": "5e152c3",
-  "date": "2026-11-09",
+  "commit": "84d68d7",
+  "date": "2026-11-11",
   "root": "E:\\wwwroot\\oem-enterprise",
-  "files": 1467,
-  "candidates": 1929,
-  "untracked": 501,
+  "files": 1674,
+  "candidates": 2202,
+  "untracked": 209,
   "missing": [
-    "backend/src/platform/provider-display.service.ts",
-    "frontend/src/app/admin/_components/providers-display-tab.tsx",
-    "frontend/src/app/agent/_components/memory-tab.tsx"
+    "extensions/aipdd-enterprise/popup.js",
+    "frontend/src/app/social/_components/listing-tab.tsx"
   ],
   "excluded": {
     "dir": 0,
     "instrument": 2
   },
-  "loc": 526748,
-  "prodLoc": 481049,
+  "loc": 607430,
+  "prodLoc": 544410,
   "total": 6,
   "prodTotal": 4,
   "unallowlisted": 0,
@@ -83,32 +82,32 @@
     }
   },
   "byRole": {
-    "script": {
-      "files": 115,
-      "loc": 27616,
-      "total": 2
+    "prod": {
+      "files": 1395,
+      "loc": 544410,
+      "total": 4
     },
     "test": {
-      "files": 108,
-      "loc": 18083,
+      "files": 158,
+      "loc": 29799,
       "total": 0
     },
-    "prod": {
-      "files": 1244,
-      "loc": 481049,
-      "total": 4
+    "script": {
+      "files": 121,
+      "loc": 33221,
+      "total": 2
     }
   },
   "workspaces": [
     {
       "ws": "frontend",
-      "files": 598,
-      "loc": 189231,
-      "prodFiles": 589,
-      "prodLoc": 188664,
+      "files": 647,
+      "loc": 210767,
+      "prodFiles": 638,
+      "prodLoc": 210179,
       "total": 4,
       "prodTotal": 3,
-      "density": 0.02,
+      "density": 0.01,
       "cats": {
         "asNever": 0,
         "asAny": 0,
@@ -132,10 +131,10 @@
     },
     {
       "ws": "backend",
-      "files": 721,
-      "loc": 261772,
-      "prodFiles": 603,
-      "prodLoc": 241861,
+      "files": 863,
+      "loc": 310145,
+      "prodFiles": 695,
+      "prodLoc": 278539,
       "total": 2,
       "prodTotal": 1,
       "density": 0,
@@ -162,8 +161,8 @@
     },
     {
       "ws": "extensions",
-      "files": 7,
-      "loc": 2868,
+      "files": 11,
+      "loc": 7354,
       "prodFiles": 0,
       "prodLoc": 0,
       "total": 0,
@@ -222,10 +221,10 @@
     },
     {
       "ws": "packages/contracts",
-      "files": 52,
-      "loc": 50524,
-      "prodFiles": 52,
-      "prodLoc": 50524,
+      "files": 62,
+      "loc": 55692,
+      "prodFiles": 62,
+      "prodLoc": 55692,
       "total": 0,
       "prodTotal": 0,
       "density": 0,
@@ -252,8 +251,8 @@
     },
     {
       "ws": "scripts",
-      "files": 88,
-      "loc": 22250,
+      "files": 90,
+      "loc": 23369,
       "prodFiles": 0,
       "prodLoc": 0,
       "total": 0,
@@ -285,7 +284,7 @@
     {
       "file": "backend/src/http/automation-routes.ts",
       "role": "prod",
-      "loc": 1818,
+      "loc": 2016,
       "total": 1,
       "cats": {
         "asNever": 0,

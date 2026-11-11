@@ -749,7 +749,7 @@ export class OaService {
       );
       result = {
         status: 'DONE' as const,
-        content: content.trim().slice(0, 4000),
+        content: content.text.trim().slice(0, 4000),
         personaName: config.personaName,
         model: '',
         generatedAt: new Date().toISOString(),
@@ -1491,9 +1491,9 @@ export class OaService {
         : { id: asId(id) },
     })) as AppRow | null;
     if (!row) throw new BusinessException(ErrorCode.NOT_FOUND, '单据不存在');
-    const ctx = query
-      ? await this.scope.context(user, query)
-      : await this.orgOf(user, row, '单据不存在');
+    // 授权上下文一律以单据所属组织为准（设计方案 §四）：query 里的组织只用来收窄查找，
+    // 不能拿调用者默认组织的管理员身份去判断别家组织的单据。非成员按 404，不泄露存在性。
+    const ctx = await this.orgOf(user, row, '单据不存在');
     return { row, ctx };
   }
 

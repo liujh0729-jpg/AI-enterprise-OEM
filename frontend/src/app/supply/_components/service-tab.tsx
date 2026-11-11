@@ -4,6 +4,7 @@ import { presentMutationError } from "@/query/errors";
 import { supplyApi } from "@/api/supply";
 
 import { ToolOutlined } from "@ant-design/icons";
+import Link from "next/link";
 import {
   App,
   Button,
@@ -348,6 +349,11 @@ export function ServiceTab({
                 label: `${item.name}${item.region ? `（${item.region}）` : ""}`,
               }))}
             />
+            {!myStations.length ? (
+              <div className="text-12 muted" style={{ marginTop: 4 }}>
+                <Link href="/supply?tab=stations">去创建服务站</Link>
+              </div>
+            ) : null}
           </Form.Item>
           <Form.Item name="price_unit" label="报价单位">
             <Input placeholder="如：次 / 亩 / 工日" />

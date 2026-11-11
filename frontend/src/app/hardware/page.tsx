@@ -175,7 +175,7 @@ export default function HardwarePlazaPage() {
                   ) : null}
                   <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span className="text-12 muted">开发包 {item.kitCount} · 我的设备 {item.deviceCount}</span>
-                    <Button size="small" type="link" icon={<RightOutlined aria-hidden />} iconPosition="end">
+                    <Button size="small" type="link" icon={<RightOutlined aria-hidden />} iconPlacement="end">
                       详情
                     </Button>
                   </div>

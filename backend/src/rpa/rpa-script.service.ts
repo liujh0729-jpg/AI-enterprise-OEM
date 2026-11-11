@@ -13,6 +13,7 @@ import {
   assertAutomaJson,
   assertBitbrowserFlowJson,
   assertBitphoneJson,
+  assertChromeActions,
   normalizeChoice,
   normalizeDeviceType,
   normalizeFileType,
@@ -337,6 +338,7 @@ function assertContent(fileType: string, content: string) {
   if (fileType === 'automa_json') assertAutomaJson(content);
   if (fileType === 'bitphone_json') assertBitphoneJson(content);
   if (fileType === 'bitbrowser_rpa') assertBitbrowserFlowJson(content);
+  if (fileType === 'chrome_actions') assertChromeActions(content);
 }
 
 /** 比特浏览器 RPA 流程只认客户端里的任务 ID（POST /rpa/run 的 body.id），没有它就跑不起来，必填。 */

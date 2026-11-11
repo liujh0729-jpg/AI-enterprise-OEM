@@ -4,6 +4,20 @@ jest.mock('../geo/geo-llm.client', () => ({
   geoEmbed: jest.fn(),
 }));
 
+// 平台默认层要判断 AIPDD 上游是否可用；真实实现另测，这里只回「平台 Key 已配置」。
+jest.mock('../account/aipdd-key.service', () => ({
+  AipddKeyService: class {
+    async platformKeyView() {
+      return {
+        configured: true,
+        source: 'env',
+        masked: 'sk-***',
+        updatedAt: null,
+      };
+    }
+  },
+}));
+
 // 渠道凭据解算（含 AES-GCM 解密与 AIPDD Key 绑定）另测；此处只喂网关阶梯需要的「有没有凭据」。
 jest.mock('./ai-channels', () => ({
   tryChannelCredentials: jest.fn(async (input: { channelId: number }) => {
@@ -17,6 +31,7 @@ jest.mock('./ai-channels', () => ({
     };
   }),
   aipddApiKey: jest.fn(async () => 'sk-aipdd'),
+  computeProviderSupported: jest.fn(async () => true),
 }));
 
 import { geoChatMulti } from '../geo/geo-llm.client';
@@ -42,6 +57,24 @@ const prismaOf = (rows: Record<string, unknown>) =>
     },
     rpaLlmSetting: { findUnique: async () => rows['rpa'] ?? null },
     workbuddyLlmSetting: { findUnique: async () => rows['workbuddy'] ?? null },
+    systemSetting: {
+      findUnique: async () =>
+        rows['platform'] ? { value: JSON.stringify(rows['platform']) } : null,
+    },
+    rechargeOrder: { count: async () => (rows['paid'] ? 1 : 0) },
+    modelCatalog: {
+      findUnique: async ({ where }: { where: { id: number } }) =>
+        rows[`catalog:${where.id}`] ?? null,
+    },
+    modelUpstream: {
+      findUnique: async ({ where }: { where: { id: number } }) =>
+        rows[`upstream:${where.id}`] ?? { enabled: true, keyCipher: 'cipher' },
+    },
+    modelUsageLog: {
+      aggregate: async () => ({
+        _sum: { pointsCost: rows['usagePoints'] ?? 0 },
+      }),
+    },
   });
 
 const chatReply = (model: string, reply = '```json\n{"a":1}\n```') => ({
@@ -134,6 +167,108 @@ describe('统一网关取模型阶梯', () => {
       { userId: 'u1' },
     );
     expect(model?.source).toBe('legacy');
+  });
+});
+
+const catalogRow = (
+  id: number,
+  modelKey: string,
+  endpoints = ['/chat/completions'],
+) => ({
+  id,
+  upstreamId: 0,
+  modelKey,
+  displayName: modelKey,
+  billingUnit: 'token',
+  endpoints,
+  modalities: {},
+  enabled: true,
+});
+
+const platformConfig = (
+  models: Record<string, { catalogId: number; modelKey: string }>,
+  limits: Record<string, number> = {},
+) => ({ enabled: true, models, limits });
+
+describe('平台默认模型继承', () => {
+  it('个人未配置且已真实充值：继承平台默认模型并走 LocalAPI 通道', async () => {
+    mockChannels['-1'] = { protocol: 'openai' };
+    const model = await resolveModel(
+      prismaOf({
+        paid: true,
+        platform: platformConfig({
+          text: { catalogId: 100, modelKey: 'plat-model' },
+        }),
+        'catalog:100': catalogRow(100, 'plat-model'),
+      }),
+      { userId: 'u1' },
+    );
+    expect(model?.source).toBe('platform');
+    expect(model?.channelId).toBe(-1);
+    expect(model?.model).toBe('plat-model');
+  });
+
+  it('只有赠送或调账、没有已支付充值单时不允许继承', async () => {
+    expect(
+      await resolveModel(
+        prismaOf({
+          platform: platformConfig({
+            text: { catalogId: 100, modelKey: 'plat-model' },
+          }),
+          'catalog:100': catalogRow(100, 'plat-model'),
+        }),
+        { userId: 'u1' },
+      ),
+    ).toBeNull();
+  });
+
+  it('按能力分别继承：只配了文本时图片请求不继承', async () => {
+    mockChannels['-1'] = { protocol: 'openai' };
+    const prisma = prismaOf({
+      paid: true,
+      platform: platformConfig({
+        text: { catalogId: 100, modelKey: 'plat-model' },
+      }),
+      'catalog:100': catalogRow(100, 'plat-model'),
+    });
+    expect(
+      await resolveModel(prisma, { userId: 'u1', mediaType: 'image' }),
+    ).toBeNull();
+    expect((await resolveModel(prisma, { userId: 'u1' }))?.source).toBe(
+      'platform',
+    );
+  });
+
+  it('个人模型已配置但调用失败时，不自动切到收费的平台模型', async () => {
+    const model = await resolveModel(
+      prismaOf({
+        'slot:text': { channelId: 88, model: 'mine' },
+        paid: true,
+        platform: platformConfig({
+          text: { catalogId: 100, modelKey: 'plat-model' },
+        }),
+        'catalog:100': catalogRow(100, 'plat-model'),
+      }),
+      { userId: 'u1' },
+    );
+    expect(model).toBeNull();
+  });
+
+  it('日额度用完时静默不继承', async () => {
+    expect(
+      await resolveModel(
+        prismaOf({
+          paid: true,
+          usagePoints: 10,
+          platform: platformConfig(
+            { text: { catalogId: 100, modelKey: 'plat-model' } },
+            { dailyPoints: 10 },
+          ),
+          'catalog:100': catalogRow(100, 'plat-model'),
+        }),
+        { userId: 'u1' },
+      ),
+    ).toBeNull();
   });
 });
 

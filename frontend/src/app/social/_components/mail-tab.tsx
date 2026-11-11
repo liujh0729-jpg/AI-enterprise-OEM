@@ -1,13 +1,22 @@
 "use client";
 
-import { EditOutlined, FileTextOutlined, SendOutlined } from "@ant-design/icons";
+import { EditOutlined, FileTextOutlined, LinkOutlined, SendOutlined } from "@ant-design/icons";
 import { App, Button, Checkbox, Input, Modal } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
-import { socialApi } from "@/api/social";
+import { socialApi, type SyncOutcome } from "@/api/social";
 import { useBusinessQuery, useOperationMutation } from "@/query/business";
 import { useSession } from "@/lib/session";
 import { PersonAvatar, fmtRelative } from "./social-ui";
+
+/** 私信同步结果：只在对方也有 Key 时提示，避免无 Key 用户被无关信息打扰。 */
+function syncSuffix(sync?: SyncOutcome) {
+  if (!sync || !sync.peerHasKey) return "";
+  if (sync.state === "PENDING") return "，已排队同步到 AIworkin";
+  if (sync.state === "SYNCED") return "，已同步到 AIworkin";
+  if (sync.state === "FAILED" || sync.state === "DEAD") return "，AIworkin 同步失败，可稍后在「资料 → AIworkin 同步」重试";
+  return "";
+}
 
 /**
  * 私信：左会话列表 + 右气泡对话（IM 双栏）。
@@ -22,12 +31,18 @@ export function MailTab() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [compose, setCompose] = useState({ toUserId: "", subject: "", body: "" });
   const [withResume, setWithResume] = useState(false);
+  const [syncUpstream, setSyncUpstream] = useState<boolean | null>(null);
   // 投递弹层：附言可留空（后端给默认文案）
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [deliverNote, setDeliverNote] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const threads = useBusinessQuery("social", "mail-threads", {}, (signal) => socialApi.listThreads({ signal }));
+  const overview = useBusinessQuery("social", "sync-overview", {}, (signal) =>
+    socialApi.syncOverview({ signal }),
+  );
+  // 默认跟随「资料 → AIworkin 同步」里的私信出站设置
+  const mailSync = syncUpstream ?? overview.data?.preferences.mailOutboundDefault ?? false;
   const messages = useBusinessQuery(
     "social",
     "mail-messages",
@@ -37,7 +52,8 @@ export function MailTab() {
     threadId != null,
   );
   const send = useOperationMutation(
-    (input: { toUserId: string; subject?: string; body: string }) => socialApi.sendMail(input),
+    (input: { toUserId: string; subject?: string; body: string; syncUpstream: boolean }) =>
+      socialApi.sendMail(input),
     ["social"],
   );
   const deliver = useOperationMutation(
@@ -58,15 +74,25 @@ export function MailTab() {
     if (!activeThread) return;
     const text = reply.trim();
     if (!text) return message.warning("回复内容不能为空");
-    await send.mutateAsync({ toUserId: activeThread.peer.userId, subject: activeThread.subject, body: text });
-    setReply("");
-    void threads.refetch();
+    try {
+      const res = await send.mutateAsync({
+        toUserId: activeThread.peer.userId,
+        subject: activeThread.subject,
+        body: text,
+        syncUpstream: mailSync,
+      });
+      setReply("");
+      void threads.refetch();
+      message.success(`已发送${syncSuffix(res.sync)}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "发送失败");
+    }
   };
 
   const onSendNew = async () => {
     if (!compose.toUserId.trim()) return message.warning("请填写收件人用户 ID");
     if (!compose.body.trim() && !withResume) return message.warning("私信内容不能为空");
-    let res: { threadId: number };
+    let res: { threadId: number; sync?: SyncOutcome };
     try {
       // 勾了「附上简历」就只发一条：正文当附言，卡片随信走，免得同一段话刷两条
       res = withResume
@@ -75,6 +101,7 @@ export function MailTab() {
             toUserId: compose.toUserId.trim(),
             subject: compose.subject.trim(),
             body: compose.body.trim(),
+            syncUpstream: mailSync,
           });
     } catch (error) {
       return message.error(error instanceof Error ? error.message : "发送失败");
@@ -84,7 +111,7 @@ export function MailTab() {
     setComposeOpen(false);
     setThreadId(res.threadId);
     void threads.refetch();
-    message.success(withResume ? "简历已投递" : "已发送");
+    message.success(withResume ? "简历已投递" : `已发送${syncSuffix(res.sync)}`);
   };
 
   const onDeliver = async () => {
@@ -189,27 +216,54 @@ export function MailTab() {
                           <div className="sns-msg-main">
                             <div className="sns-msg-meta">
                               <span>{mineMsg ? "我" : m.from.displayName}</span>
+                              {m.source === "AIWORKIN" ? (
+                                <span className="sns-flag sns-flag-source">AIworkin</span>
+                              ) : null}
+                              {mineMsg && (m.syncState === "PENDING" || m.syncState === "SYNCED" || m.syncState === "FAILED" || m.syncState === "DEAD") ? (
+                                <span className="sns-flag sns-flag-sync">
+                                  {m.syncState === "SYNCED" ? "已同步" : m.syncState === "PENDING" ? "待同步" : "同步失败"}
+                                </span>
+                              ) : null}
                               <span>{fmtRelative(m.createdAt)}</span>
                             </div>
                             <div className="sns-bubble">{m.body}</div>
-                            {(m.linkCards || []).map((card) => (
-                              <a
-                                key={`${card.kind}-${card.userId}`}
-                                className="sns-resume-card"
-                                href={`/resume/${card.userId}`}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <span className="sns-resume-card-icon">
-                                  <FileTextOutlined />
-                                </span>
-                                <span className="sns-resume-card-main">
-                                  <b>{card.name || "同行"} 的简历</b>
-                                  <em>{card.headline || "HTML 简历，可导出 PDF"}</em>
-                                </span>
-                                <span className="sns-resume-card-cta">打开简历</span>
-                              </a>
-                            ))}
+                            {(m.linkCards || []).map((card) =>
+                              card.kind === "RESUME" ? (
+                                <a
+                                  key={`RESUME-${card.userId}`}
+                                  className="sns-resume-card"
+                                  href={`/resume/${card.userId}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <span className="sns-resume-card-icon">
+                                    <FileTextOutlined />
+                                  </span>
+                                  <span className="sns-resume-card-main">
+                                    <b>{card.name || "同行"} 的简历</b>
+                                    <em>{card.headline || "HTML 简历，可导出 PDF"}</em>
+                                  </span>
+                                  <span className="sns-resume-card-cta">打开简历</span>
+                                </a>
+                              ) : (
+                                <a
+                                  key={`LINK-${card.url}`}
+                                  className="sns-resume-card"
+                                  href={card.url}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                >
+                                  <span className="sns-resume-card-icon">
+                                    <LinkOutlined />
+                                  </span>
+                                  <span className="sns-resume-card-main">
+                                    <b>{card.title || "链接"}</b>
+                                    <em>{card.url}</em>
+                                  </span>
+                                  <span className="sns-resume-card-cta">打开链接</span>
+                                </a>
+                              ),
+                            )}
                           </div>
                         </div>
                       );
@@ -218,19 +272,26 @@ export function MailTab() {
                 </div>
 
                 <div className="sns-chat-reply">
-                  <Input.TextArea
-                    autoSize={{ minRows: 2, maxRows: 4 }}
-                    maxLength={20000}
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                    onPressEnter={(e) => {
-                      if (!e.shiftKey) {
-                        e.preventDefault();
-                        void onReply();
-                      }
-                    }}
-                    placeholder="输入回复，Enter 发送 / Shift + Enter 换行"
-                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Input.TextArea
+                      autoSize={{ minRows: 2, maxRows: 4 }}
+                      maxLength={20000}
+                      value={reply}
+                      onChange={(e) => setReply(e.target.value)}
+                      onPressEnter={(e) => {
+                        if (!e.shiftKey) {
+                          e.preventDefault();
+                          void onReply();
+                        }
+                      }}
+                      placeholder="输入回复，Enter 发送 / Shift + Enter 换行"
+                    />
+                    <div style={{ marginTop: 6 }}>
+                      <Checkbox checked={mailSync} onChange={(e) => setSyncUpstream(e.target.checked)}>
+                        同时发送到 AIworkin 私信
+                      </Checkbox>
+                    </div>
+                  </div>
                   <Button type="primary" icon={<SendOutlined />} loading={send.isPending} onClick={onReply}>
                     发送
                   </Button>
@@ -275,6 +336,13 @@ export function MailTab() {
           />
           <Checkbox checked={withResume} onChange={(e) => setWithResume(e.target.checked)}>
             附上我的简历（正文作为附言，随信带一张可打开的简历卡片）
+          </Checkbox>
+          <Checkbox
+            checked={mailSync}
+            disabled={withResume}
+            onChange={(e) => setSyncUpstream(e.target.checked)}
+          >
+            同时发送到 AIworkin 私信（简历投递暂不支持跨站同步）
           </Checkbox>
         </div>
       </Modal>

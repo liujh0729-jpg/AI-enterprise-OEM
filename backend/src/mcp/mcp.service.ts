@@ -51,7 +51,7 @@ export type McpToolResult = {
 
 type ToolArgs = Record<string, unknown>;
 
-type ExecutionResult = {
+export type ExecutionResult = {
   status: number;
   code: number | undefined;
   message: string;
@@ -178,7 +178,40 @@ export class McpService {
         return this.mailCreateDraft(user, input);
       case 'mail_send_reply':
         return this.mailSendReply(user, input);
+      case 'browser_agent_start':
+      case 'browser_agent_status':
+      case 'browser_agent_result':
+      case 'browser_agent_stop':
+      case 'browser_extract':
+      case 'browser_skill_list':
+      case 'browser_skill_run':
+        return this.browserAgent(user, toolName, input);
     }
+  }
+
+  /**
+   * 浏览器代理七件套：语义层自己判定在线闸与业务含义，MCP 这一层只做信封转换。
+   * 发起/抽取/运行技能/停止都是改状态的动作，沿用在其他写工具上的无人值守闸——
+   * 半夜的定时任务不能因为远端一句话就把用户的浏览器接管过去。
+   */
+  private async browserAgent(
+    user: CurrentUser,
+    name: McpToolName,
+    input: ToolArgs,
+  ): Promise<McpToolResult> {
+    const mutating =
+      name !== 'browser_agent_status' &&
+      name !== 'browser_agent_result' &&
+      name !== 'browser_skill_list';
+    if (mutating) {
+      const denied = unattendedDenialOf(name, currentAgentCall());
+      if (denied) return fail(denied);
+    }
+    const result = await this.services.rpaChrome.tools.run(user, name, input);
+    if (!result) return fail(`没有名为 ${name} 的工具`);
+    if (result.ok === false)
+      return fail(text(result.message) || '浏览器代理未执行');
+    return ok(result);
   }
 
   // ---------------------------------------------------------------- 六个工具
@@ -645,6 +678,50 @@ export class McpService {
   }
 
   // ---------------------------------------------------------------- 内部助手
+
+  /**
+   * 内部直接执行口（工作流动作节点等）：按 operationId 直奔内部自执行器，
+   * 不套 MCP 勾选授权闸（授权由调用方负责），但仍是同一张路由表、同一份校验，
+   * 身份同样经 `AsyncLocalStorage` 注入，不可伪造。
+   */
+  async runOperation(
+    user: CurrentUser,
+    requestId: string,
+    operationId: string,
+    input: {
+      pathParams?: Record<string, string | number>;
+      query?: Record<string, unknown>;
+      body?: Record<string, unknown>;
+    },
+  ): Promise<ExecutionResult> {
+    const row = findOperation(operationId);
+    if (!row) {
+      return {
+        status: 404,
+        code: undefined,
+        message: `没有名为 ${operationId} 的接口动作，或该动作不对内部开放。`,
+        data: undefined,
+      };
+    }
+    const pathParams = input.pathParams ?? {};
+    const missing = missingPathParams(operationId, pathParams);
+    if (missing.length) {
+      return {
+        status: 400,
+        code: undefined,
+        message: `缺少路径参数：${missing.join('、')}`,
+        data: undefined,
+      };
+    }
+    return this.execute(
+      user,
+      requestId,
+      row,
+      pathParams,
+      input.query ?? {},
+      row.hasBody ? (input.body ?? {}) : {},
+    );
+  }
 
   private async grantedList(user: CurrentUser) {
     const granted = await this.memory.grantedActions(user.userId);

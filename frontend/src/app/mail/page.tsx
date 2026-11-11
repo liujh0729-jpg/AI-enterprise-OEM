@@ -2,6 +2,7 @@
 
 import type { MailAccount } from "@enterprise/contracts";
 import { ConfigProvider } from "antd";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { mailApi } from "@/api/mail";
 import { PageHero } from "@/components/ui/panel";
@@ -20,6 +21,13 @@ type View = "accounts" | "inbox" | "drafts" | "scripts" | "templates";
  */
 export default function MailPage() {
   const [view, setView] = useState<View>("accounts");
+  // 阻断提示直达：/mail?tab=accounts 定位到邮箱账号页签
+  const wantedTab = useSearchParams().get("tab") || "";
+  useEffect(() => {
+    if (["accounts", "inbox", "drafts", "scripts", "templates"].includes(wantedTab)) {
+      setView(wantedTab as View);
+    }
+  }, [wantedTab]);
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

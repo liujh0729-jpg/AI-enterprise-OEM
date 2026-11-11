@@ -13,6 +13,7 @@ import {
   registerBaseDataTokenResolver,
 } from '../common/upstream-token';
 import { registerSessionRoutes, sessionToken } from '../auth/session';
+import { issueSsoSession } from '../auth/token';
 import { registerDevSessionRoutes } from '../auth/dev-session';
 import {
   createAccountModule,
@@ -36,6 +37,10 @@ import {
   registerPointsPublicRoutes,
 } from '../points/points.routes';
 import {
+  createServicePackageModule,
+  registerServicePackageRoutes,
+} from '../service-package/service-package.routes';
+import {
   createListingModule,
   registerListingRoutes,
 } from '../social/listing.routes';
@@ -58,11 +63,14 @@ import { registerScrmSidebarPublic } from '../wecom-scrm/scrm-sidebar.service';
 import { registerGapsPublic } from '../gaps/gaps.public';
 import { registerModelPlazaPublic } from '../model-plaza/model-plaza.public';
 import { registerHardwarePublic } from '../hardware/hardware.public';
+import { registerRpaChromePublic } from '../rpa/rpa-chrome.public';
 import { registerHardwareMachineRoutes } from '../hardware/hardware.machine';
+import { registerWechatMpPublic } from '../wechat-mp/wechat-mp.public';
 import { McpService } from '../mcp/mcp.service';
 import { handleError, validationHook } from './error-handler';
 import { bearerApiKey } from '../mcp/mcp-auth';
 import { agentIntentMiddleware } from '../agent-memory/agent-memory.middleware';
+import { maintenanceMiddleware } from '../upgrade/upgrade.middleware';
 import type { Services } from './services';
 import type { Context, Input } from 'hono';
 import type { ApiEnv } from './types';
@@ -81,6 +89,9 @@ export function requestBodyLimit(path: string) {
   if (canonical === '/enterprise/content/uploads') return 100 * 1024 * 1024;
   // 创意社区运行表单的输入图：Comfy Cloud 对 >50MiB 的图片输入直接拒收，取到 50MB 即可
   if (canonical === '/enterprise/community/uploads') return 50 * 1024 * 1024;
+  // 平台升级包：Release 源码包可能到数百 MB，与 UpgradePackageService 的 512MB 上限对齐
+  if (canonical === '/enterprise/admin/upgrade/upload')
+    return 512 * 1024 * 1024;
   return 12 * 1024 * 1024;
 }
 /**
@@ -94,6 +105,9 @@ function originAllowed(
   siteOrigin = '',
 ) {
   if (!origin) return false;
+  // 浏览器扩展（本地 Chrome 插件）的设备通道请求来自 chrome-extension://<id>：
+  // 它不带业务会话、只走设备令牌，来源本身不是 CSRF 面，放行以便预检通过。
+  if (origin.startsWith('chrome-extension://')) return true;
   if (origins.includes(origin)) return true;
   // 站点域名在后台改过就立刻生效，不必回来重启或改环境变量
   if (siteOrigin && origin === siteOrigin) return true;
@@ -146,6 +160,8 @@ export function createApp(services: Services) {
   const platform = createPlatformModule(services);
   // 积分与充值：复用 services.ts 已构造的积分域实例，仅负责路由组装。
   const points = createPointsModule(services);
+  // 官方服务套餐：目录 + 积分直购 + 平台整合交付，复用 services.ts 已构造实例。
+  const servicePackages = createServicePackageModule(services);
   // M5 社交板块：把原 NestJS SNS 的关系/动态/小组/私信/简历本地化进 Hono（直连 sns_ 表）。
   const social = createSocialModule(services);
   // M6 供求广场：社交板通用发布需求/服务，本地免 Key + 勾选同步 AIworkin（复用上游通道）。
@@ -209,6 +225,7 @@ export function createApp(services: Services) {
         'Content-Type',
         'Authorization',
         'X-Api-Key',
+        'X-Chrome-Token',
         'Idempotency-Key',
         'X-Locale',
       ],
@@ -268,6 +285,9 @@ export function createApp(services: Services) {
   });
   // 意图中间件在鉴权之后、业务路由之前：全站写请求只在这一处进记忆，业务服务不各自埋点。
   business.use('*', agentIntentMiddleware(services.agentMemory));
+  // 平台升级维护闸：升级/还原期间只放行读请求与升级后台自身，其余写请求 503。
+  // 放在意图采集之后，维护期被拒的写请求不进入记忆。
+  business.use('*', maintenanceMiddleware(services.upgrade.jobs));
   // §5.10 功能开关拦截：鉴权后、路由前，菜单隐藏的板块直链/MCP 转发同口径 403 FEATURE_CLOSED；
   // 平台管理/认证会话/账户计费/合规退出四组 protected 前缀在中间件内部直接跳过。
   business.use('*', featureGateMiddleware(services.feature.toggle));
@@ -292,6 +312,10 @@ export function createApp(services: Services) {
   registerPointsRoutes(business, points, (user) =>
     services.identity.requireAdmin(user),
   );
+  // 官方服务套餐（用户侧展示/直购/我的套餐）+ 后台目录与交付管理：统一 requireAdmin 注入。
+  registerServicePackageRoutes(business, servicePackages, (user) =>
+    services.identity.requireAdmin(user),
+  );
   // L0 平台治理（§5.9/§5.10/§5.12）由契约 moduleHandlers 注册（Platform_/Points_），
   // 菜单对登录用户开放，其余管理端动作在控制器内统一 requireAdmin。
   // 发布审核（阿里云内容安全）：配置、测试与拦截台账，平台管理员专属。
@@ -308,6 +332,13 @@ export function createApp(services: Services) {
   const mcpService = new McpService(services);
   services.builtinMcp.current = (user, requestId, name, args) =>
     mcpService.callTool(user, requestId, name, args);
+  // 工作流动作节点复用同一个内部自执行器：同一张路由表、同一份校验、同一条留痕。
+  services.workflowRunOperation.current = (
+    user,
+    requestId,
+    operationId,
+    input,
+  ) => mcpService.runOperation(user, requestId, operationId, input);
   registerMcpRoutes(business, services, mcpService);
   // 智能硬件对外通道：REST `/api/v1/hardware/**` 与独立 MCP `/api/v1/hardware/mcp`，
   // 与平台 MCP 各自一套；继承 business 的 ek_ Key 鉴权、功能开关与审计。
@@ -422,6 +453,25 @@ export function createApp(services: Services) {
   registerModelPlazaPublic(app, services);
   // 智能硬件设备通道：/api/public/hardware/**，只认设备令牌，免登录、不进功能开关（关板块不掐心跳）。
   registerHardwarePublic(app, services);
+  // 本地 Chrome 插件设备通道：/api/public/rpa-chrome/**，同样只认设备令牌（x-chrome-token）。
+  // 账号模块在 services 之后构造，登录校验所需的账号实例在这里注入。
+  services.rpaChrome.device.bindAccounts(account.account);
+  registerRpaChromePublic(app, services, mcpService);
+  // 微信服务号：服务器配置回调与微信内网页授权（免登录，靠微信签名/state 自证）。
+  registerWechatMpPublic(app, services, {
+    issueSession: async (userId) => {
+      const row = await account.account.activeAccount(userId);
+      if (!row) return null;
+      return {
+        token: issueSsoSession(
+          String(row.id),
+          row.username,
+          row.role === 'PLATFORM_ADMIN' ? 'admin' : 'user',
+          row.tokenVersion,
+        ),
+      };
+    },
+  });
   app.notFound((c) =>
     c.json({ code: 404, message: '接口不存在', data: null }, 404),
   );

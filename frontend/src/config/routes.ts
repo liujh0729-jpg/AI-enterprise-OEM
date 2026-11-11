@@ -25,7 +25,7 @@ export type AdminSection = {
   name: string;
   icon: string;
   desc: string;
-  /** 侧栏大分类（平台数据总览并入高管驾驶舱，所有板块都归属分组）。 */
+  /** 侧栏大分类（平台数据总览并入驾驶舱，所有板块都归属分组）。 */
   group: AdminGroupKey;
 };
 
@@ -144,6 +144,13 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     group: "billing",
   },
   {
+    key: "service-packages",
+    name: "服务套餐",
+    icon: "gift",
+    desc: "官方服务套餐目录与平台整合交付：按业务板块上架套餐（人民币价 + 按汇率换算的积分价），企业积分直购后由平台主持企业与多家优质服务商签约兑现；支持预绑服务商自动发起、逐项匹配、更换主体、部分退款/整单退款；限购按企业，不参与交付周期与到期管理。",
+    group: "billing",
+  },
+  {
     key: "model-plaza",
     name: "模型广场",
     icon: "appstore",
@@ -207,6 +214,27 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     group: "system",
   },
   {
+    key: "upgrade",
+    name: "平台升级",
+    icon: "rocket",
+    desc: "从 GitHub Release 拉取或手动上传升级包，先由平台 Agent 分析代码差异与迁移风险，再按建议一键执行；升级前强制备份数据库，支持代码备份、自动回滚与一键还原。",
+    group: "system",
+  },
+  {
+    key: "ai-code",
+    name: "AI 编程",
+    icon: "code",
+    desc: "选好模型后用「对话 + 上传参考图 / 文件」让模型改写本系统自身源码：改动先落在暂存区产出可审阅的差异，逐文件采纳后再备份数据库与程序、由平台升级执行器应用、构建、迁移、重启；任何一步都能一键还原。",
+    group: "system",
+  },
+  {
+    key: "wechat-mp",
+    name: "微信服务号设置",
+    icon: "qrcode",
+    desc: "配置平台微信服务号的 AppID / AppSecret / Token 与 EncodingAESKey、模板消息映射、自定义菜单、关注提示与关键词回复；用户从右上角二维码入口扫码关注即绑定账号，任务、审批与客服回复可同步推送到微信并在手机 H5 上处理。",
+    group: "system",
+  },
+  {
     key: "settings",
     name: "系统设置",
     icon: "setting",
@@ -218,7 +246,7 @@ export const ADMIN_SECTIONS: AdminSection[] = [
 export const adminRoute: EnterpriseRoute = {
   path: "/",
   routes: [
-    { path: "/dashboard", name: "高管驾驶舱", icon: "dashboard" },
+    { path: "/dashboard", name: "驾驶舱", icon: "dashboard" },
     ...ADMIN_GROUPS.map((group) => ({
       type: "group" as const,
       name: group.name,
@@ -233,23 +261,25 @@ export const adminRoute: EnterpriseRoute = {
 };
 
 /**
- * 高管驾驶舱独立置顶，菜单按当前身份筛选。
- * 顺序：工作台 → 业务服务 → 商务人脉（商务社交 / 招聘） → 管理设置 → 开放集成（含智能硬件子菜单） → AI增值服务。
+ * 驾驶舱独立置顶，菜单按当前身份筛选。
+ * 顺序：工作台 → 业务服务 → 商务人脉（商务社交 / 招聘） → 模型服务（含 AIPDD 算力平台外链） → 管理设置（含平台机制） → 智能硬件。
  */
 export const enterpriseRoute: EnterpriseRoute = {
   path: "/",
   routes: [
-    { path: "/dashboard", name: "高管驾驶舱", icon: "dashboard" },
+    { path: "/dashboard", name: "驾驶舱", icon: "dashboard" },
     {
       type: "group",
       name: "工作台",
       icon: "chip",
       routes: [
+        { path: "/tasks", name: "我的任务", icon: "tasks" },
         { path: "/agent", name: "Agent", icon: "robot" },
+        { path: "/rpa", name: "RPA自动化", icon: "play" },
         { path: "/kb", name: "知识库", icon: "book" },
         { path: "/workbuddy", name: "Workbuddy 企业云", icon: "robot" },
+        { path: "/mail", name: "AI邮箱服务", icon: "mail" },
         { path: "/data-table", name: "多维表格", icon: "table" },
-        { path: "/rpa", name: "RPA自动化", icon: "play" },
         /**
          * 「内容创作」板块：工作台里的可展开子菜单，下挂内容创作类功能入口。
          * 原先平铺的「内容创作」菜单改名为「内容创作小工具」并收进这个板块，
@@ -268,7 +298,6 @@ export const enterpriseRoute: EnterpriseRoute = {
         },
         { path: "/marketing-tools", name: "营销工具", icon: "horn" },
         { path: "/assets", name: "数字资产管理", icon: "folder" },
-        { path: "/mail", name: "AI邮箱服务", icon: "mail" },
         { path: "/crm", name: "CRM", icon: "team" },
         { path: "/bi", name: "BI智能分析", icon: "chart" },
         { path: "/oa", name: "OA", icon: "file-done" },
@@ -300,7 +329,7 @@ export const enterpriseRoute: EnterpriseRoute = {
         { path: "/market", name: "供需市场", icon: "shop" },
       ],
     },
-    /** 商务人脉成组（紧靠业务服务之后、管理设置之前）：商务社交与招聘各自一个入口。 */
+    /** 商务人脉成组（紧靠业务服务之后、模型服务之前）：商务社交与招聘各自一个入口。 */
     {
       type: "group",
       name: "商务人脉",
@@ -312,63 +341,53 @@ export const enterpriseRoute: EnterpriseRoute = {
     },
     {
       type: "group",
-      name: "管理设置",
-      icon: "setting",
-      routes: [
-        { path: "/identity", name: "身份与资质", icon: "idcard" },
-        { path: "/staff", name: "职员/代理人管理", icon: "peoples" },
-        { path: "/contracts", name: "签约管理", icon: "contract" },
-        // 账户级自助：积分充值与流水、邀请码与邀请记录，统一挂在「管理设置」下
-        { path: "/points", name: "积分中心", icon: "pay-circle" },
-        { path: "/invite", name: "我的邀请", icon: "gift" },
-      ],
-    },
-    {
-      type: "group",
-      name: "开放集成",
+      name: "模型服务",
       icon: "api",
       routes: [
         { path: "/developer/keys", name: "API Key 管理", icon: "key" },
         { path: "/model-plaza", name: "模型广场", icon: "appstore" },
         { path: "/model-settings", name: "模型设置", icon: "setting" },
         { path: "/developer/api-mcp-skill", name: "API-MCP-Skill", icon: "book" },
-        { path: "/developer/mechanisms", name: "平台机制", icon: "api" },
-        /** 智能硬件整组收进「开放集成」作子菜单（三级结构），页面地址不变。 */
-        {
-          type: "group",
-          name: "智能硬件",
-          icon: "chip",
-          routes: [
-            { path: "/hardware", name: "硬件广场", icon: "appstore" },
-            { path: "/hardware/devices", name: "添加硬件", icon: "chip" },
-            { path: "/hardware/mcp", name: "硬件MCP", icon: "api" },
-            { path: "/hardware/api", name: "硬件API", icon: "book" },
-          ],
-        },
+        // AIPDD 算力平台外链固定挂在「模型服务」最后
+        { path: "https://app.aipdd.work", name: "AIPDD算力平台", icon: "bolt" },
       ],
     },
     {
       type: "group",
-      name: "AI增值服务",
+      name: "管理设置",
+      icon: "setting",
+      routes: [
+        { path: "/identity", name: "身份与资质", icon: "idcard" },
+        { path: "/staff", name: "职员/代理人管理", icon: "peoples" },
+        { path: "/contracts", name: "签约管理", icon: "contract" },
+        { path: "/my-packages", name: "我的套餐", icon: "gift" },
+        // 账户级自助：积分充值与流水、邀请码与邀请记录，统一挂在「管理设置」下
+        { path: "/points", name: "积分中心", icon: "pay-circle" },
+        { path: "/invite", name: "我的邀请", icon: "gift" },
+        { path: "/developer/mechanisms", name: "平台机制", icon: "api" },
+      ],
+    },
+    /** 智能硬件独立成板块（放在管理设置之后、菜单最末），页面地址不变。 */
+    {
+      type: "group",
+      name: "智能硬件",
       icon: "chip",
       routes: [
-        { path: "https://app.aipdd.work", name: "算力服务", icon: "bolt" },
-        {
-          path: "https://www.aiworkin.com",
-          name: "A2A供需平台",
-          icon: "link",
-        },
+        { path: "/hardware", name: "硬件广场", icon: "appstore" },
+        { path: "/hardware/devices", name: "添加硬件", icon: "chip" },
+        { path: "/hardware/mcp", name: "硬件MCP", icon: "api" },
+        { path: "/hardware/api", name: "硬件API", icon: "book" },
       ],
     },
   ],
 };
 
 /**
- * 平台管理员侧栏隐藏的「开放集成」入口：API Key 管理（含 AIPDD API Key 绑定）与模型设置都是
+ * 平台管理员侧栏隐藏的「模型服务」与「智能硬件」入口：API Key 管理（含 AIPDD API Key 绑定）与模型设置都是
  * 「当前账号」的自助配置，挂在平台后台里容易被误读成平台级设置（平台级配置统一在「系统设置」的
  * 企享云 / OSS / AIPDD 平台 Key 与站点设置页签里）。管理员要用这两页请切到企业 / 个人身份，
  * 只隐藏菜单入口，直接访问链接不受影响。
- * 智能硬件子菜单（广场 / 我的设备 / 自建工具 / 授权）同属账号视角，管理员侧一并隐藏，
+ * 智能硬件板块（广场 / 添加硬件 / 硬件MCP / 硬件API）同属账号视角，管理员侧一并隐藏，
  * 平台级硬件维护在 /admin 的「智能硬件」板块。
  */
 const ADMIN_HIDDEN_INTEGRATION_PATHS = [
@@ -398,9 +417,9 @@ function applyHiddenMenuPaths(
 
 /**
  * 只用当前身份组织菜单；具备其他身份不会混入其管理入口。
- * 平台管理员侧栏只拼「平台管理」后台板块与工具菜单，不含「管理设置」分组（身份与资质 / 积分中心 / 我的邀请属个人账户视角），
- * 也不含「开放集成」里的账户级自助入口（见 ADMIN_HIDDEN_INTEGRATION_PATHS）。
- * `hiddenMenuPaths` 来自后台「站点设置 → 用户侧菜单显隐」，覆盖前台侧栏每一条菜单（含驾驶舱入口与「AI增值服务」外链），
+ * 平台管理员侧栏只拼「平台管理」后台板块与工具菜单，不含「管理设置」分组（身份与资质 / 积分中心 / 我的邀请 / 平台机制属个人账户视角），
+ * 也不含「模型服务」「智能硬件」里的账户级自助入口（见 ADMIN_HIDDEN_INTEGRATION_PATHS）。
+ * `hiddenMenuPaths` 来自后台「站点设置 → 用户侧菜单显隐」，覆盖前台侧栏每一条菜单（含驾驶舱入口与「AIPDD算力平台」外链），
  * 对管理员与普通用户一致生效：只控制菜单显示，直接访问链接不受影响，某分组内全部隐藏后该分组自动消失。
  */
 export function navigationFor(
@@ -416,15 +435,15 @@ export function navigationFor(
   const routes = applyHiddenMenuPaths(enterpriseRoute.routes!, hidden);
   const management = routes.find((route) => route.name === "管理设置")!;
   const tools = routes
-    .filter((route) => route.name === "AI增值服务" || route.name === "开放集成")
+    .filter((route) => route.name === "模型服务" || route.name === "智能硬件")
     .filter((route) => route.type !== "group" || Boolean(route.routes?.length));
   if (identity === "PLATFORM_ADMIN" && me.identities.includes("PLATFORM_ADMIN")) {
     // 平台管理员侧栏不带「管理设置」组：该组是个人账户视角的入口，管理员的账户级操作都在 /admin 内完成。
-    // 「开放集成」里的 Key 绑定与模型配置同属账号级自助，管理员侧一并摘掉，避免与平台级配置混淆。
+    // 「模型服务」「智能硬件」里的 Key 绑定、模型配置与硬件接入同属账号级自助，管理员侧一并摘掉，避免与平台级配置混淆。
     const adminHiddenIntegration = new Set(ADMIN_HIDDEN_INTEGRATION_PATHS);
     const adminTools = tools
       .map((route) =>
-        route.name === "开放集成"
+        route.name === "模型服务" || route.name === "智能硬件"
           ? {
               ...route,
               routes: applyHiddenMenuPaths(route.routes!, adminHiddenIntegration),
@@ -479,7 +498,7 @@ export const PAGE_META: Record<
   { title: string; description: string }
 > = {
   "/": { title: "官网首页", description: "企业服务操作系统：一个账号连接企业全生命周期。" },
-  "/dashboard": { title: "高管驾驶舱", description: "身份与资质、我的待办与业务台账。" },
+  "/dashboard": { title: "驾驶舱", description: "身份与资质、我的待办与业务台账。" },
   "/help": {
     title: "帮助中心",
     description:
@@ -493,7 +512,7 @@ export const PAGE_META: Record<
   "/rpa": {
     title: "RPA自动化",
     description:
-      "按账号归属的云端 RPA：RPA 任务（建任务即绑定脚本＋账号＋运行参数）、RPA 账号（口令密文保存）、RPA 脚本（Automa JSON / JS / Python，可由 AIPDD 文字模型按需求生成），本地比特浏览器凭 API Key 认领执行并回传结果。",
+      "按账号归属的云端 RPA：RPA 任务（建任务即绑定脚本＋账号＋运行参数）、RPA 账号（口令密文保存）、RPA 脚本（Automa JSON / JS / Python，可由 AIPDD 文字模型按需求生成），本地比特浏览器凭 API Key 认领执行并回传结果；另有「本地 Chrome 插件（浏览器代理）」执行端——插件登录本系统后本机浏览器成为在线设备，Agent 可在你已登录的站点自主多步执行。",
   },
   "/workbuddy": {
     title: "Workbuddy 企业云",
@@ -560,10 +579,20 @@ export const PAGE_META: Record<
     description:
       "按登录账号添加多个邮箱（POP3 / IMAP），实时读取收件箱与草稿箱，邮件正文、附件一律不落库；可配置场景话术，回复方式选「只写草稿」或「写草稿并自动回复」，Agent 定时任务通过邮件工具按话术草拟回复。邮箱列表显示今天已发送/已出草稿与本月累计处理量。",
   },
+  "/tasks": {
+    title: "我的任务",
+    description:
+      "统一任务中心：把各业务模块（审批 / 汇报 / 任务 / 事务 / 审核）需要你处理的待办聚成一屏，点「去处理」跳到源模块办理，明细仍在各模块闭环；本人可关闭 / 重开，由工作流派发的节点关闭后会唤醒流程继续执行。",
+  },
+  "/workflow": {
+    title: "工作流",
+    description:
+      "可视化编排自动化流程：拖拽节点连线成 DAG（触发器 → 动作 → 分支 / 循环 / 等待 / 子流程），可手动 / 定时 / Webhook 触发，运行过程流式查看步骤与产物，也可发布为 Agent 技能或 MCP 工具供调用。",
+  },
   "/agent": {
     title: "Agent",
     description:
-      "与模型对话直接产出图片/视频：生成结果自动存进本账号的 AIPDD 数字资产；「记忆」页签里既有 Agent 长期记忆，也有你在全站做过的操作留痕。模型与 Key 在「开放集成 → 模型设置」里配置。",
+      "与模型对话直接产出图片/视频：生成结果自动存进本账号的 AIPDD 数字资产；「记忆」页签里既有 Agent 长期记忆，也有你在全站做过的操作留痕。模型与 Key 在「模型服务 → 模型设置」里配置。",
   },
   "/marketing-tools": {
     title: "营销工具",
@@ -573,6 +602,11 @@ export const PAGE_META: Record<
   "/contracts": {
     title: "签约管理",
     description: "签约概览与全部签约（企业发起、服务商确认）。",
+  },
+  "/my-packages": {
+    title: "我的套餐",
+    description:
+      "已购官方服务套餐与逐项交付进度：套餐由平台整合优质服务商完成交付，平台主持企业与服务商签约，签约须服务商确认后生效，进度实时读取签约状态。",
   },
   "/tax": {
     title: "财税服务",
@@ -665,7 +699,7 @@ export const PAGE_META: Record<
   "/content": {
     title: "内容创作小工具",
     description:
-      "一屏工具卡片：文案、图片、视频、配音配乐、去水印与超分，末尾是「视频创作工具」（AIPDD Drama Agent，点卡片先看简介与网关配置——支持直接粘贴 AIPDD / AIworkin 的 API Key，那一页再去它的 GitHub Releases 下载）。生成结果自动存进本账号的 AIPDD 数字资产；模型与 Key 在「开放集成 → 模型设置」里配置。",
+      "一屏工具卡片：文案、图片、视频、配音配乐、去水印与超分，末尾是「视频创作工具」（AIPDD Drama Agent，点卡片先看简介与网关配置——支持直接粘贴 AIPDD / AIworkin 的 API Key，那一页再去它的 GitHub Releases 下载）。生成结果自动存进本账号的 AIPDD 数字资产；模型与 Key 在「模型服务 → 模型设置」里配置。",
   },
   "/community": {
     title: "创意社区",
@@ -695,7 +729,7 @@ export const PAGE_META: Record<
   "/developer/api-mcp-skill": {
     title: "API-MCP-Skill",
     description:
-      "开放集成的统一入口：Skill 页签列出平台管理员生成的技能包，点开即可下载；MCP Server 页签给出接入地址、鉴权与工具清单；API 页签是本系统对外接口、渠道与错误码总览。",
+      "模型服务的统一入口：Skill 页签列出平台管理员生成的技能包，点开即可下载；MCP Server 页签给出接入地址、鉴权与工具清单；API 页签是本系统对外接口、渠道与错误码总览。",
   },
   "/admin": {
     title: "平台管理后台",

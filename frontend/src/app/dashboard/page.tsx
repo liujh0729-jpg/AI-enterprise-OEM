@@ -26,13 +26,12 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { notificationsApi, serviceDeskApi } from "@/api/collab";
 import { aipddKeyApi } from "@/api/aipdd-key";
-import { crmApi } from "@/api/crm";
 import { growthApi } from "@/api/growth";
 import { oaApi } from "@/api/oa";
-import { okrApi } from "@/api/okr";
-import { projectApi } from "@/api/project";
 import { dashboardApi, type DashboardStatistic } from "@/api/dashboard";
+import { taskCenterApi } from "@/api/task-center";
 import { dashboardScope } from "@/lib/dashboard-scope";
+import { attentionFromSources } from "@/lib/attention";
 import { ADMIN_PATH_PREFIX } from "@/config/routes";
 import { useBusinessQueries, useBusinessQuery } from "@/query/business";
 import { identityLabel } from "@/lib/identity";
@@ -54,8 +53,11 @@ import {
   ExecutiveAttention,
   type AttentionItem,
 } from "../_components/executive-attention";
+import { DashboardShortcuts } from "../_components/dashboard-shortcuts";
+import { PersonalizationSettings } from "../_components/personalization-settings";
 import { ExecutiveNotifications } from "../_components/executive-notifications";
 import { GrowthCockpitPanel } from "../_components/growth-cockpit";
+import { MyTasksTop } from "../_components/my-tasks-top";
 import { OverviewTab } from "../admin/_components/overview-tab";
 
 type Any = Record<string, unknown>;
@@ -78,16 +80,19 @@ const PROVIDER_STATUS_LABEL: Record<string, string> = {
 };
 
 /**
+ * 「待我处理」只认任务中心 `bySource` 一种口径（与 /tasks、菜单角标同源），
+ * 来源→入口的静态映射见 `@/lib/attention`。
+ */
+
+/**
  * 各板块「待办」口径：非终态单据即待办。
- * 终态：申报已扣款、出海已退税/已退回、物流已签收、IT服务已交付、法律/知产/用工已办结、进件已审核、
- * 营销已完成、资产已成交、供销订单生效/否决/取消。
+ * 终态：出海已退税/已退回、IT服务已交付、法律/知产/用工已办结、进件已审核、
+ * 资产已成交、供销订单生效/否决/取消。
+ * 财税 / 物流 / 营销已补齐 TaskSource，改读任务中心 `bySource`（口径在各板块适配器里），此处不再重复定义。
  */
 const PENDING_STATUS: Record<string, string[]> = {
-  tax: ["DRAFT", "SUBMITTED", "CHECKING"],
   overseas: ["SUBMITTED", "IN_REVIEW", "APPROVED"],
-  logistics: ["OPEN", "PENDING", "IN_TRANSIT", "EXCEPTION"],
   smart: ["OPEN", "PENDING", "IN_PROGRESS", "EXCEPTION"],
-  marketing: ["OPEN", "MATCHED", "CONNECTED"],
   supply: ["DRAFT", "SUBMITTED", "QUOTED", "RETURNED"],
   asset: ["OPEN", "PENDING", "VIEWING", "EXCEPTION"],
   legal: ["OPEN", "MATCHING", "IN_PROGRESS"],
@@ -127,9 +132,11 @@ export default function DashboardPage() {
     (signal) => dashboardApi.team(scope.identity, signal),
     "all", scope.identity === "SERVICE_PROVIDER" || scope.identity === "PROVIDER_STAFF",
   );
-  const pjQuery = useBusinessQuery(
-    "dashboard", "project-overview", {},
-    (signal) => projectApi.overview({}, { signal }),
+  const taskSummaryQuery = useBusinessQuery(
+    "my-tasks", "summary", {},
+    (signal) => taskCenterApi.summary({}, { signal }),
+    "all",
+    Boolean(me),
   );
   const aipddKeyQuery = useBusinessQuery(
     "dashboard", "aipdd-key", {},
@@ -140,19 +147,9 @@ export default function DashboardPage() {
     (signal) => notificationsApi.unread({}, { signal }),
     "all", Boolean(me),
   );
-  const crmQuery = useBusinessQuery(
-    "dashboard", "crm-workbench", {},
-    (signal) => crmApi.workbench({ query: { range: "month" } }, { signal }),
-    "all", Boolean(me),
-  );
   const deskQuery = useBusinessQuery(
     "dashboard", "service-desk", {},
     (signal) => serviceDeskApi.overview({}, { signal }),
-    "all", Boolean(me),
-  );
-  const okrQuery = useBusinessQuery(
-    "dashboard", "okr", {},
-    (signal) => okrApi.overview({ query: {} }, { signal }),
     "all", Boolean(me),
   );
   const oaQuery = useBusinessQuery(
@@ -170,7 +167,7 @@ export default function DashboardPage() {
   const failedQueries = [query, ...statisticQueries].filter((item) => item.error);
   const rows = query.data;
 
-  /** 高管驾驶舱完全跟随「当前身份」变化。 */
+  /** 驾驶舱完全跟随「当前身份」变化。 */
   const identity = me?.currentIdentity || "ENTERPRISE_USER";
   const isEnterprise = identity === "ENTERPRISE_USER";
   const isProvider = identity === "SERVICE_PROVIDER";
@@ -189,11 +186,17 @@ export default function DashboardPage() {
   const invitations = team?.invitations || [];
   /** 我发起的挂靠申请（我发起 → 机构审批）。 */
   const myAffiliations = team?.affiliations || [];
-  const pendingDecls = countPending(statistics.declarations, "tax");
+  /** 已收敛板块（财税/物流/营销）：直接读任务中心 bySource，与 /tasks 同一口径；未取到先占位「—」。 */
+  const taskSourceCount = (key: string): number | string => {
+    const bySource = taskSummaryQuery.data?.bySource;
+    if (!bySource) return "—";
+    return bySource.find((item) => item.key === key)?.count ?? 0;
+  };
+  const pendingDecls = taskSourceCount("tax");
   const pendingOverseas = countPending(statistics.overseas, "overseas");
-  const pendingLogistics = countPending(statistics.logistics, "logistics");
+  const pendingLogistics = taskSourceCount("logistics");
   const pendingSmart = countPending(statistics.smart, "smart");
-  const pendingMarketing = countPending(statistics.marketing, "marketing");
+  const pendingMarketing = taskSourceCount("marketing");
   const pendingLegal = countPending(statistics.legal, "legal");
   const pendingIp = countPending(statistics.ip, "ip");
   const pendingFlexWo = countPending(statistics.flexWo, "flexWorkOrder");
@@ -287,16 +290,20 @@ export default function DashboardPage() {
     });
   }
   const visibleCards = cards.filter((card) => !card.domain || scope.domains.includes(card.domain));
-  /** 待办事项：本身份下可见卡片的未完结件数合计。 */
+  /** 待办事项：本身份下可见卡片的未完结件数合计（收敛板块依赖任务中心摘要，故两者都就绪才合计）。 */
   const todoTotal = isAdmin
     ? adminTodoTotal
-    : statisticsReady ? visibleCards.reduce((sum, card) => sum + Number(card.count), 0) : "—";
-  /** 我的任务：当前主体名下项目中未办结的任务件数（项目管理口径）。 */
-  const myTaskCount = pjQuery.error
+    : statisticsReady && taskSummaryQuery.data
+      ? visibleCards.reduce((sum, card) => sum + Number(card.count), 0)
+      : "—";
+  /** 我的任务：统一任务中心未办件数（与 /my-tasks/summary 同源，菜单角标 / 统计卡 / /tasks 一套口径）。 */
+  const myTaskPending = taskSummaryQuery.error
     ? "—"
-    : pjQuery.data
-      ? pjQuery.data.openTasks
-      : "…";
+    : taskSummaryQuery.isPending
+      ? "…"
+      : taskSummaryQuery.data
+        ? taskSummaryQuery.data.pending
+        : "—";
   const oaTodoCount = oaQuery.error ? "—" : oaQuery.data ? oaQuery.data.todoCount : "…";
   /** 未绑定 AIPDD Key 时才露出红色绑定入口；已绑定即消失（未取到状态时先露出，避免按钮闪烁）。 */
   const showAipddBind = !aipddKeyQuery.data?.bound;
@@ -327,103 +334,42 @@ export default function DashboardPage() {
       ? "red" as const
       : "orange" as const;
 
-  const heroStats: { label: string; value: string | number; hint?: string }[] = isEnterprise
+  /**
+   * 统计卡：**「我的任务」永远置首**（值取任务中心未办数、点跳 /tasks），**「生效签约」永远置尾**；
+   * 其余卡片凡有独立落地页的一律可点跳转，无独立落地页的（如平台待审合计）保持纯统计。
+   */
+  const heroStats: { label: string; value: string | number; hint?: string; to?: string }[] = isEnterprise
     ? [
-        { label: "生效签约", value: activeContracts, hint: "可接收服务的服务商" },
-        { label: "待办事项", value: todoTotal, hint: "各板块未完结合计" },
-        { label: "我的任务", value: myTaskCount, hint: "项目管理中未完结的任务" },
-        { label: "OA待审批", value: oaTodoCount, hint: "OA 流程里等我处理的单据" },
-        { label: "新消息", value: unreadValue, hint: "未读系统消息" },
+        { label: "我的任务", value: myTaskPending, hint: "各模块汇聚的未办事项", to: "/tasks" },
+        { label: "待办事项", value: todoTotal, hint: "各板块未完结合计", to: "/tasks" },
+        { label: "OA待审批", value: oaTodoCount, hint: "OA 流程里等我处理的单据", to: "/oa?tab=todo" },
+        { label: "新消息", value: unreadValue, hint: "未读系统消息", to: "/notifications" },
+        { label: "生效签约", value: activeContracts, hint: "可接收服务的服务商", to: "/contracts" },
       ]
     : isProvider
       ? [
-          { label: "服务企业", value: team ? team.serves.length : "—", hint: "已签约企业" },
-          { label: "生效签约", value: activeContracts, hint: `待确认 ${pendingContracts}` },
-          { label: "待办事项", value: todoTotal, hint: "名下未完结合计" },
-          { label: "我的任务", value: myTaskCount, hint: "项目管理中未完结的任务" },
-          { label: "OA待审批", value: oaTodoCount, hint: "OA 流程里等我处理的单据" },
+          { label: "我的任务", value: myTaskPending, hint: "各模块汇聚的未办事项", to: "/tasks" },
+          { label: "服务企业", value: team ? team.serves.length : "—", hint: "已签约企业", to: "/staff" },
+          { label: "待办事项", value: todoTotal, hint: "名下未完结合计", to: "/tasks" },
+          { label: "OA待审批", value: oaTodoCount, hint: "OA 流程里等我处理的单据", to: "/oa?tab=todo" },
+          { label: "生效签约", value: activeContracts, hint: `待确认 ${pendingContracts}`, to: "/contracts" },
         ]
       : isStaff
         ? [
-            { label: "绑定机构", value: team ? binds.length : "—", hint: "我的服务商" },
-            { label: "承办企业", value: team ? assignments.length : "—", hint: "主办职员分配" },
-            { label: "待办事项", value: todoTotal, hint: "我承办的未完结合计" },
-            { label: "我的任务", value: myTaskCount, hint: "项目管理中未完结的任务" },
-            { label: "OA待审批", value: oaTodoCount, hint: "OA 流程里等我处理的单据" },
+            { label: "我的任务", value: myTaskPending, hint: "各模块汇聚的未办事项", to: "/tasks" },
+            { label: "绑定机构", value: team ? binds.length : "—", hint: "我的服务商", to: "/staff" },
+            { label: "承办企业", value: team ? assignments.length : "—", hint: "主办职员分配", to: "/staff" },
+            { label: "待办事项", value: todoTotal, hint: "我承办的未完结合计", to: "/tasks" },
+            { label: "OA待审批", value: oaTodoCount, hint: "OA 流程里等我处理的单据", to: "/oa?tab=todo" },
           ]
         : [
+            { label: "我的任务", value: myTaskPending, hint: "平台审核类未办事项", to: "/tasks" },
             { label: "待办事项", value: adminTodoTotal, hint: "平台待审合计" },
-            { label: "新消息", value: unreadValue, hint: "未读系统消息" },
+            { label: "新消息", value: unreadValue, hint: "未读系统消息", to: "/notifications" },
           ];
 
-  /** 待我处理：只列需要本人动作、且当前有件数的事项。 */
-  const attention: AttentionItem[] = [];
-  if (desk && desk.waiting > 0) {
-    attention.push({
-      key: "desk",
-      label: "官网咨询待回复",
-      hint: desk.isAgent ? "分配给你的访客会话" : "等待接入的访客会话",
-      count: desk.waiting,
-      to: "/service-desk",
-    });
-  }
-  if (crmQuery.data?.isMember) {
-    if (crmQuery.data.todo.approval > 0) {
-      attention.push({
-        key: "crm-approval",
-        label: "CRM 待我审批",
-        hint: "合同、报价、发票等审批",
-        count: crmQuery.data.todo.approval,
-        to: "/crm",
-      });
-    }
-    if (crmQuery.data.todo.overdue > 0) {
-      attention.push({
-        key: "crm-overdue",
-        label: "CRM 逾期回款",
-        hint: "已过期未回款的收款计划",
-        count: crmQuery.data.todo.overdue,
-        to: "/crm",
-      });
-    }
-  }
-  const okr = okrQuery.data;
-  if (okr?.pendingObjectives) {
-    attention.push({
-      key: "okr-objectives",
-      label: "待承接目标",
-      hint: "指派给我、还没接手的 OKR 目标",
-      count: okr.pendingObjectives,
-      to: "/okr?tab=objectives",
-    });
-  }
-  if (okr?.pendingReports) {
-    attention.push({
-      key: "okr-reports",
-      label: "待填汇报",
-      hint: "本周报 / 日报还没提交",
-      count: okr.pendingReports,
-      to: "/okr?tab=reports",
-    });
-  }
-  if (okr?.overduePlans) {
-    attention.push({
-      key: "okr-plans",
-      label: "逾期计划",
-      hint: "已过截止日仍未完成的计划",
-      count: okr.overduePlans,
-      to: "/okr?tab=plans",
-    });
-  }
-  if (okr?.todoScores) {
-    attention.push({
-      key: "okr-scores",
-      label: "待打分",
-      hint: "周期复盘里待我评分的成员",
-      count: okr.todoScores,
-      to: "/okr?tab=stats",
-    });
-  }
+  /** 待我处理：只列任务中心里归属于本人、且当前有件数的事项。 */
+  const attention: AttentionItem[] = attentionFromSources(taskSummaryQuery.data?.bySource || []);
   if (isStaff && invitations.length) {
     attention.push({
       key: "invitations",
@@ -431,15 +377,6 @@ export default function DashboardPage() {
       hint: "服务商发起的添加申请",
       count: invitations.length,
       to: "/staff",
-    });
-  }
-  if (isAdmin && typeof adminPending("pendingProvider") === "number" && Number(adminPending("pendingProvider")) > 0) {
-    attention.push({
-      key: "admin-provider",
-      label: "待审服务商备案",
-      hint: "待平台审核",
-      count: Number(adminPending("pendingProvider")),
-      to: "/admin/provider-applications",
     });
   }
 
@@ -580,10 +517,25 @@ export default function DashboardPage() {
       />
 
       <StatGrid>
-        {heroStats.map((s) => (
-          <StatCard key={s.label} label={s.label} value={s.value} hint={s.hint} />
-        ))}
+        {heroStats.map((s) => {
+          const to = s.to;
+          return (
+            <StatCard
+              key={s.label}
+              label={s.label}
+              value={s.value}
+              hint={s.hint}
+              onClick={to ? () => router.push(to) : undefined}
+            />
+          );
+        })}
       </StatGrid>
+
+      {/* 快捷导航：统计卡之下、其余面板之前的第一个板块 */}
+      <DashboardShortcuts />
+
+      {/* 个性化设置：菜单显隐（账号级）+ 整体风格（本机），取代原先右上角齿轮的右侧风格设置层 */}
+      <PersonalizationSettings />
 
       {/* 平台管理员：原「总览」板块并入驾驶舱，数据总览 / 待办审核 / 服务类型分布直接在这里看 */}
       {isAdmin ? (
@@ -641,6 +593,8 @@ export default function DashboardPage() {
         </Panel>
       )}
 
+      <MyTasksTop />
+
       <div className="exec-grid">
         <ExecutiveNotifications
           rows={notificationsQuery.data?.items || []}
@@ -651,12 +605,7 @@ export default function DashboardPage() {
         />
         <ExecutiveAttention
           items={attention}
-          loading={
-            deskQuery.isFetching ||
-            crmQuery.isFetching ||
-            okrQuery.isFetching ||
-            (isStaff && teamQuery.isFetching)
-          }
+          loading={taskSummaryQuery.isFetching || (isStaff && teamQuery.isFetching)}
         />
       </div>
 

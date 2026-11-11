@@ -34,6 +34,7 @@ import {
   type HwModel,
 } from "@enterprise/contracts";
 import { hardwareApi } from "@/api/hardware";
+import Link from "next/link";
 import {
   EmptyState,
   Notice,
@@ -382,6 +383,9 @@ export default function HardwareDevicesPage() {
         {!loading && !filtered.length ? (
           <EmptyState
             text={devices.length ? "没有符合条件的设备，换个关键词或型号试试。" : "还没有接入设备；先到「硬件广场」下载开发包，再点「新增设备」生成令牌。"}
+            action={
+              devices.length ? undefined : <Link href="/hardware">去硬件广场</Link>
+            }
           />
         ) : null}
         {!loading && filtered.length ? (

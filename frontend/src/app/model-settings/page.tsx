@@ -28,6 +28,7 @@ import {
   CONTENT_CHANNEL_PROVIDER_LABELS,
   CONTENT_MEDIA_TYPES,
   CONTENT_MEDIA_TYPE_LABELS,
+  isProviderSupported,
   type ContentChannelPreset,
   type ContentChannelProvider,
   type ContentMediaType,
@@ -42,6 +43,13 @@ type SlotDraft = { channelId: number; model: string };
 type Draft = Record<string, SlotDraft>;
 
 const SLOT_TYPES: ContentMediaType[] = [...CONTENT_MEDIA_TYPES];
+
+/** 内置虚拟渠道（0=AIPDD / -1=LocalAPI）与自建渠道的统一渠道类型判定。 */
+function providerOfChannel(channel: ContentModelChannel): ContentChannelProvider {
+  if (channel.id === 0) return "aipdd";
+  if (channel.id === -1) return "localapi";
+  return channel.provider;
+}
 
 /** 每个槽位能选哪些模型：视觉理解优先带 vision 标记的文本模型，其余按 kind 对齐。 */
 function filterModels(mediaType: string, models: ContentModel[]) {
@@ -136,25 +144,44 @@ export default function ModelSettingsPage() {
     const used = new Set(
       Object.values(draft)
         .map((slot) => slot.channelId)
-        .filter((id) => id >= 0),
+        // -1 是 LocalAPI 虚拟渠道，和 0（AIPDD）一样要自动加载模型
+        .filter((id) => id >= -1),
     );
     for (const channelId of used) void loadModels(channelId);
   }, [settings, draft, loadModels]);
 
   const channelOptions = useMemo(
     () =>
-      (settings?.channels || []).map((channel) => ({
-        value: channel.id,
-        label:
-          channel.id === 0
-            ? "AIPDD（内置）"
-            : channel.id === -1
-              ? "LocalAPI（本站模型广场，免 Key）"
-              : channel.available
-                ? channel.name
-                : `${channel.name}（${channel.unavailableReason || "不可用"}）`,
-        disabled: !channel.available,
-      })),
+      (settings?.channels || []).map((channel) => {
+        const supported = isProviderSupported(
+          settings?.policy,
+          providerOfChannel(channel),
+        );
+        const reason = !supported
+          ? "平台管理员已关闭该算力渠道"
+          : channel.unavailableReason || "不可用";
+        return {
+          value: channel.id,
+          label:
+            channel.id === 0
+              ? "AIPDD（内置）"
+              : channel.id === -1
+                ? "LocalAPI（本站模型广场，免 Key）"
+                : channel.available
+                  ? channel.name
+                  : `${channel.name}（${reason}）`,
+          disabled: !channel.available,
+        };
+      }),
+    [settings],
+  );
+
+  /** 平台管理员关闭的算力渠道不渲染在「渠道」卡片里（不显示、也选不到）。 */
+  const visibleChannels = useMemo(
+    () =>
+      (settings?.channels || []).filter((channel) =>
+        isProviderSupported(settings?.policy, providerOfChannel(channel)),
+      ),
     [settings],
   );
 
@@ -190,14 +217,64 @@ export default function ModelSettingsPage() {
     }
   };
 
+  const presetTypeOf = (preset: string) => {
+    const mediaType = settings?.policy?.presetTypes?.[preset];
+    return mediaType ? CONTENT_MEDIA_TYPE_LABELS[mediaType] : "";
+  };
+
+  const providerOptions = useMemo(() => {
+    if (editing?.provider === "aipdd") {
+      return [
+        {
+          value: "aipdd" as ContentChannelProvider,
+          label: CONTENT_CHANNEL_PROVIDER_LABELS.aipdd,
+        },
+      ];
+    }
+    const allowCustom =
+      (settings?.policy?.allowCustom !== false ||
+        editing?.provider === "custom") &&
+      isProviderSupported(settings?.policy, "custom");
+    const values: ContentChannelProvider[] = [
+      ...(allowCustom ? (["custom"] as ContentChannelProvider[]) : []),
+      ...(["volcengine", "mediakit"] as ContentChannelProvider[]).filter(
+        (provider) => isProviderSupported(settings?.policy, provider),
+      ),
+    ];
+    return values.map((value) => ({
+      value,
+      label: CONTENT_CHANNEL_PROVIDER_LABELS[value],
+    }));
+  }, [editing, settings]);
+
   const openChannelModal = (channel: ContentModelChannel | null) => {
     setEditing(channel);
     const preset = (channel?.preset || "openai") as ContentChannelPreset;
+    const policy = settings?.policy;
+    const provider: ContentChannelProvider = channel
+      ? channel.provider
+      : isProviderSupported(policy, "custom")
+        ? "custom"
+        : isProviderSupported(policy, "volcengine")
+          ? "volcengine"
+          : "mediakit";
+    const builtinName =
+      provider === "volcengine"
+        ? "火山引擎"
+        : provider === "mediakit"
+          ? "火山 AI MediaKit"
+          : CONTENT_CHANNEL_PRESET_LABELS[preset];
+    const builtinUrl =
+      provider === "volcengine"
+        ? "https://ark.cn-beijing.volces.com/api/v3"
+        : provider === "mediakit"
+          ? "https://mediakit.cn-beijing.volces.com/api/v1"
+          : CONTENT_CHANNEL_PRESET_BASE_URLS[preset] || "";
     setForm({
-      provider: (channel?.provider === "mediakit" ? "mediakit" : "custom") as ContentChannelProvider,
+      provider,
       preset,
-      name: channel?.name || CONTENT_CHANNEL_PRESET_LABELS[preset],
-      baseUrl: channel?.baseUrl || CONTENT_CHANNEL_PRESET_BASE_URLS[preset] || "",
+      name: channel?.name || builtinName,
+      baseUrl: channel?.baseUrl || builtinUrl,
       apiKey: "",
       asrApiKey: "",
     });
@@ -207,10 +284,20 @@ export default function ModelSettingsPage() {
   const pickProvider = (provider: ContentChannelProvider) => {
     setForm((prev) => {
       if (provider === "volcengine") {
-        return { ...prev, provider, name: "火山引擎", baseUrl: "https://ark.cn-beijing.volces.com/api/v3" };
+        return {
+          ...prev,
+          provider,
+          name: "火山引擎",
+          baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+        };
       }
       if (provider === "mediakit") {
-        return { ...prev, provider, name: "火山 AI MediaKit", baseUrl: "https://mediakit.cn-beijing.volces.com/api/v1" };
+        return {
+          ...prev,
+          provider,
+          name: "火山 AI MediaKit",
+          baseUrl: "https://mediakit.cn-beijing.volces.com/api/v1",
+        };
       }
       return {
         ...prev,
@@ -318,10 +405,16 @@ export default function ModelSettingsPage() {
   };
 
   const aipdd = settings?.aipdd;
+  const aipddSupported = isProviderSupported(settings?.policy, "aipdd");
+  const localapiSupported = isProviderSupported(settings?.policy, "localapi");
   // 0 是 AIPDD、-1 是 LocalAPI，两者都是内置虚拟渠道，只有正数 id 才是用户自建渠道
-  const customChannels = (settings?.channels || []).filter(
-    (channel) => channel.id > 0,
-  );
+  const customChannels = visibleChannels.filter((channel) => channel.id > 0);
+  // 三个自建渠道类型全部被平台关闭时，连「新增渠道」入口都不渲染
+  const canAddChannel =
+    isProviderSupported(settings?.policy, "volcengine") ||
+    isProviderSupported(settings?.policy, "mediakit") ||
+    (settings?.policy?.allowCustom !== false &&
+      isProviderSupported(settings?.policy, "custom"));
 
   return (
     <div>
@@ -341,7 +434,9 @@ export default function ModelSettingsPage() {
         }
       />
 
-      {error ? <Notice variant="error">{`模型设置加载失败：${error}`}</Notice> : null}
+      {error ? (
+        <Notice variant="error">{`模型设置加载失败：${error}`}</Notice>
+      ) : null}
       {loading ? <Skeleton active paragraph={{ rows: 8 }} /> : null}
 
       {!loading && settings ? (
@@ -349,7 +444,10 @@ export default function ModelSettingsPage() {
           {!aipdd?.configured ? (
             <Notice variant="info">
               当前登录账号还没有 API Key，AIPDD 渠道暂时不可用。
-              <Link href="/developer/keys"> 去「API Key 管理」生成一把 sk- Key</Link>
+              <Link href="/developer/keys">
+                {" "}
+                去「API Key 管理」生成一把 sk- Key
+              </Link>
               ，回来刷新即可。
             </Notice>
           ) : null}
@@ -358,54 +456,97 @@ export default function ModelSettingsPage() {
             title="渠道"
             titleExtra={
               <span className="text-12 muted">
-                AIPDD 使用当前账号的 API Key（在「API Key 管理」维护）；其余渠道的 Key 加密保存在本系统
+                AIPDD 使用当前账号的 API Key（在「API Key
+                管理」维护）；其余渠道的 Key 加密保存在本系统
               </span>
             }
             extra={
-              <Button
-                icon={<PlusOutlined aria-hidden />}
-                onClick={() => openChannelModal(null)}
-              >
-                新增渠道
-              </Button>
+              canAddChannel ? (
+                <Button
+                  icon={<PlusOutlined aria-hidden />}
+                  onClick={() => openChannelModal(null)}
+                >
+                  新增渠道
+                </Button>
+              ) : null
             }
           >
             <div style={{ display: "grid", gap: 14 }}>
-              <div style={{ border: "1px solid var(--line, #f0f0f0)", borderRadius: 10, padding: "12px 14px" }}>
-                <Space size={8} wrap>
-                  <Tag color="processing">AIPDD</Tag>
-                  <span className="muted text-12">{aipdd?.baseUrl}</span>
-                  <span className="text-12">
-                    {aipdd?.configured
-                      ? `API Key ${aipdd.keyMasked}`
-                      : "当前账号未生成 API Key"}
-                  </span>
-                </Space>
-                <div className="text-12 muted" style={{ marginTop: 6 }}>
-                  内置渠道：模型都从这里拉取，使用当前登录账号在「API Key 管理」里的同源 API Key。
-                  {aipdd?.configured ? null : (
-                    <>
-                      {" "}
-                      <Link href="/developer/keys">去生成一把 sk- Key</Link>
-                      ，回来刷新即可；不需要为渠道单独配置。
-                    </>
-                  )}
+              {settings.policy.allowCustom ? null : (
+                <Notice variant="info">
+                  平台已关闭新增自定义 OpenAI
+                  兼容渠道，已有渠道仍可使用。你可以继续使用 AIPDD（
+                  <Link href="/developer/keys">管理 API Key</Link>
+                  ）或 LocalAPI；需要接入新的自建网关，请联系平台管理员开启。
+                </Notice>
+              )}
+              {aipddSupported ? null : (
+                <Notice variant="warn">
+                  平台管理员已关闭 AIPDD 算力渠道，模型设置里暂时选不到
+                  AIPDD；「API Key 管理」里的 AIPDD Key
+                  仍可用于其它功能（如业务服务）。
+                </Notice>
+              )}
+              {aipddSupported ? (
+                <div
+                  style={{
+                    border: "1px solid var(--line, #f0f0f0)",
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                  }}
+                >
+                  <Space size={8} wrap>
+                    <Tag color="processing">AIPDD</Tag>
+                    <span className="muted text-12">{aipdd?.baseUrl}</span>
+                    <span className="text-12">
+                      {aipdd?.configured
+                        ? `API Key ${aipdd.keyMasked}`
+                        : "当前账号未生成 API Key"}
+                    </span>
+                  </Space>
+                  <div className="text-12 muted" style={{ marginTop: 6 }}>
+                    内置渠道：模型都从这里拉取，使用当前登录账号在「API Key
+                    管理」里的同源 API Key。
+                    {aipdd?.configured ? null : (
+                      <>
+                        {" "}
+                        <Link href="/developer/keys">去生成一把 sk- Key</Link>
+                        ，回来刷新即可；不需要为渠道单独配置。
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
-              <div style={{ border: "1px solid var(--line, #f0f0f0)", borderRadius: 10, padding: "12px 14px" }}>
-                <Space size={8} wrap>
-                  <Tag color="geekblue">LocalAPI</Tag>
-                  <span className="muted text-12">本站模型广场 · 免 Key</span>
-                  <Tag color="green">可直接选择</Tag>
-                </Space>
-                <div className="text-12 muted" style={{ marginTop: 6 }}>
-                  使用本站「模型广场」统一上架的模型，不需要你生成任何 API Key；每次调用按目录价扣积分，余额不足会被拒绝。
+              {localapiSupported ? (
+                <div
+                  style={{
+                    border: "1px solid var(--line, #f0f0f0)",
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                  }}
+                >
+                  <Space size={8} wrap>
+                    <Tag color="geekblue">LocalAPI</Tag>
+                    <span className="muted text-12">本站模型广场 · 免 Key</span>
+                    <Tag color="green">可直接选择</Tag>
+                  </Space>
+                  <div className="text-12 muted" style={{ marginTop: 6 }}>
+                    使用本站「模型广场」统一上架的模型，不需要你生成任何 API
+                    Key；每次调用按目录价扣积分，余额不足会被拒绝。
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               {customChannels.map((channel) => (
-                <div key={channel.id} style={{ border: "1px solid var(--line, #f0f0f0)", borderRadius: 10, padding: "12px 14px" }}>
+                <div
+                  key={channel.id}
+                  style={{
+                    border: "1px solid var(--line, #f0f0f0)",
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                  }}
+                >
                   <div
                     style={{
                       display: "flex",
@@ -415,11 +556,19 @@ export default function ModelSettingsPage() {
                     }}
                   >
                     <Space size={8} wrap>
-                      <Tag>{CONTENT_CHANNEL_PROVIDER_LABELS[channel.provider]}</Tag>
+                      <Tag>
+                        {CONTENT_CHANNEL_PROVIDER_LABELS[channel.provider]}
+                      </Tag>
+                      {channel.provider === "custom" &&
+                      presetTypeOf(channel.preset) ? (
+                        <Tag color="blue">{presetTypeOf(channel.preset)}</Tag>
+                      ) : null}
                       <span>{channel.name}</span>
                       <span className="muted text-12">{channel.baseUrl}</span>
                       <span className="text-12">
-                        {channel.keyMasked ? `Key ${channel.keyMasked}` : "未保存 Key"}
+                        {channel.keyMasked
+                          ? `Key ${channel.keyMasked}`
+                          : "未保存 Key"}
                       </span>
                       {channel.verified ? (
                         <Tag color="green">已校验</Tag>
@@ -440,9 +589,13 @@ export default function ModelSettingsPage() {
                         onClick={async () => {
                           try {
                             const checked = await contentApi.testChannel({
-                              body: { id: channel.id, provider: channel.provider },
+                              body: {
+                                id: channel.id,
+                                provider: channel.provider,
+                              },
                             });
-                            if (!checked) throw new Error("连通测试没有返回结果");
+                            if (!checked)
+                              throw new Error("连通测试没有返回结果");
                             if (checked.ok) message.success(checked.message);
                             else message.warning(checked.message);
                             await reload();
@@ -501,7 +654,8 @@ export default function ModelSettingsPage() {
                   const used = new Set(
                     Object.values(draft).map((slot) => slot.channelId),
                   );
-                  for (const channelId of used) void loadModels(channelId, true);
+                  for (const channelId of used)
+                    void loadModels(channelId, true);
                 }}
               >
                 刷新模型列表
@@ -536,27 +690,39 @@ export default function ModelSettingsPage() {
                         void loadModels(channelId);
                       }}
                     />
-                    {slot.channelId === 0 ? (
+                    {slot.channelId === 0 || slot.channelId === -1 ? (
                       <Select
                         value={slot.model || undefined}
                         placeholder={
                           loadingModels[slot.channelId]
                             ? "正在读取模型列表…"
-                            : channelError || "选择默认模型"
+                            : channelError ||
+                              (slot.channelId === -1
+                                ? "选择模型广场模型"
+                                : "选择默认模型")
                         }
                         loading={Boolean(loadingModels[slot.channelId])}
                         showSearch
                         allowClear
                         options={candidates.map((model) => ({
                           value: model.id,
-                          label: model.vision ? `${model.id}（视觉）` : model.id,
+                          label: model.vision
+                            ? `${model.id}（视觉）`
+                            : model.id,
                         }))}
                         notFoundContent={
-                          channelError
-                            ? channelError
-                            : loadingModels[slot.channelId]
-                              ? "读取中…"
-                              : "该渠道没有这一类型的模型"
+                          channelError ? (
+                            channelError
+                          ) : loadingModels[slot.channelId] ? (
+                            "读取中…"
+                          ) : slot.channelId === -1 ? (
+                            <span>
+                              本站模型广场还没有这一类型的已上架模型。
+                              <Link href="/model-plaza">去模型广场</Link>
+                            </span>
+                          ) : (
+                            "该渠道没有这一类型的模型"
+                          )
                         }
                         onChange={(model) =>
                           setDraft((prev) => ({
@@ -579,7 +745,9 @@ export default function ModelSettingsPage() {
                         }
                         options={candidates.map((model) => ({
                           value: model.id,
-                          label: model.vision ? `${model.id}（视觉）` : model.id,
+                          label: model.vision
+                            ? `${model.id}（视觉）`
+                            : model.id,
                         }))}
                         allowClear
                         onChange={(model) =>
@@ -632,13 +800,22 @@ export default function ModelSettingsPage() {
         onOk={() => void saveChannel()}
         onCancel={() => setModalOpen(false)}
         footer={[
-          <Button key="test" loading={testing} onClick={() => void testChannel()}>
+          <Button
+            key="test"
+            loading={testing}
+            onClick={() => void testChannel()}
+          >
             测试连通
           </Button>,
           <Button key="cancel" onClick={() => setModalOpen(false)}>
             取消
           </Button>,
-          <Button key="ok" type="primary" loading={savingChannel} onClick={() => void saveChannel()}>
+          <Button
+            key="ok"
+            type="primary"
+            loading={savingChannel}
+            onClick={() => void saveChannel()}
+          >
             保存
           </Button>,
         ]}
@@ -652,13 +829,7 @@ export default function ModelSettingsPage() {
               style={{ width: "100%" }}
               value={form.provider}
               disabled={Boolean(editing)}
-              options={(editing?.provider === "aipdd"
-                ? (["aipdd"] as ContentChannelProvider[])
-                : (["custom", "volcengine", "mediakit"] as ContentChannelProvider[])
-              ).map((value) => ({
-                value,
-                label: CONTENT_CHANNEL_PROVIDER_LABELS[value],
-              }))}
+              options={providerOptions}
               onChange={(provider) => pickProvider(provider)}
             />
           </div>
@@ -680,44 +851,53 @@ export default function ModelSettingsPage() {
                 {form.preset === "anthropic"
                   ? "Claude 走 Anthropic 原生协议（/messages + x-api-key），可选「文本」「视觉理解」两类默认模型"
                   : "预设只决定默认地址与接口协议；换成自定义可接 NewAPI 等任意 OpenAI 兼容网关"}
+                <div style={{ marginTop: 4 }}>
+                  平台配置的兜底模型类型：
+                  {presetTypeOf(form.preset) || "未配置"}
+                  （仅在上游 /models 没有声明类型时使用）
+                </div>
               </div>
             </div>
           ) : null}
           {form.provider === "aipdd" ? null : (
-          <div>
-            <div className="text-12 muted" style={{ marginBottom: 6 }}>
-              渠道名称
+            <div>
+              <div className="text-12 muted" style={{ marginBottom: 6 }}>
+                渠道名称
+              </div>
+              <Input
+                value={form.name}
+                placeholder={
+                  form.provider === "mediakit"
+                    ? "火山 AI MediaKit"
+                    : form.provider === "volcengine"
+                      ? "火山引擎"
+                      : "例如：公司网关"
+                }
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, name: event.target.value }))
+                }
+              />
             </div>
-            <Input
-              value={form.name}
-              placeholder={
-                form.provider === "mediakit"
-                  ? "火山 AI MediaKit"
-                  : form.provider === "volcengine"
-                    ? "火山引擎"
-                    : "例如：公司网关"
-              }
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-            />
-          </div>
           )}
           {form.provider === "aipdd" ? null : (
-          <div>
-            <div className="text-12 muted" style={{ marginBottom: 6 }}>
-              渠道地址
+            <div>
+              <div className="text-12 muted" style={{ marginBottom: 6 }}>
+                渠道地址
+              </div>
+              <Input
+                value={form.baseUrl}
+                placeholder={
+                  form.provider === "mediakit"
+                    ? "https://mediakit.cn-beijing.volces.com/api/v1"
+                    : form.provider === "volcengine"
+                      ? "https://ark.cn-beijing.volces.com/api/v3"
+                      : "https://api.example.com/v1"
+                }
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, baseUrl: event.target.value }))
+                }
+              />
             </div>
-            <Input
-              value={form.baseUrl}
-              placeholder={
-                form.provider === "mediakit"
-                  ? "https://mediakit.cn-beijing.volces.com/api/v1"
-                  : form.provider === "volcengine"
-                    ? "https://ark.cn-beijing.volces.com/api/v3"
-                    : "https://api.example.com/v1"
-              }
-              onChange={(event) => setForm((prev) => ({ ...prev, baseUrl: event.target.value }))}
-            />
-          </div>
           )}
           {form.provider === "volcengine" ? (
             <div>
@@ -732,7 +912,10 @@ export default function ModelSettingsPage() {
                     : "豆包语音控制台「API Key 管理」里的 Key；不填则语音识别不可用"
                 }
                 onChange={(event) =>
-                  setForm((prev) => ({ ...prev, asrApiKey: event.target.value }))
+                  setForm((prev) => ({
+                    ...prev,
+                    asrApiKey: event.target.value,
+                  }))
                 }
               />
             </div>
@@ -749,7 +932,9 @@ export default function ModelSettingsPage() {
                     ? "留空＝不修改已保存的 Key"
                     : "填写渠道密钥"
                 }
-                onChange={(event) => setForm((prev) => ({ ...prev, apiKey: event.target.value }))}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, apiKey: event.target.value }))
+                }
               />
             </div>
           )}

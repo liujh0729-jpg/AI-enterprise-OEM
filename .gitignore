@@ -39,3 +39,6 @@ backend/prisma/schema.postgres.prisma
 
 # 本地分发包（git archive 生成，不入库）
 /*.zip
+
+# 平台升级工作目录：下载包、解压源码、任务状态与备份台账，均不入库
+/update/

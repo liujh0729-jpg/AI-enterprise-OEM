@@ -163,6 +163,16 @@ export class MechanismShareService extends MechanismBase {
     if (row.expiresAt.getTime() < Date.now()) {
       throw new BusinessException(ErrorCode.FORBIDDEN, '分享链接已过期');
     }
+    // 旧分享每次打开都复核创建人的账号与组织在册资格：发起人离职/被移出后立即失效，
+    // 不依赖异步清理分享记录；对外统一按「不存在」处理，不泄露失效原因。
+    const creator = row.createdBy || row.orgUserId;
+    const standing = await this.scope.isStanding(creator, {
+      orgType: row.orgType,
+      orgUserId: row.orgUserId,
+    });
+    if (!standing) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '分享不存在或已关闭');
+    }
     if (!this.verifyPassword(password, row.passwordHash)) {
       throw new BusinessException(ErrorCode.UNAUTHORIZED, '访问密码错误');
     }

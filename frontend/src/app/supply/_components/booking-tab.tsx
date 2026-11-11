@@ -23,6 +23,7 @@ import {
 } from "antd";
 import { useState } from "react";
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
@@ -740,6 +741,12 @@ export function BookingTab({
                 label: `${item.name} · ¥${money(item.basePrice)}/${item.priceUnit || "次"} · ${providerText(item.providerUserId)}`,
               }))}
             />
+            {!availableServices.length ? (
+              <div className="text-12 muted" style={{ marginTop: 4 }}>
+                与供销服务商的签约生效后才会出现可预约服务。
+                <Link href="/contracts"> 立即去签约</Link>
+              </div>
+            ) : null}
           </Form.Item>
           <div className="form-2col">
             <Form.Item
@@ -1030,7 +1037,8 @@ export function BookingTab({
         />
         {staffQuery.isSuccess && !staff.length ? (
           <div className="text-12 muted" style={{ marginTop: 8 }}>
-            尚未绑定职员，请先在「职员/代理人管理」添加并等待对方确认。
+            尚未绑定职员，请先在「职员/代理人管理」添加并等待对方确认。{" "}
+            <Link href="/staff">去添加职员</Link>
           </div>
         ) : null}
       </Modal>

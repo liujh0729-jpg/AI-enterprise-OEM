@@ -422,6 +422,8 @@ export class AcquisitionDashboardService {
       actorId: '',
       isOwner: false,
       isAdmin: false,
+      roles: [],
+      positions: [],
       department: '',
     });
     const grouped = await this.prisma.usageEvent.groupBy({

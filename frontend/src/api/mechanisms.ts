@@ -21,6 +21,7 @@ export const mechanismsApi = {
   exportModules: endpoint(endpoints.Export_modules),
   createExportJob: endpoint(endpoints.Export_createJob),
   exportJobs: endpoint(endpoints.Export_jobs),
+  downloadExport: endpoint(endpoints.Export_download),
   removeExportJob: endpoint(endpoints.Export_removeJob),
 
   reports: endpoint(endpoints.Report_listCatalog),

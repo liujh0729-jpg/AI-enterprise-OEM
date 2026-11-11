@@ -102,6 +102,39 @@ export class ServiceDeskService {
     input: AcqReceptionInput,
   ) => Promise<AcqReceptionContext | null>;
 
+  /** 任务中心派单口（服务转任务）：只依赖 assign，避免客服反向依赖任务中心实现。 */
+  tasks?: {
+    assign(draft: {
+      assigneeUserId: string;
+      assigneeType?: 'USER' | 'ORG';
+      orgType?: string;
+      orgUserId?: string;
+      assignedBy?: string;
+      source: string;
+      sourceId: string;
+      title: string;
+      description?: string;
+      link: string;
+      category: string;
+      priority?: string;
+      dueAt?: Date | string | null;
+      createdBy?: string;
+      sourceStatus?: string;
+      sourceStatusLabel?: string;
+      terminal?: boolean;
+    }): Promise<unknown>;
+  };
+
+  /** 知识库写入口（解决稿→知识草稿）：按账号工作空间或 agent 默认空间写 PENDING_REVIEW 页。 */
+  kbDraft?: (input: {
+    ownerUserId: string;
+    actorId: string;
+    slug: string;
+    title: string;
+    body: string;
+    spaceId?: number;
+  }) => Promise<{ pageId: number; spaceId: number } | null>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
@@ -1511,6 +1544,155 @@ export class ServiceDeskService {
       data: { crmLeadId: lead.id },
     });
     return { conversationId: row.id, crmLeadId: lead.id };
+  }
+
+  /**
+   * 服务转任务：把会话里需要交付的问题派给任务中心，形成「会话 → 任务 → 交付」链。
+   * 幂等锚＝会话号，重复派单更新同一条任务；交付链接直回该会话，方便按来访上下文回访。
+   */
+  async createTask(
+    user: CurrentUser,
+    ownerUserId: string,
+    id: number,
+    body: Record<string, unknown>,
+  ) {
+    await this.requireMember(user, ownerUserId);
+    const row = await this.prisma.serviceDeskConversation.findFirst({
+      where: { id, ownerUserId },
+    });
+    if (!row) throw new BusinessException(ErrorCode.NOT_FOUND, '会话不存在');
+    if (!this.tasks) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '任务中心尚未就绪，稍后再试',
+      );
+    }
+    const assignee = text(body.assigneeUserId).trim().slice(0, 64);
+    if (assignee && !(await this.isOrgMember(ownerUserId, assignee))) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '承办人不是本组织在职成员',
+      );
+    }
+    const visitor = await this.prisma.serviceDeskVisitor.findUnique({
+      where: { id: row.visitorId },
+      select: { nickname: true },
+    });
+    const latest = await this.prisma.serviceDeskMessage.findFirst({
+      where: { conversationId: row.id, senderType: 'visitor' },
+      orderBy: { id: 'desc' },
+    });
+    const title =
+      text(body.title).trim().slice(0, 200) ||
+      `跟进客服会话 #${row.id}${row.subject ? `：${row.subject}` : ''}`;
+    const description = [
+      visitor?.nickname || row.externalUserName
+        ? `来访：${visitor?.nickname || row.externalUserName}`
+        : '',
+      latest ? `最近咨询：${latest.content.slice(0, 500)}` : '',
+      text(body.note).trim().slice(0, 500),
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const task = await this.tasks.assign({
+      assigneeUserId: assignee,
+      orgType: row.orgType || 'ENTERPRISE',
+      orgUserId: row.orgUserId || ownerUserId,
+      assignedBy: user.userId,
+      source: 'desk',
+      sourceId: String(row.id),
+      title,
+      description,
+      link: `/service-desk?conversation=${row.id}`,
+      category: 'task',
+      priority: text(body.priority).slice(0, 16) || 'NORMAL',
+      createdBy: user.userId,
+      sourceStatus: row.status,
+      sourceStatusLabel:
+        SERVICE_DESK_CONVERSATION_STATUS_LABELS[row.status] || row.status,
+    });
+    const taskId = Number((task as { id?: number } | null)?.id || 0);
+    if (taskId) {
+      await this.prisma.serviceDeskMessage.create({
+        data: {
+          conversationId: row.id,
+          senderType: 'system',
+          content: `已派发交付任务 #${taskId}（${title}）`,
+        },
+      });
+    }
+    if (assignee) {
+      await this.notifications
+        .notify(assignee, {
+          category: 'task',
+          title: `客服会话派单：${title}`,
+          body: description,
+          link: `/service-desk?conversation=${row.id}`,
+          entityType: 'my_task',
+          entityId: taskId,
+        })
+        .catch(() => null);
+    }
+    return { conversationId: row.id, taskId };
+  }
+
+  /**
+   * 解决稿 → 知识库草稿：把接待结论写成 PENDING_REVIEW 页，进人在环审核后才对外召回。
+   * 未绑定知识空间时写进本人 agent 默认空间；已存在同名页时追加不覆盖（保留两说）。
+   */
+  async draftSolution(
+    user: CurrentUser,
+    ownerUserId: string,
+    id: number,
+    body: Record<string, unknown>,
+  ) {
+    await this.requireMember(user, ownerUserId);
+    const row = await this.prisma.serviceDeskConversation.findFirst({
+      where: { id, ownerUserId },
+    });
+    if (!row) throw new BusinessException(ErrorCode.NOT_FOUND, '会话不存在');
+    if (!this.kbDraft) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '知识库尚未就绪，稍后再试',
+      );
+    }
+    const answer = text(body.answer).trim().slice(0, 8000);
+    if (!answer) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '解决稿正文不能为空',
+      );
+    }
+    const latest = await this.prisma.serviceDeskMessage.findFirst({
+      where: { conversationId: row.id, senderType: 'visitor' },
+      orderBy: { id: 'desc' },
+    });
+    const question =
+      text(body.question).trim().slice(0, 200) ||
+      row.subject ||
+      latest?.content.slice(0, 200) ||
+      `客服会话 #${row.id}`;
+    const saved = await this.kbDraft({
+      ownerUserId,
+      actorId: user.userId,
+      slug: `desk-conversation-${row.id}`,
+      title: question,
+      body: [`## 问题`, question, '', '## 解决方案', answer].join('\n'),
+      spaceId: Number(body.spaceId) || undefined,
+    });
+    if (!saved) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '没有可写入的知识空间',
+      );
+    }
+    return {
+      conversationId: row.id,
+      pageId: saved.pageId,
+      spaceId: saved.spaceId,
+      status: 'PENDING_REVIEW',
+    };
   }
 
   async send(

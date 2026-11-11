@@ -5,6 +5,7 @@ import { http } from "./http";
 export const notificationsApi = {
   list: endpoint(endpoints.Notifications_list),
   unread: endpoint(endpoints.Notifications_unread),
+  get: endpoint(endpoints.Notifications_get),
   read: endpoint(endpoints.Notifications_read),
   readSns: endpoint(endpoints.Notifications_readSns),
   readAll: endpoint(endpoints.Notifications_readAll),
@@ -57,6 +58,8 @@ export const serviceDeskApi = {
   transfer: endpoint(endpoints.ServiceDesk_transfer),
   close: endpoint(endpoints.ServiceDesk_close),
   convertToCrm: endpoint(endpoints.ServiceDesk_convertToCrm),
+  createTask: endpoint(endpoints.ServiceDesk_createTask),
+  draftSolution: endpoint(endpoints.ServiceDesk_draftSolution),
   aiSuggest: endpoint(endpoints.ServiceDesk_aiSuggest),
   canned: endpoint(endpoints.ServiceDesk_canned),
   saveCanned: endpoint(endpoints.ServiceDesk_saveCanned),

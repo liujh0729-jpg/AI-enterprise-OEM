@@ -94,6 +94,18 @@ export function FeedTab() {
             {fmtRelative(p.createdAt)}
             {p.visibility === "FRIENDS" ? " · 仅好友可见" : " · 公开可见"}
           </div>
+          {p.reasons?.length ? (
+            <div className="sns-post-reasons">
+              {p.reasons.map((reason) => (
+                <span
+                  key={`${reason.kind}-${reason.label}`}
+                  className="sns-flag sns-flag-reason"
+                >
+                  {reason.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
         {deletable ? (
           <Popconfirm
@@ -248,7 +260,14 @@ export function FeedTab() {
 
       {/* 信息流为主栏、我的动态为右侧窄栏（窄屏由 .sns-feed-layout 回落到上下堆叠） */}
       <div className="sns-feed-layout">
-        <Panel title="信息流" titleBadge={<span className="sns-muted">{feedRows.length} 条动态</span>}>
+        <Panel
+          title="信息流"
+          titleBadge={
+            <span className="sns-muted">
+              {feedRows.length} 条动态 · 按时间、亲密度与同城综合排序
+            </span>
+          }
+        >
           {feed.isLoading ? null : feedRows.length === 0 ? (
             <EmptyState text="还没有动态。发一条，或先去「好友」页结识同行。" />
           ) : (

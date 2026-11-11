@@ -3,8 +3,10 @@
 import { BankOutlined, ShopOutlined } from "@ant-design/icons";
 import { Table } from "antd";
 import { useMemo } from "react";
+import Link from "next/link";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState, Panel } from "@/components/ui/panel";
+import { ServicePackagesPanel } from "@/components/service-packages";
 import {
   providerLabel,
   type SupplyContract,
@@ -63,10 +65,11 @@ export function ProviderTab({
     services.filter((item) => item.stationId === stationId).length;
 
   return (
-    <Panel
-      title="签约服务商（供销网络）"
-      titleBadge={`${groups.length} 家服务商 · ${rows.length} 个服务站`}
-    >
+    <>
+      <Panel
+        title="签约服务商（供销网络）"
+        titleBadge={`${groups.length} 家服务商 · ${rows.length} 个服务站`}
+      >
       <div className="text-12 muted" style={{ marginBottom: 12 }}>
         企业与服务商签约后，即可在下方看到该服务商及其旗下服务站；
         「商品供应」按服务站发起订货、「服务采购」按服务站发起预约，
@@ -179,8 +182,11 @@ export function ProviderTab({
         <EmptyState
           icon={<BankOutlined aria-hidden />}
           text="暂无签约的供销服务商：请先在「签约管理」选择供销服务并完成与服务商的签约。"
+          action={<Link href="/contracts">立即去签约</Link>}
         />
       )}
-    </Panel>
+      </Panel>
+      <ServicePackagesPanel serviceType="SUPPLY_NETWORK" />
+    </>
   );
 }

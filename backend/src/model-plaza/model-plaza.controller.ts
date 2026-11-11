@@ -10,6 +10,8 @@ import { ModelCatalogService } from './catalog.service';
 import { ModelUpstreamService } from './upstream.service';
 import { ModelUsageService } from './usage.service';
 import { ModelRelayService, upstreamErrorMessage } from './relay.service';
+import type { ContentChannelPolicyService } from '../content/channel-policy.service';
+import { PlatformDefaultsService } from './platform-defaults.service';
 import {
   computePlazaCost,
   estimateMessagesTokens,
@@ -46,6 +48,8 @@ export class ModelPlazaController {
     private readonly relay: ModelRelayService,
     private readonly points: PointsService,
     private readonly settings: PointsSettingsService,
+    private readonly contentPolicy: ContentChannelPolicyService,
+    private readonly platform: PlatformDefaultsService,
     private readonly requireAdmin: (user: CurrentUser) => void,
   ) {}
 
@@ -81,7 +85,10 @@ export class ModelPlazaController {
         '该模型不是对话模型，不支持在线试用',
       );
     }
-    await this.usageSvc.assertCanCall(user.userId);
+    await this.usageSvc.assertCanCall(user.userId, {
+      provider: row.provider,
+      modelKey: row.modelKey,
+    });
     const credentials = await this.upstreamSvc.credentials(row.upstreamId);
     const rate = (await this.settings.view()).rate;
     const prompt = text(body.prompt).trim();
@@ -146,15 +153,20 @@ export class ModelPlazaController {
       cacheReadTokens: measured.cacheReadTokens,
       cacheWriteTokens: measured.cacheWriteTokens,
     });
-    const charged = await this.usageSvc.charge(user.userId, cost.points, {
-      modelKey: row.modelKey,
-      provider: row.provider,
-      catalogId: row.id,
-      refId: `trial-${row.id}`,
-      source: 'IN_APP',
-      promptTokens: cost.promptTokens,
-      completionTokens: cost.completionTokens,
-    });
+    const charged = await this.usageSvc.charge(
+      user.userId,
+      cost.points,
+      {
+        modelKey: row.modelKey,
+        provider: row.provider,
+        catalogId: row.id,
+        refId: `trial-${row.id}`,
+        source: 'IN_APP',
+        promptTokens: cost.promptTokens,
+        completionTokens: cost.completionTokens,
+      },
+      { billingUnit: cost.billingUnit },
+    );
     await this.usageSvc.log({
       userId: user.userId,
       catalogId: row.id,
@@ -169,10 +181,13 @@ export class ModelPlazaController {
       cacheWriteTokens: cost.cacheWriteTokens,
       billingQuantity: cost.quantity,
       billingUnit: cost.billingUnit,
-      pointsCost: charged,
+      pointsCost: charged.points,
+      userCardId: charged.cardId,
+      cardDeduct: charged.cardDeduct,
       rmbCost: cost.rmb,
       elapsedMs: Date.now() - startedAt,
       status: 'SUCCESS',
+      message: charged.cardNote,
     });
     const summary = await this.points.summary(user.userId);
     return {
@@ -185,7 +200,10 @@ export class ModelPlazaController {
         cost.completionTokens +
         cost.cacheReadTokens +
         cost.cacheWriteTokens,
-      pointsCost: charged,
+      pointsCost: charged.points,
+      cardId: charged.cardId ?? 0,
+      cardDeduct: charged.cardDeduct,
+      cardNote: charged.cardNote,
       rmbCost: cost.rmb,
       elapsedMs: Date.now() - startedAt,
       balance: summary.balance,
@@ -256,6 +274,11 @@ export class ModelPlazaController {
     };
   }
 
+  /** 我当前继承的平台默认模型：资格、已用额度、各能力生效模型。 */
+  platformStatus(user: CurrentUser) {
+    return this.platform.userStatus(user.userId);
+  }
+
   // ---------- 管理端 ----------
 
   overview(user: CurrentUser) {
@@ -266,6 +289,16 @@ export class ModelPlazaController {
   upstreams(user: CurrentUser) {
     this.requireAdmin(user);
     return this.upstreamSvc.list();
+  }
+
+  platformDefaults(user: CurrentUser) {
+    this.requireAdmin(user);
+    return this.platform.view();
+  }
+
+  savePlatformDefaults(user: CurrentUser, body: Record<string, unknown>) {
+    this.requireAdmin(user);
+    return this.platform.save(user.userId, body);
   }
 
   saveUpstream(
@@ -357,6 +390,16 @@ export class ModelPlazaController {
   seed(user: CurrentUser) {
     this.requireAdmin(user);
     return this.catalogSvc.reseed();
+  }
+
+  channelPolicy(user: CurrentUser) {
+    this.requireAdmin(user);
+    return this.contentPolicy.view();
+  }
+
+  saveChannelPolicy(user: CurrentUser, body: unknown) {
+    this.requireAdmin(user);
+    return this.contentPolicy.save(user, body);
   }
 
   usageList(

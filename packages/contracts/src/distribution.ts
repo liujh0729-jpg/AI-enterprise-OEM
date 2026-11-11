@@ -185,10 +185,24 @@ export const distributionContentSchema = z.object({
   statusLabel: z.string(),
   tags: z.string(),
   lastDistributedAt: z.string().nullable(),
+  /** 内容资产统计（D8 效果回流聚合）：各平台效果之和，未回写时为 0。 */
+  totalViews: z.number(),
+  totalLikes: z.number(),
+  totalComments: z.number(),
+  /** 最近一次效果回写时间（ISO）；从未回写时为 null。 */
+  lastMetricsAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type DistributionContent = z.infer<typeof distributionContentSchema>;
+
+/** 效果数据来源：EXTENSION＝插件从平台创作中心读取，MANUAL＝人工补录。 */
+export const DISTRIBUTION_METRIC_SOURCES = ["EXTENSION", "MANUAL"] as const;
+export type DistributionMetricSource =
+  (typeof DISTRIBUTION_METRIC_SOURCES)[number];
+
+/** 计数上限：MySQL INT 上限，插件 `countOf` 已把「1.2万/亿」折成整数，越界一律截顶。 */
+export const DISTRIBUTION_METRIC_MAX = 2_000_000_000;
 
 export const distributionLogSchema = z.object({
   id: z.number(),
@@ -200,6 +214,16 @@ export const distributionLogSchema = z.object({
   publishedUrl: z.string(),
   errorMsg: z.string(),
   source: z.string(),
+  /** 平台侧作品标识：从创作中心读效果时用它对齐「哪一条内容」，重复回写按内容+平台覆盖。 */
+  publishedItemId: z.string(),
+  /** 效果数据（D8）：阅读/播放量、点赞、评论；未回写时为 0。 */
+  views: z.number(),
+  likes: z.number(),
+  comments: z.number(),
+  /** 效果数据来源：EXTENSION（插件读创作中心） | MANUAL | ""（尚未回写）。 */
+  metricsSource: z.string(),
+  /** 效果数据的抓取时间（ISO）；未回写时为 null。 */
+  metricsCapturedAt: z.string().nullable(),
   createdAt: z.string(),
 });
 export type DistributionLog = z.infer<typeof distributionLogSchema>;
@@ -327,7 +351,8 @@ export const distributionEndpoints = {
     method: "post" as const,
     path: "/enterprise/distribution/contents/:id/mark",
     params: z.object({ id: z.string().min(1) }),
-    query: emptyQuery,
+    /** 页面检测到的插件版本（可选）：低于能力最低版本时服务端拒绝派发并提示升级。 */
+    query: z.object({ pluginVersion: z.string().max(20).optional() }),
     body: z.undefined(),
     response: envelope(distributionContentSchema),
   },
@@ -346,6 +371,41 @@ export const distributionEndpoints = {
             status: z.enum(DISTRIBUTION_LOG_STATUSES),
             publishedUrl: z.string().max(500).default(""),
             errorMsg: z.string().max(500).default(""),
+          }),
+        )
+        .min(1)
+        .max(20),
+    }),
+    response: envelope(z.array(distributionLogSchema)),
+  },
+  /**
+   * 分发效果回流（D8）：插件从平台创作中心读阅读/点赞/评论后回写，
+   * 也可人工补录。同一内容同一平台覆盖写；服务端按内容+平台定位行，
+   * publishedItemId 记录平台作品标识，重复上报天然幂等。
+   */
+  Distribution_reportMetrics: {
+    method: "post" as const,
+    path: "/enterprise/distribution/contents/:id/metrics",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.object({
+      source: z.enum(DISTRIBUTION_METRIC_SOURCES).default("EXTENSION"),
+      metrics: z
+        .array(
+          z.object({
+            platformCode: z.string().min(1).max(32),
+            /** 平台侧作品标识（如微博 mid、B 站 bvid），用于对齐是哪一条内容。 */
+            publishedItemId: z.string().max(120).default(""),
+            views: z.number().int().min(0).max(DISTRIBUTION_METRIC_MAX).default(0),
+            likes: z.number().int().min(0).max(DISTRIBUTION_METRIC_MAX).default(0),
+            comments: z
+              .number()
+              .int()
+              .min(0)
+              .max(DISTRIBUTION_METRIC_MAX)
+              .default(0),
+            /** 抓取时间（ISO）；缺省或非法时服务端按当前时间落库。 */
+            capturedAt: z.string().max(40).optional(),
           }),
         )
         .min(1)

@@ -1,6 +1,7 @@
 "use client";
 
 import { Alert, App, Form, Modal, Select, Space, Tag } from "antd";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   workbuddyApi,
@@ -280,7 +281,8 @@ export function TargetPicker({
       </Space>
       {activeAccounts.length ? null : (
         <div className="text-12 muted" style={{ marginTop: 8 }}>
-          还没有启用的 Workbuddy Enterprise 账号：先到「Workbuddy Enterprise 账号」页签绑定腾讯云密钥。
+          还没有启用的 Workbuddy Enterprise 账号：先到「Workbuddy Enterprise 账号」页签绑定腾讯云密钥。{" "}
+          <Link href="/workbuddy?tab=accounts">去绑定账号</Link>
         </div>
       )}
     </>

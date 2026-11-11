@@ -93,7 +93,7 @@ export class EcomPdpService {
       textLabel,
       imageLabel,
       hint: missing.length
-        ? `请先到「内容创作 → 模型设置」为「${missing.join('」「')}」选择默认模型；没有自定义渠道时，用本账号绑定的 AIPDD API Key 走内置渠道。`
+        ? `请先到「模型服务 → 模型设置」为「${missing.join('」「')}」选择默认模型；没有自定义渠道时，用本账号绑定的 AIPDD API Key 走内置渠道。`
         : '规划与出图都已就绪：先生成规划，再逐张确认提示词并出图。',
     };
   }

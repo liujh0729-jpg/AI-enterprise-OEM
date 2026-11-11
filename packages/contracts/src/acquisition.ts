@@ -93,6 +93,20 @@ export const ACQ_EVIDENCE_SOURCE_LABELS: Record<string, string> = {
   POST: "作品正文",
   PROFILE: "主页",
 };
+/** 公开联系方式字段：只在达人主页「已公开可见」时补抓，逐条留证据链（见 D7=B）。 */
+export const ACQ_CONTACT_FIELDS = ["email", "wechat", "phone", "homepage"] as const;
+export const ACQ_CONTACT_FIELD_LABELS: Record<string, string> = {
+  email: "邮箱",
+  wechat: "微信",
+  phone: "电话",
+  homepage: "官网 / 店铺",
+};
+/** 字段可见性：标注该联系方式取自主页上公开可见的区域，不是抓取隐藏数据。 */
+export const ACQ_CONTACT_VISIBILITIES = ["PROFILE_PUBLIC", "BIO_PUBLIC"] as const;
+export const ACQ_CONTACT_VISIBILITY_LABELS: Record<string, string> = {
+  PROFILE_PUBLIC: "主页公开资料",
+  BIO_PUBLIC: "公开简介",
+};
 export const ACQ_OUTREACH_CHANNELS = [
   "XHS_DM",
   "DOUYIN_COMMENT",
@@ -344,6 +358,11 @@ export const acqIntentScoreSchema = z.object({
     .array(z.object({ name: z.string(), score: z.number(), note: z.string() }))
     .default([]),
 });
+export const acqLeadContactSchema = z.object({
+  field: z.enum(ACQ_CONTACT_FIELDS),
+  value: z.string(),
+  visibility: z.enum(ACQ_CONTACT_VISIBILITIES),
+});
 export const acqLeadEvidenceSchema = z.object({
   id: z.number(),
   leadId: z.number(),
@@ -353,6 +372,8 @@ export const acqLeadEvidenceSchema = z.object({
   excerpt: z.string(),
   summary: z.string(),
   metrics: z.record(z.string(), z.unknown()),
+  /** 该条证据里补抓到的公开联系方式（仅主页已公开可见字段，逐条带可见性与来源）。 */
+  contacts: z.array(acqLeadContactSchema).default([]),
   capturedAt: z.string(),
 });
 export const acqLeadSchema = z.object({
@@ -371,11 +392,15 @@ export const acqLeadSchema = z.object({
   ownerUserId: z.string(),
   crmLeadId: z.number(),
   evidenceCount: z.number(),
+  /** 已补抓的公开联系方式条数（含来源与可见性，见 leadDetail.contacts）。 */
+  contactCount: z.number().default(0),
   firstSeenAt: z.string(),
   lastSeenAt: z.string(),
 });
 export const acqLeadDetailSchema = acqLeadSchema.extend({
   evidence: z.array(acqLeadEvidenceSchema),
+  /** 从全部证据里去重汇总的联系方式，供「达人建联」直接取用。 */
+  contacts: z.array(acqLeadContactSchema.extend({ url: z.string(), capturedAt: z.string() })),
   opening: z.string(),
   risk: z.string(),
   profileId: z.number(),
@@ -486,6 +511,8 @@ export const acqPluginCollectItemSchema = z.object({
   url: z.string().max(500),
   excerpt: z.string().max(4000),
   metrics: z.record(z.string(), z.unknown()).default({}),
+  /** 主页已公开可见的联系方式；插件只抽页面上肉眼可见的字段，逐条带可见性标注。 */
+  contacts: z.array(acqLeadContactSchema).max(20).default([]),
 });
 export const acqPluginJobSchema = z.object({
   jobId: z.string(),
@@ -1038,7 +1065,11 @@ export const acquisitionEndpoints = {
     path: "/enterprise/acquisition/plugin/token",
     params: z.object({}),
     query: emptyQuery,
-    body: z.object({ type: z.enum(ACQ_PLUGIN_TYPES).default("collect") }),
+    body: z.object({
+      type: z.enum(ACQ_PLUGIN_TYPES).default("collect"),
+      /** 页面检测到的插件版本（可选）：低于能力最低版本时服务端拒绝派发并提示升级。 */
+      pluginVersion: z.string().max(20).optional(),
+    }),
     response: envelope(acqPluginTokenSchema),
   },
   Acquisition_pluginPull: {
@@ -1056,6 +1087,15 @@ export const acquisitionEndpoints = {
     query: emptyQuery,
     body: acqPluginReportBodySchema,
     response: envelope(acqPluginReportResultSchema),
+  },
+  /** 统一回执落库（登录态）：页面把插件终态回执挂到服务端的浏览器任务队列上，未登记任务按幂等忽略。 */
+  Acquisition_pluginReceipt: {
+    method: "post" as const,
+    path: "/enterprise/acquisition/plugin/receipt",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.record(z.string(), z.unknown()),
+    response: envelope(z.object({ recorded: z.boolean() })),
   },
   Acquisition_profiles: {
     method: "get" as const,

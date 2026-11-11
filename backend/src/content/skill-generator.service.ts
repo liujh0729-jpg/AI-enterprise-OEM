@@ -430,7 +430,7 @@ export class SkillGeneratorService {
       ...files.map((file) => ({ path: file.path, content: file.content })),
     ]);
     const filename = `${name}.zip`;
-    // 生成即上架：开放集成 → Skill 页签读这张表；同名技能重新生成时覆盖为新包。
+    // 生成即上架：模型服务 → API-MCP-Skill → Skill 页签读这张表；同名技能重新生成时覆盖为新包。
     await this.prisma.generatedSkill.upsert({
       where: { name },
       create: {
@@ -482,7 +482,7 @@ export class SkillGeneratorService {
     } satisfies GeneratedSkill;
   }
 
-  /** 开放集成 → Skill：平台管理员生成过的技能包清单，按更新时间倒序。 */
+  /** 模型服务 → API-MCP-Skill → Skill：平台管理员生成过的技能包清单，按更新时间倒序。 */
   async list() {
     const rows = await this.prisma.generatedSkill.findMany({
       orderBy: { updatedAt: 'desc' },

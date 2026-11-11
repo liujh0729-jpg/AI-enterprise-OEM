@@ -10,6 +10,7 @@ import {
   ResourceLibraryPanel,
   type ResourceLibrarySpec,
 } from "@/components/resource-library";
+import { ServicePackagesPanel } from "@/components/service-packages";
 import { isProviderAccount } from "@/lib/can-work-on";
 import { useSession } from "@/lib/session";
 import { IP_FIELDS, asList, caseText, type IpAgency } from "./common";
@@ -106,7 +107,7 @@ export function ResourceTab({ kind }: { kind: "AGENCY" | "AGENT" }) {
           )
         ) : (
           <span className="text-12 muted">
-            登记资源需先开通「知识产权服务」资质（高管驾驶舱-服务商备案）
+            登记资源需先开通「知识产权服务」资质（驾驶舱-服务商备案）
           </span>
         )
       ) : null,
@@ -174,6 +175,9 @@ export function ResourceTab({ kind }: { kind: "AGENCY" | "AGENT" }) {
   return (
     <>
       <ResourceLibraryPanel kind={kind} spec={spec} />
+      {kind === "AGENCY" ? (
+        <ServicePackagesPanel serviceType={SERVICE_TYPE} />
+      ) : null}
       <AddAgentModal
         open={inviteOpen}
         category={SERVICE_TYPE}

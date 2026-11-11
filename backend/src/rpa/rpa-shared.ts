@@ -2,13 +2,14 @@ import { text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 
-/** 目标设备：pc＝比特浏览器窗口，android＝安卓云手机，iphone＝iPhone 云手机。 */
-export const DEVICE_TYPES = ['pc', 'android', 'iphone'] as const;
+/** 目标设备：pc＝比特浏览器窗口，android＝安卓云手机，iphone＝iPhone 云手机，chrome＝本机 Chrome 插件。 */
+export const DEVICE_TYPES = ['pc', 'android', 'iphone', 'chrome'] as const;
 
 export const DEVICE_LABELS: Record<string, string> = {
   pc: 'PC（比特浏览器）',
   android: '安卓云手机',
   iphone: 'iPhone 云手机',
+  chrome: '本地 Chrome（插件）',
 };
 
 /** 设备叫法归一：界面、机器通道与 MCP 都可能传中文或扩展名式写法。 */
@@ -33,6 +34,12 @@ const DEVICE_ALIASES: Record<string, string> = {
   ios: 'iphone',
   apple: 'iphone',
   cloudiphone: 'iphone',
+  chrome: 'chrome',
+  本地chrome: 'chrome',
+  插件: 'chrome',
+  chrome插件: 'chrome',
+  extension: 'chrome',
+  浏览器插件: 'chrome',
 };
 
 /**
@@ -133,6 +140,7 @@ export const SCRIPT_FILE_TYPES = [
   'automa_json',
   'bitbrowser_rpa',
   'bitphone_json',
+  'chrome_actions',
   'javascript',
   'python',
 ] as const;
@@ -141,6 +149,7 @@ export const SCRIPT_FILE_TYPE_LABELS: Record<string, string> = {
   automa_json: 'JSON（Automa 脚本）',
   bitbrowser_rpa: '比特浏览器 RPA 流程',
   bitphone_json: '比特云手机 RPA 流程（JSON）',
+  chrome_actions: '本地 Chrome 动作序列（JSON）',
   javascript: 'JS 脚本',
   python: 'Python 脚本',
 };
@@ -149,12 +158,14 @@ export const SCRIPT_FILE_TYPE_LABELS: Record<string, string> = {
  * 每种设备能吃的脚本类型，顺序即界面默认值。
  * pc 的比特浏览器 RPA 流程要靠客户端里的任务 ID 触发（POST /rpa/run）；
  * 云手机 RPA 只认客户端「RPA 自动化-云手机环境」导出的 .json 流程文件，且只有安卓有；
- * iPhone 云手机在接口文档里既没有可用接口也没有 RPA，只能自带 JS / Python 脚本交给执行端自己的工具链。
+ * iPhone 云手机在接口文档里既没有可用接口也没有 RPA，只能自带 JS / Python 脚本交给执行端自己的工具链；
+ * 本地 Chrome 插件只回放闭集动作序列（契约 RC_ACTIONS），不接受任意脚本。
  */
 export const SCRIPT_FILE_TYPES_BY_DEVICE: Record<string, readonly string[]> = {
   pc: ['automa_json', 'bitbrowser_rpa', 'javascript', 'python'],
   android: ['bitphone_json', 'javascript', 'python'],
   iphone: ['javascript', 'python'],
+  chrome: ['chrome_actions'],
 };
 
 /** 扩展名 / 别名叫法 → 规范类型，界面与本地执行器都可能传 `json` / `js` / `py`。 */
@@ -168,6 +179,10 @@ const FILE_TYPE_ALIASES: Record<string, string> = {
   bitphone: 'bitphone_json',
   bitphone_json: 'bitphone_json',
   cloudphone_json: 'bitphone_json',
+  chrome_actions: 'chrome_actions',
+  chrome: 'chrome_actions',
+  本地chrome: 'chrome_actions',
+  actions: 'chrome_actions',
   js: 'javascript',
   javascript: 'javascript',
   py: 'python',
@@ -214,7 +229,7 @@ export function normalizeDeviceType(raw: unknown, fallback = 'pc') {
   if (mapped) return mapped;
   throw new BusinessException(
     ErrorCode.BAD_REQUEST,
-    '设备类型只能是 PC / 安卓手机 / iPhone 手机',
+    '设备类型只能是 PC / 安卓手机 / iPhone 手机 / 本地 Chrome',
   );
 }
 
@@ -292,7 +307,7 @@ export function normalizeFileType(raw: unknown, deviceType?: unknown): string {
   if (!mapped) {
     throw new BusinessException(
       ErrorCode.BAD_REQUEST,
-      '脚本类型只能是 JSON（Automa 脚本）/ 比特浏览器 RPA 流程 / 比特云手机 RPA 流程 / Python 脚本 / JS 脚本',
+      '脚本类型只能是 JSON（Automa 脚本）/ 比特浏览器 RPA 流程 / 比特云手机 RPA 流程 / 本地 Chrome 动作序列 / Python 脚本 / JS 脚本',
     );
   }
   if (deviceType === undefined) return mapped;
@@ -485,4 +500,33 @@ export function assertBitphoneJson(content: string) {
 /** 比特浏览器（PC）RPA 流程正文：客户端里画好、用任务 ID 触发，云端只存档。 */
 export function assertBitbrowserFlowJson(content: string) {
   assertJsonObject(content, '比特浏览器 RPA 流程');
+}
+
+/**
+ * 本地 Chrome 动作序列：闭集动作数组（契约 RC_ACTIONS），任务派发后逐步回放、不做 LLM 决策。
+ * 接受 `[ {...}, ... ]` 或 `{ "actions": [ ... ] }` 两种写法。
+ */
+export function assertChromeActions(content: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new BusinessException(
+      ErrorCode.BAD_REQUEST,
+      '本地 Chrome 动作序列正文不是合法 JSON',
+    );
+  }
+  const list = Array.isArray(parsed)
+    ? parsed
+    : parsed &&
+        typeof parsed === 'object' &&
+        Array.isArray((parsed as { actions?: unknown }).actions)
+      ? (parsed as { actions: unknown[] }).actions
+      : null;
+  if (!list) {
+    throw new BusinessException(
+      ErrorCode.BAD_REQUEST,
+      '本地 Chrome 动作序列要写成动作数组，或 { "actions": [ ... ] }',
+    );
+  }
 }

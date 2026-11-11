@@ -22,11 +22,11 @@ result = result.replace(
 
 // 2) 原生类型改写：Prisma 在 PostgreSQL 下不认识以下 MySQL 独有标注。
 //    - @db.TinyInt    → @db.SmallInt（PG 无 tinyint）
-//    - @db.MediumText → @db.Text（PG 无 mediumtext，Text 本身无长度上限）
+//    - @db.MediumText / @db.LongText → @db.Text（PG 无这两种 text，Text 本身无长度上限）
 //    - @db.DateTime(n)/@db.DateTime → @db.Timestamp(n)/@db.Timestamp(3)
 result = result
   .replace(/@db\.TinyInt\b/g, '@db.SmallInt')
-  .replace(/@db\.MediumText\b/g, '@db.Text')
+  .replace(/@db\.(?:Medium|Long)Text\b/g, '@db.Text')
   .replace(/@db\.DateTime\((\d+)\)/g, '@db.Timestamp($1)')
   .replace(/@db\.DateTime\b(?![(.])/g, '@db.Timestamp(3)');
 

@@ -209,7 +209,7 @@ export class AipddKeyService {
 
   /**
    * 凭证解析器（全系统唯一入口）：本地用户 → 绑定 → 解密出上游 Bearer 令牌。
-   * 未绑定时抛业务错误，前端引导去「开放集成 → API Key 管理」页绑定。
+   * 未绑定时抛业务错误，前端引导去「模型服务 → API Key 管理」页绑定。
    */
   async resolveToken(userId: string): Promise<string> {
     const binding = await this.prisma.userAipddBinding.findUnique({
@@ -218,7 +218,7 @@ export class AipddKeyService {
     if (!binding) {
       throw new BusinessException(
         ErrorCode.FORBIDDEN,
-        '请先在「开放集成 → API Key 管理」绑定 AIPDD API Key，再使用需要同步上游的功能',
+        '请先在「模型服务 → API Key 管理」绑定 AIPDD API Key，再使用需要同步上游的功能',
       );
     }
     const key = await this.prisma.aipddKey.findUnique({

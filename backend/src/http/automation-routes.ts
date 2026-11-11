@@ -14,6 +14,7 @@ import { withoutRequestAbort } from '../common/request-context';
 import { upstreamToken, upstreamTokenOrNull } from '../common/upstream-token';
 import { toCsv } from '../crm/crm.helpers';
 import type { GenerateSkillInput } from '../content/skill-generator.service';
+import { registerAiCodeRoutes } from '../ai-code/ai-code.routes';
 
 /** SSE 保活间隔：必须小于反向代理的空闲超时（Next dev 30 秒 / Nginx 60 秒）。 */
 const SSE_HEARTBEAT_MS = 10_000;
@@ -366,6 +367,63 @@ export function registerAutomationRoutes(
     OpenApi_rpaFinishExecution: async (i) =>
       c.rpaOpenController.finish(i.user, i.param['id'], i.json),
 
+    // ---------- 本地 Chrome 插件 RPA（界面侧） ----------
+    RpaChrome_devices: async (i) => c.rpaChromeController.listDevices(i.user),
+    RpaChrome_setDevice: async (i) =>
+      c.rpaChromeController.setDevice(i.user, i.param['clientId'], i.json),
+    RpaChrome_removeDevice: async (i) =>
+      c.rpaChromeController.removeDevice(i.user, i.param['clientId']),
+    RpaChrome_sessions: async (i) =>
+      c.rpaChromeController.sessions(i.user, i.query),
+    RpaChrome_activeSessions: async (i) =>
+      c.rpaChromeController.activeSessions(i.user, i.query),
+    RpaChrome_session: async (i) =>
+      c.rpaChromeController.session(i.user, i.param['id']),
+    RpaChrome_startSession: async (i) =>
+      c.rpaChromeController.startSession(i.user, i.json),
+    RpaChrome_pauseSession: async (i) =>
+      c.rpaChromeController.pauseSession(i.user, i.param['id']),
+    RpaChrome_resumeSession: async (i) =>
+      c.rpaChromeController.resumeSession(i.user, i.param['id']),
+    RpaChrome_stopSession: async (i) =>
+      c.rpaChromeController.stopSession(i.user, i.param['id']),
+    RpaChrome_retryStep: async (i) =>
+      c.rpaChromeController.retryStep(i.user, i.param['id']),
+    RpaChrome_settings: async (i) => c.rpaChromeController.settings(i.user),
+    RpaChrome_saveSettings: async (i) =>
+      c.rpaChromeController.saveSettings(i.user, i.json),
+    RpaChrome_agents: async (i) =>
+      c.rpaChromeController.agents(i.user, i.query),
+    RpaChrome_agent: async (i) =>
+      c.rpaChromeController.agentDetail(i.user, i.param['id']),
+    RpaChrome_saveAgent: async (i) =>
+      c.rpaChromeController.saveAgent(i.user, i.json),
+    RpaChrome_appendMessage: async (i) =>
+      c.rpaChromeController.appendMessage(i.user, i.param['id'], i.json),
+    RpaChrome_skills: async (i) =>
+      c.rpaChromeController.skills(i.user, i.query),
+    RpaChrome_saveSkill: async (i) =>
+      c.rpaChromeController.saveSkill(i.user, i.json),
+    RpaChrome_removeSkill: async (i) =>
+      c.rpaChromeController.removeSkill(i.user, i.param['id']),
+    RpaChrome_recordings: async (i) => c.rpaChromeController.recordings(i.user),
+    RpaChrome_saveRecording: async (i) =>
+      c.rpaChromeController.saveRecording(i.user, i.json),
+    RpaChrome_removeRecording: async (i) =>
+      c.rpaChromeController.removeRecording(i.user, i.param['id']),
+    RpaChrome_extracts: async (i) =>
+      c.rpaChromeController.extracts(i.user, i.query),
+    RpaChrome_saveExtract: async (i) =>
+      c.rpaChromeController.saveExtract(i.user, i.json),
+    RpaChrome_schedules: async (i) =>
+      c.rpaChromeController.schedules(i.user, i.query),
+    RpaChrome_saveSchedule: async (i) =>
+      c.rpaChromeController.saveSchedule(i.user, i.json),
+    RpaChrome_removeSchedule: async (i) =>
+      c.rpaChromeController.removeSchedule(i.user, i.param['id']),
+    RpaChrome_runSchedule: async (i) =>
+      c.rpaChromeController.runSchedule(i.user, i.param['id']),
+
     // ---------- Workbuddy ----------
     Workbuddy_accounts: async (i) => c.workbuddyController.listAccounts(i.user),
     Workbuddy_addAccount: async (i) =>
@@ -559,14 +617,24 @@ export function registerAutomationRoutes(
     Distribution_remove: async (i) =>
       c.distributionController.remove(i.user, i.param['id']),
     Distribution_mark: async (i) =>
-      c.distributionController.mark(i.user, i.param['id']),
+      c.distributionController.mark(
+        i.user,
+        i.param['id'],
+        typeof i.query.pluginVersion === 'string'
+          ? i.query.pluginVersion
+          : undefined,
+      ),
     Distribution_reportLogs: async (i) =>
       c.distributionController.reportLogs(i.user, i.param['id'], i.json),
+    Distribution_reportMetrics: async (i) =>
+      c.distributionController.reportMetrics(i.user, i.param['id'], i.json),
 
-    // ---------- 帮助中心（章节知识库：前端 /help 与 MCP 读同一份；静态内容，与身份无关） ----------
-    Help_chapters: () => Promise.resolve(c.helpController.chapters()),
-    Help_topic: (i) => Promise.resolve(c.helpController.topic(i.param['code'])),
-    Help_search: (i) => Promise.resolve(c.helpController.search(i.query)),
+    // ---------- 帮助中心（按账号层级隔离；普通帮助按角色分区） ----------
+    Help_chapters: (i) => Promise.resolve(c.helpController.chapters(i.user)),
+    Help_topic: (i) =>
+      Promise.resolve(c.helpController.topic(i.user, i.param['code'])),
+    Help_search: (i) =>
+      Promise.resolve(c.helpController.search(i.user, i.query)),
 
     // ---------- 大数据查询（营销工具：五个独立数据集） ----------
     Bigdata_settings: async (i) =>
@@ -678,7 +746,7 @@ export function registerAutomationRoutes(
     Agent_saveGrants: async (i) =>
       c.agentMemoryController.saveGrants(i.user, i.json),
 
-    // ---------- 内容创作：模型设置与数字资产（「开放集成 → 模型设置」） ----------
+    // ---------- 内容创作：模型设置与数字资产（「模型服务 → 模型设置」） ----------
     Content_settings: async (i) =>
       c.contentController.getSettings(i.user, i.token),
     Content_saveSettings: async (i) =>
@@ -941,6 +1009,8 @@ export function registerAutomationRoutes(
     Notifications_list: async (i) =>
       c.notificationController.list(i.user, i.query),
     Notifications_unread: async (i) => c.notificationController.unread(i.user),
+    Notifications_get: async (i) =>
+      c.notificationController.get(i.user, i.param['id']),
     Notifications_read: async (i) =>
       c.notificationController.read(i.user, i.param['id']),
     Notifications_readAll: async (i) =>
@@ -1022,6 +1092,10 @@ export function registerAutomationRoutes(
       c.serviceDeskController.close(i.user, i.param['id'], i.json),
     ServiceDesk_aiSuggest: async (i) =>
       c.serviceDeskController.aiSuggest(i.user, i.param['id'], i.json),
+    ServiceDesk_createTask: async (i) =>
+      c.serviceDeskController.createTask(i.user, i.param['id'], i.json),
+    ServiceDesk_draftSolution: async (i) =>
+      c.serviceDeskController.draftSolution(i.user, i.param['id'], i.json),
     ServiceDesk_canned: async (i) => c.serviceDeskController.canned(i.user),
     ServiceDesk_saveCanned: async (i) =>
       c.serviceDeskController.saveCanned(i.user, i.json),
@@ -1111,7 +1185,7 @@ export function registerAutomationRoutes(
           readValidated<GenerateSkillInput>(i.json),
         ),
       ),
-    /** 开放集成 → API-MCP-Skill → Skill：任意登录账号可读平台生成的技能包清单。 */
+    /** 模型服务 → API-MCP-Skill → Skill：任意登录账号可读平台生成的技能包清单。 */
     GeneratedSkill_list: async () => ok(await services.skillGenerator.list()),
   };
 
@@ -1161,6 +1235,14 @@ export function registerAutomationRoutes(
     moduleHandlers('LowCode_', c.lowcodeController),
     moduleHandlers('Okr_', c.okrController),
     moduleHandlers('Oa_', c.oaController),
+    // 统一任务中心：列表 / 摘要 / 本人关闭 / 重开 / 机构收件箱 / 改派 / 接单。
+    moduleHandlers('MyTask_', c.taskCenterController),
+    // 派单规则：服务商负责人自助维护，平台管理员只读审计。
+    moduleHandlers('TaskRule_', c.taskAssignmentController),
+    // 账号级界面偏好（跨设备）：本轮承载驾驶舱「快捷导航」。
+    moduleHandlers('UiPrefs_', c.uiPreferencesController),
+    // 工作流：图编排 CRUD、发布、运行与运行详情。
+    moduleHandlers('Workflow_', c.workflowController),
     moduleHandlers('Tp_', c.tpController),
     moduleHandlers('QuestionHall_', c.questionHallController),
     moduleHandlers('Im_', c.imController),
@@ -1185,6 +1267,9 @@ export function registerAutomationRoutes(
     moduleHandlers('Acquisition_', c.acquisitionController),
     // 企业微信原生 SCRM（营销工具）：客户/群/活码/群发/继承/SOP/合规/统计/侧边栏
     moduleHandlers('Scrm_', c.scrmController),
+    // 微信服务号：用户绑定与平台设置/菜单/绑定管理/推送记录。
+    moduleHandlers('WechatMp_', c.wechatMpController),
+    moduleHandlers('WechatMpAdmin_', c.wechatMpController),
     // 通用协作底座（§5.2）：评论/@/标签/收藏/资源链接
     moduleHandlers('Collab_', c.collabController),
     // §5.8 横切机制：各组都有 list/save/remove，因此按契约前缀分组注册。
@@ -1221,6 +1306,9 @@ export function registerAutomationRoutes(
     moduleHandlers('Quote_', c.quotationDocumentController),
     moduleHandlers('TimeAudit_', c.timeAuditController),
     moduleHandlers('Promo_', c.promoController),
+    // 时长卡（日卡 / 30 天卡）：用户侧目录/我的卡/兑换订单，平台侧规格维护与撤销。
+    moduleHandlers('Card_', c.cardController),
+    moduleHandlers('AdminCard_', c.adminCardController),
     moduleHandlers('AfterSales_', c.afterSalesController),
     moduleHandlers('Review_', c.reviewController),
     moduleHandlers('TaskSync_', c.taskSyncController),
@@ -1229,10 +1317,17 @@ export function registerAutomationRoutes(
     moduleHandlers('Changelog_', c.changelogController),
     moduleHandlers('OrgCtx_', c.orgContextController),
     moduleHandlers('Usage_', c.usageController),
+    // 平台升级：概览/升级包/分析/执行/备份/还原，全部要求平台管理员。
+    moduleHandlers('AdminUpgrade_', c.upgradeController),
+    // AI 编程：会话 / 暂存区审阅 / 导出补丁 / 在线应用（复用平台升级执行器）。
+    moduleHandlers('AdminAiCode_', c.aiCodeController),
   );
 
   // 条款接受与埋点需要请求来源（IP / UA）：覆盖 moduleHandlers 的默认签名。
   Object.assign(handlers, {
+    // 微信 H5 支付要上报真实用户 IP，契约默认签名不带 IP。
+    Card_createCashOrder: async (i: Input) =>
+      ok(await c.cardController.createCashOrder(i.user, i.json, i.ip)),
     Terms_accept: async (i: Input) =>
       ok(
         await c.termsController.accept(i.user, i.json, {
@@ -1322,6 +1417,8 @@ export function registerAutomationRoutes(
       ok(await c.acquisitionController.pluginPull(i.json)),
     Acquisition_pluginReport: async (i) =>
       ok(await c.acquisitionController.pluginReport(i.json)),
+    Acquisition_pluginReceipt: async (i) =>
+      ok(await c.acquisitionController.pluginReceipt(i.user, i.json)),
   } satisfies Record<string, Handler>);
 
   registerCrmExportDownload(app, services);
@@ -1419,6 +1516,80 @@ export function registerAutomationRoutes(
   registerContentAgentStream(app, services);
   registerContentSkillImport(app, services);
   registerContentPluginImport(app, services);
+  registerUpgradePackageUpload(app, services);
+  registerAiCodeRoutes(app, services);
+  registerWorkflowRunStream(app, services);
+  registerRpaChromeScreenshot(app, services);
+}
+
+/**
+ * 本地 Chrome 会话步骤截图：字节走 OSS，但只经本接口按属主鉴权后回传（原图路径不直接暴露给页面）。
+ * 二进制响应不是 JSON 契约，故单独登记。
+ */
+function registerRpaChromeScreenshot(
+  app: OpenAPIHono<ApiEnv>,
+  services: Services,
+) {
+  app.get(
+    '/enterprise/rpa/chrome/steps/:id/screenshot',
+    async (context: Context<ApiEnv>) => {
+      const user = context.get('user')!;
+      const stepId = Number(context.req.param('id'));
+      if (!Number.isInteger(stepId) || stepId <= 0) {
+        throw new BusinessException(ErrorCode.BAD_REQUEST, '步骤 ID 不合法');
+      }
+      const shot = await services.rpaChrome.agent.readStepScreenshot(
+        user,
+        stepId,
+      );
+      return new Response(new Uint8Array(shot.bytes), {
+        status: 200,
+        headers: {
+          'content-type': shot.contentType,
+          'cache-control': 'private, max-age=300',
+        },
+      });
+    },
+  );
+}
+
+/**
+ * 工作流运行流：SSE 不是 JSON 契约（响应是 text/event-stream），单独登记。
+ * 事件：run（每次推一份完整运行快照）。到终态或「等待人工」收流，前端另有 runDetail 轮询兜底。
+ */
+function registerWorkflowRunStream(
+  app: OpenAPIHono<ApiEnv>,
+  services: Services,
+) {
+  app.get(
+    '/enterprise/workflows/runs/:runId/stream',
+    (context: Context<ApiEnv>) => {
+      const user = context.get('user')!;
+      const runId = context.req.param('runId')!;
+      return streamSSE(context, async (stream) => {
+        const heartbeat = setInterval(() => {
+          void stream.write(': ping\n\n').catch(() => undefined);
+        }, SSE_HEARTBEAT_MS);
+        try {
+          await withoutRequestAbort(() =>
+            services.workflow.streamRun(user, runId, async (event, data) => {
+              await stream.writeSSE({ event, data: JSON.stringify(data) });
+            }),
+          );
+        } catch (error) {
+          const message =
+            error instanceof BusinessException
+              ? error.message
+              : '运行流中断，请改用运行详情查询进度';
+          await stream
+            .writeSSE({ event: 'error', data: JSON.stringify({ message }) })
+            .catch(() => undefined);
+        } finally {
+          clearInterval(heartbeat);
+        }
+      });
+    },
+  );
 }
 
 /** 数字资产上传：multipart（文件 + type/name/labels 字段），上传后立即登记到平台。 */
@@ -1510,6 +1681,33 @@ function registerContentPluginImport(
         file,
       );
       return context.json(result);
+    },
+  );
+}
+
+/** 升级包上传走 multipart（zip 二进制），不进 JSON 契约。 */
+function registerUpgradePackageUpload(
+  app: OpenAPIHono<ApiEnv>,
+  services: Services,
+) {
+  app.post(
+    '/enterprise/admin/upgrade/upload',
+    async (context: Context<ApiEnv>) => {
+      const form = await context.req.formData();
+      const file = form.get('file');
+      if (!(file instanceof File)) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          '请选择要上传的 zip 升级包',
+        );
+      }
+      const version = form.get('version');
+      const result = await services.controllers.upgradeController.upload(
+        context.get('user')!,
+        file,
+        typeof version === 'string' ? version : '',
+      );
+      return context.json({ code: 0, message: 'ok', data: result });
     },
   );
 }

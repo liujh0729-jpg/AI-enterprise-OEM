@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Checkbox, Input, InputNumber, Select, Space, Tag, Tooltip } from "antd";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   OA_APPROVAL_MODE_LABELS,
@@ -241,7 +242,8 @@ export function FlowEditor({
               </Labeled>
               {!functions.departments.length ? (
                 <span className="muted text-12" style={{ alignSelf: "center" }}>
-                  还没有部门：先到「职员/代理人管理 → 职能管理」里配置部门与岗位
+                  还没有部门：先到「职员/代理人管理 → 职能管理」里配置部门与岗位{" "}
+                  <Link href="/staff?tab=functions">去配置部门</Link>
                 </span>
               ) : null}
             </div>
@@ -317,7 +319,8 @@ export function FlowEditor({
                 </Labeled>
                 {!functions.personas.length ? (
                   <span className="muted text-12">
-                    还没有数字分身：可先到「Agent → 数字分身」创建，预审会按默认语气输出。
+                    还没有数字分身：可先到「Agent → 数字分身」创建，预审会按默认语气输出。{" "}
+                    <Link href="/agent?tab=personas">去创建数字分身</Link>
                   </span>
                 ) : null}
               </>

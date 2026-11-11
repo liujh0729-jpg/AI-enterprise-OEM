@@ -78,6 +78,8 @@ export type EngineResult = {
   text: string;
   toolEvents: { name: string; args: string; ok: boolean; text: string }[];
   media: { kind: string; url: string; assetId?: string }[];
+  /** 本回合（含工具往返的多轮）累计 token 用量：上游没回 usage 时按 0 记。 */
+  usage: { tokenIn: number; tokenOut: number; call: number };
 };
 
 type Emit = (event: EngineEvent) => Promise<void>;
@@ -183,6 +185,28 @@ function parseArgs(raw: string) {
   }
 }
 
+/**
+ * 累计一次上游用量：OpenAI 给 prompt/completion_tokens，Anthropic 给 input/output_tokens。
+ * 流式 Anthropic 的 message_delta 只带 output_tokens（input 在 message_start），
+ * 所以 output 取最大值而不是相加，避免重复计量。
+ */
+function accumulateUsage(
+  total: { tokenIn: number; tokenOut: number; call: number },
+  raw: unknown,
+  delta = false,
+) {
+  if (!raw || typeof raw !== 'object') return;
+  const usage = raw as Record<string, unknown>;
+  const num = (value: unknown) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  total.tokenIn += num(usage.prompt_tokens ?? usage.input_tokens);
+  const out = num(usage.completion_tokens ?? usage.output_tokens);
+  total.tokenOut = delta ? Math.max(total.tokenOut, out) : total.tokenOut + out;
+  if (!delta) total.call += 1;
+}
+
 /** 同一句口径：无论是工具中途被断，还是断在工具之间，都按「用户停止」收尾。 */
 function canceledError() {
   return new BusinessException(ErrorCode.BAD_REQUEST, '对话已取消');
@@ -236,25 +260,38 @@ export class ContentAgentEngine {
     // 没传渠道就沿用槽位，模型没传且渠道与槽位一致才拿槽位默认模型。
     const slot = await this.settings.slotOf(input.user, 'text');
     const slotChannel = slot?.channelId ?? 0;
-    const channelId =
+    const explicitChannel =
       Number.isInteger(input.channelId) && (input.channelId as number) >= 0
         ? (input.channelId as number)
-        : slotChannel;
-    const model =
+        : null;
+    const channelId = explicitChannel ?? slotChannel;
+    let model =
       String(input.model || '').trim() ||
       (channelId === slotChannel ? slot?.model || '' : '');
+    // 个人未配置文本模型时继承平台默认模型（与内容创作、工作流共用同一解析入口）。
+    const inherited =
+      model || explicitChannel !== null
+        ? null
+        : await this.settings
+            .resolveSlot(input.user, 'text', input.token)
+            .catch(() => null);
+    if (!model && inherited) {
+      model = inherited.model;
+    }
     if (!model) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
-        '请先选择要用的模型（渠道 + 模型）',
+        '请先选择要用的模型（渠道 + 模型）；完成充值后未配置时会自动使用平台默认模型',
       );
     }
-    const target0 = await this.settings.channelCredentials(
-      input.user,
-      channelId,
-      input.token,
-      'text',
-    );
+    const target0 =
+      inherited ??
+      (await this.settings.channelCredentials(
+        input.user,
+        channelId,
+        input.token,
+        'text',
+      ));
     const base = String(target0.baseUrl || '').replace(/\/+$/, '');
     // 图片/视频模式：把本轮选的生成模型带进工具；渠道没带就取对应类型的槽位渠道
     const generationModels: ModelOverrides = {};
@@ -352,6 +389,7 @@ export class ContentAgentEngine {
     ];
     const toolEvents: EngineResult['toolEvents'] = [];
     const media: EngineResult['media'] = [];
+    const usage = { tokenIn: 0, tokenOut: 0, call: 0 };
     let answer = '';
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -365,6 +403,7 @@ export class ContentAgentEngine {
           tools: openAiTools(target.connectorTools),
           tool_choice: 'auto',
           stream: true,
+          stream_options: { include_usage: true },
           max_tokens: MAX_TOKENS,
         },
         target.signal,
@@ -372,6 +411,7 @@ export class ContentAgentEngine {
       let roundText = '';
       const drafts = new Map<number, ToolCallDraft>();
       await readSse(stream.response.body, (payload) => {
+        if (payload.usage) accumulateUsage(usage, payload.usage);
         const choices = payload.choices;
         const choice = Array.isArray(choices)
           ? (choices[0] as Record<string, unknown>)
@@ -406,7 +446,7 @@ export class ContentAgentEngine {
       const calls = Array.from(drafts.values()).filter((item) => item.name);
       if (!calls.length) {
         answer += roundText;
-        return { text: answer.trim(), toolEvents, media };
+        return { text: answer.trim(), toolEvents, media, usage };
       }
       if (roundText) answer += roundText;
       messages.push({
@@ -438,7 +478,7 @@ export class ContentAgentEngine {
       type: 'notice',
       text: '这一轮工具调用已经达到上限，先把已有的结果给你',
     });
-    return { text: answer.trim(), toolEvents, media };
+    return { text: answer.trim(), toolEvents, media, usage };
   }
 
   private async runAnthropic(target: RunTarget): Promise<EngineResult> {
@@ -450,6 +490,7 @@ export class ContentAgentEngine {
     while (messages.length && messages[0].role !== 'user') messages.shift();
     const toolEvents: EngineResult['toolEvents'] = [];
     const media: EngineResult['media'] = [];
+    const usage = { tokenIn: 0, tokenOut: 0, call: 0 };
     let answer = '';
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -474,7 +515,12 @@ export class ContentAgentEngine {
       let upstreamError = '';
       await readSse(stream.response.body, (payload) => {
         const type = readText(payload.type);
-        if (type === 'content_block_start') {
+        if (type === 'message_start') {
+          const message = (payload.message || {}) as Record<string, unknown>;
+          accumulateUsage(usage, message.usage);
+        } else if (type === 'message_delta') {
+          accumulateUsage(usage, payload.usage, true);
+        } else if (type === 'content_block_start') {
           const block = (payload.content_block || {}) as Record<
             string,
             unknown
@@ -529,7 +575,7 @@ export class ContentAgentEngine {
       }
       if (roundText) answer += roundText;
       if (!drafts.length) {
-        return { text: answer.trim(), toolEvents, media };
+        return { text: answer.trim(), toolEvents, media, usage };
       }
       messages.push({ role: 'assistant', content: assistantBlocks });
       const results: AnthropicBlock[] = [];
@@ -554,7 +600,7 @@ export class ContentAgentEngine {
       type: 'notice',
       text: '这一轮工具调用已经达到上限，先把已有的结果给你',
     });
-    return { text: answer.trim(), toolEvents, media };
+    return { text: answer.trim(), toolEvents, media, usage };
   }
 
   private async executeTool(

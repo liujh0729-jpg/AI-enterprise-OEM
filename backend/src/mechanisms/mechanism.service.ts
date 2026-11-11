@@ -8,6 +8,10 @@ import type { NotificationService } from '../notifications/notification.service'
 import type { PrismaService } from '../prisma/prisma.service';
 import { MechanismBase } from './mechanism.base';
 import { MechanismEventService } from './mechanism-event.service';
+import type {
+  RuleTaskAssign,
+  RuleWorkflowInvoke,
+} from './mechanism-event.service';
 import { MechanismExportService } from './mechanism-export.service';
 import { MechanismImportService } from './mechanism-import.service';
 import { MechanismOidcService } from './mechanism-oidc.service';
@@ -192,6 +196,15 @@ export class MechanismService extends MechanismBase {
     return this.events.dispatch(org, event, payload);
   }
 
+  /** 规则动作 run_workflow / assign_task 的进程内执行器（装配时回填）。 */
+  useWorkflowInvoker(port: RuleWorkflowInvoke) {
+    this.events.useWorkflowInvoker(port);
+  }
+
+  useTaskAssigner(port: RuleTaskAssign) {
+    this.events.useTaskAssigner(port);
+  }
+
   async listMaps(user: CurrentUser, query: { module?: string }) {
     return this.imports.listMaps(user, query);
   }
@@ -237,6 +250,10 @@ export class MechanismService extends MechanismBase {
 
   async removeExportJob(user: CurrentUser, body: Row) {
     return this.exports.removeExportJob(user, body);
+  }
+
+  async downloadExport(user: CurrentUser, id: string) {
+    return this.exports.download(user, id);
   }
 
   async listCatalog(

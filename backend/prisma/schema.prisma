@@ -169,11 +169,14 @@ model Contract {
   designatedAgentId    Int      @default(0) @map("designated_agent_id")
   designatedAgentName  String   @default("") @map("designated_agent_name") @db.VarChar(64)
   designatedAgentOrg   String   @default("") @map("designated_agent_org") @db.VarChar(200)
+  /// 平台主持的套餐交付签约挂回采购订单（0=普通签约）：交付进度反查、签约台账溯源
+  packageOrderId       Int      @default(0) @map("package_order_id")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@index([enterpriseId, serviceType, status])
   @@index([providerUserId, status])
+  @@index([packageOrderId])
   @@map("contracts")
 }
 
@@ -1959,6 +1962,8 @@ model RpaTask {
   maxRetries        Int       @default(0) @map("max_retries")
   /// 超过该时长仍未回传结果的执行判为 timeout，任务自动退回 pending 供重新认领
   timeoutSeconds    Int       @default(3600) @map("timeout_seconds")
+  /// deviceType=chrome 时绑定的本地 Chrome 设备号（RpaChromeDevice.clientId）；其他设备固定空串
+  chromeClientId    String    @default("") @map("chrome_client_id") @db.VarChar(64)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -2021,10 +2026,276 @@ model RpaSetting {
   bitphoneRegionId       String   @default("") @map("bitphone_region_id") @db.VarChar(64)
   /// 云手机默认配置（如 standard / high，从 /phone/compute/list 获取）
   bitphoneComputeType    String   @default("") @map("bitphone_compute_type") @db.VarChar(64)
+  /// 本地 Chrome 插件 RPA 的设置（maxSteps / 超时 / 黑名单 / 敏感确认 / 截图保留天数），JSON 存
+  chromeSettings         Json     @default("{}") @map("chrome_settings")
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 
   @@map("rpa_settings")
+}
+
+/// 本地 Chrome 插件设备（docs/本地Chrome插件RPA控制方案.md §5.1）：插件用本站账号登录后
+/// 成为该用户名下的一台设备，心跳维持在线，云端据此下发动作指令。令牌只存 sha256 哈希。
+model RpaChromeDevice {
+  id               Int       @id @default(autoincrement())
+  /// 归属用户（本站账户 userId）
+  createdBy        String    @map("created_by") @db.VarChar(64)
+  /// 插件本地生成的稳定设备号（安装时 uuid，重装即换）
+  clientId         String    @map("client_id") @db.VarChar(64)
+  /// 设备显示名（默认「Chrome · 主机名」）
+  name             String    @default("") @db.VarChar(80)
+  /// 登录时用的本站域（校验插件确实连的是同一套系统）
+  domain           String    @default("") @db.VarChar(200)
+  /// 设备令牌哈希：sha256(明文)；明文只在登录响应里出现一次
+  tokenHash        String    @map("token_hash") @db.VarChar(64)
+  extensionVersion String    @default("") @map("extension_version") @db.VarChar(24)
+  /// ONLINE | DISABLED（OFFLINE 由心跳超时折算，不落库）
+  status           String    @default("ONLINE") @db.VarChar(16)
+  /// 插件最近一次心跳回报的打开页面 [{ tabId, url, title }]，仅界面展示
+  pages            Json      @default("[]")
+  lastSeenAt       DateTime? @map("last_seen_at")
+  lastIp           String    @default("") @map("last_ip") @db.VarChar(64)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([createdBy, clientId])
+  @@index([createdBy, status])
+  @@map("rpa_chrome_devices")
+}
+
+/// 云端 → 插件的动作指令队列：心跳顺带领取，按 commandCode 幂等回执。
+/// 敏感动作先进 PENDING_CONFIRM，等本人在插件弹窗点「允许本次」再转 DISPATCHED。
+model RpaChromeCommand {
+  id           Int       @id @default(autoincrement())
+  createdBy    String    @map("created_by") @db.VarChar(64)
+  clientId     String    @map("client_id") @db.VarChar(64)
+  sessionId    Int       @default(0) @map("session_id")
+  stepIndex    Int       @default(0) @map("step_index")
+  /// 服务端生成的指令码，插件回执按它幂等（唯一）
+  commandCode  String    @unique @map("command_code") @db.VarChar(40)
+  /// 闭集动作（契约 RC_ACTIONS）及其参数
+  action       Json      @default("{}")
+  /// PENDING | DISPATCHED | PENDING_CONFIRM | DONE | FAILED | TIMEOUT | CANCELLED
+  status       String    @default("PENDING") @db.VarChar(16)
+  /// 敏感确认状态：NONE | PENDING | ALLOWED | DENIED
+  confirmState String    @default("NONE") @map("confirm_state") @db.VarChar(16)
+  /// 插件回执：{ ok, data, errorMessage, elapsedMs, code }
+  result       Json      @default("{}")
+  dispatchedAt DateTime? @map("dispatched_at")
+  finishedAt   DateTime? @map("finished_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([clientId, status, id])
+  @@index([sessionId, stepIndex])
+  @@map("rpa_chrome_commands")
+}
+
+/// 一次「本地 Chrome 自动操作」会话：goal（自然语言）→ 云端 LLM 逐步决策 → 插件执行并回观测。
+/// 也可带确定性动作序列（script），此时逐步回放、不调 LLM。
+model RpaChromeSession {
+  id           Int       @id @default(autoincrement())
+  createdBy    String    @map("created_by") @db.VarChar(64)
+  clientId     String    @map("client_id") @db.VarChar(64)
+  /// 关联的 RPA 任务 ID（页面直接开会话时为 0）
+  taskId       Int       @default(0) @map("task_id")
+  /// 由任务发起的会话对应的执行记录 ID（直接开会话时为 0）；收尾时按它回写 RpaTaskExecution
+  executionId  Int       @default(0) @map("execution_id")
+  goal         String    @db.Text
+  startUrl     String    @default("") @map("start_url") @db.VarChar(2000)
+  /// 能力档：act 操作 / crawl 顺链接批量抓取 / extract 抽取结构化结果
+  mode         String    @default("act") @db.VarChar(16)
+  /// RUNNING | WAITING_CONFIRM | PAUSED | COMPLETED | FAILED | CANCELLED | TIMEOUT
+  status       String    @default("RUNNING") @db.VarChar(16)
+  stepCount    Int       @default(0) @map("step_count")
+  maxSteps     Int       @default(25) @map("max_steps")
+  /// 决策用模型（确定性回放时为空）
+  model        String    @default("") @db.VarChar(128)
+  /// 结束原因：done | max_steps | no_action | offline | timeout | stopped | error
+  stopReason   String    @default("") @map("stop_reason") @db.VarChar(32)
+  errorMessage String    @default("") @map("error_message") @db.VarChar(500)
+  /// 确定性动作序列（给出时逐步回放，不走 LLM、不产生 AI 积分）
+  script       Json      @default("[]")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  endedAt      DateTime? @map("ended_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([createdBy, status, createdAt])
+  @@index([clientId, status])
+  @@map("rpa_chrome_sessions")
+}
+
+/// 会话的每一步：动作 + LLM 思考 + 页面观测（页面地图/截图）留痕，供界面回放与审计。
+model RpaChromeStep {
+  id            Int      @id @default(autoincrement())
+  sessionId     Int      @map("session_id")
+  createdBy     String   @map("created_by") @db.VarChar(64)
+  stepIndex     Int      @map("step_index")
+  commandCode   String   @default("") @map("command_code") @db.VarChar(40)
+  action        Json     @default("{}")
+  /// LLM 决策理由（确定性回放时为空）
+  thought       String   @default("") @db.VarChar(1000)
+  /// 动作后的页面观测（页面地图 + 元素 + 截图 key），供 LLM 下一步决策
+  observation   Json     @default("{}")
+  /// 截图对象存储 key（保留 N 天，超期清理）
+  screenshotKey String   @default("") @map("screenshot_key") @db.VarChar(200)
+  /// RUNNING | DONE | FAILED | TIMEOUT | CANCELLED
+  status        String   @default("RUNNING") @db.VarChar(16)
+  elapsedMs     Int      @default(0) @map("elapsed_ms")
+  errorMessage  String   @default("") @map("error_message") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([sessionId, stepIndex])
+  @@index([sessionId, createdAt])
+  @@map("rpa_chrome_steps")
+}
+
+/// 浏览器代理会话（docs/浏览器代理插件升级方案.md）：侧边栏 Agent 的编排在插件侧，
+/// 云端只存台账与消息流，用于跨设备查看、审计与额度对账。
+model RpaChromeAgent {
+  id            Int       @id @default(autoincrement())
+  createdBy     String    @map("created_by") @db.VarChar(64)
+  clientId      String    @map("client_id") @db.VarChar(64)
+  /// 插件侧生成的会话本地号（同一设备内稳定），用于幂等 upsert
+  clientAgentId String    @default("") @map("client_agent_id") @db.VarChar(64)
+  /// act | crawl | extract
+  mode          String    @default("act") @db.VarChar(16)
+  goal          String    @db.Text
+  /// RUNNING | WAITING_CONFIRM | PAUSED | COMPLETED | FAILED | CANCELLED | TIMEOUT
+  status        String    @default("RUNNING") @db.VarChar(16)
+  stepCount     Int       @default(0) @map("step_count")
+  maxSteps      Int       @default(25) @map("max_steps")
+  model         String    @default("") @db.VarChar(128)
+  /// 本会话累计消耗（先时长卡后积分，与站内 AI 用量同口径）
+  credits       Int       @default(0)
+  stopReason    String    @default("") @map("stop_reason") @db.VarChar(32)
+  errorMessage  String    @default("") @map("error_message") @db.VarChar(500)
+  startedAt     DateTime  @default(now()) @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([createdBy, clientId, clientAgentId])
+  @@index([createdBy, status, createdAt])
+  @@map("rpa_chrome_agents")
+}
+
+/// 代理会话消息流：一条卡片一行（思考 / 动作 / 工具 / 结果 / 截图 / 错误 / 追问）。
+model RpaChromeMessage {
+  id            Int      @id @default(autoincrement())
+  agentId       Int      @map("agent_id")
+  createdBy     String   @map("created_by") @db.VarChar(64)
+  /// 会话内自增序号（界面排序与断点续传的锚点）
+  seq           Int      @default(0)
+  role          String   @default("agent") @db.VarChar(16)
+  kind          String   @default("text") @db.VarChar(16)
+  content       String   @default("") @db.Text
+  /// 卡片结构化内容（动作参数 / 工具入参回执 / 结果表格）
+  payload       Json     @default("{}")
+  screenshotKey String   @default("") @map("screenshot_key") @db.VarChar(200)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([agentId, seq])
+  @@index([agentId, createdAt])
+  @@map("rpa_chrome_messages")
+}
+
+/// 插件侧沉淀的技能（personal 个人偏好/工作流 / site 站点操作知识）；site 默认本账号私有。
+model RpaChromeSkill {
+  id          Int      @id @default(autoincrement())
+  createdBy   String   @map("created_by") @db.VarChar(64)
+  name        String   @db.VarChar(120)
+  /// personal | site
+  kind        String   @default("personal") @db.VarChar(16)
+  description String   @default("") @db.VarChar(500)
+  /// markdown 正文
+  content     String   @db.Text
+  /// site 类技能的归属站点（hostname）；personal 为空
+  site        String   @default("") @db.VarChar(200)
+  enabled     Boolean  @default(true)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([createdBy, name])
+  @@index([createdBy, kind, updatedAt])
+  @@map("rpa_chrome_skills")
+}
+
+/// 录制 → 生成的可复用工具：一次成功操作沉淀为闭集动作序列（chrome_actions）。
+model RpaChromeRecording {
+  id        Int      @id @default(autoincrement())
+  createdBy String   @map("created_by") @db.VarChar(64)
+  name      String   @db.VarChar(120)
+  site      String   @default("") @db.VarChar(200)
+  actions   Json     @default("[]")
+  stepCount Int      @default(0) @map("step_count")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([createdBy, name])
+  @@index([createdBy, updatedAt])
+  @@map("rpa_chrome_recordings")
+}
+
+/// 抽取结果：一次 Extract 的结构化产物（落库供导出/投递），按会话归属个人。
+model RpaChromeExtract {
+  id            Int      @id @default(autoincrement())
+  createdBy     String   @map("created_by") @db.VarChar(64)
+  agentId       Int      @default(0) @map("agent_id")
+  url           String   @default("") @db.VarChar(2000)
+  /// 抽取口径说明（要了哪些字段 / 怎么抽的）
+  schemaNote    String   @default("") @map("schema_note") @db.VarChar(2000)
+  data          Json     @default("{}")
+  rows          Json     @default("[]")
+  screenshotKey String   @default("") @map("screenshot_key") @db.VarChar(200)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([createdBy, agentId, createdAt])
+  @@map("rpa_chrome_extracts")
+}
+
+/// 浏览器代理的计划任务：到点让本人某台在线设备按同一套会话引擎跑一个目标。
+/// 绿灯闸——设备离线（插件没开）当轮跳过，不排队补跑；账号停用即自动暂停（isStanding 复权）。
+model RpaChromeSchedule {
+  id             Int       @id @default(autoincrement())
+  createdBy      String    @map("created_by") @db.VarChar(64)
+  /// 目标设备号；执行时按它取在线设备，离线即跳过本轮
+  clientId       String    @default("") @map("client_id") @db.VarChar(64)
+  title          String    @db.VarChar(80)
+  /// 每轮交给会话引擎的一句话目标（自包含，不看历史）
+  goal           String    @db.Text
+  /// 能力档：act 操作 / crawl 顺链接批量抓取 / extract 抽取结构化结果
+  mode           String    @default("act") @db.VarChar(16)
+  startUrl       String    @default("") @map("start_url") @db.VarChar(2000)
+  /// 确定性动作序列：给了就逐步回放（不走 LLM），空则走 LLM 决策
+  script         Json      @default("[]")
+  /// 决策用模型（空＝「模型设置」默认文本槽位）
+  model          String    @default("") @db.VarChar(128)
+  maxSteps       Int       @default(25) @map("max_steps")
+  /// scheduled＝定时一次；recurring＝周期重复（计划任务不允许 once）
+  scheduleType   String    @default("recurring") @map("schedule_type") @db.VarChar(16)
+  scheduleConfig Json      @default("{}") @map("schedule_config")
+  /// 下一次执行时刻；定时一次跑完即置空
+  scheduledAt    DateTime? @map("scheduled_at")
+  /// enabled | paused
+  status         String    @default("enabled") @db.VarChar(16)
+  lastRunAt      DateTime? @map("last_run_at")
+  /// 最近一次结果：running | succeeded | failed | skipped；空串＝还没跑过
+  lastStatus     String    @default("") @map("last_status") @db.VarChar(16)
+  lastError      String    @default("") @map("last_error") @db.VarChar(500)
+  /// 最近一次执行产生的会话 id（0＝无），界面据此查看结果
+  lastSessionId  Int       @default(0) @map("last_session_id")
+  runCount       Int       @default(0) @map("run_count")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([createdBy, status])
+  @@index([status, scheduleType, scheduledAt])
+  @@map("rpa_chrome_schedules")
 }
 
 model WorkbuddyAccount {
@@ -2807,22 +3078,22 @@ model ContentAgentPersona {
 
 /// 模型渠道：aipdd 为内置（Key 取自「API Key 管理」，本表不存）；custom/mediakit 存密文
 model ContentModelChannel {
-  id           Int      @id @default(autoincrement())
-  userId       String   @map("user_id") @db.VarChar(64)
+  id           Int       @id @default(autoincrement())
+  userId       String    @map("user_id") @db.VarChar(64)
   /// aipdd | custom | mediakit
-  provider     String   @db.VarChar(16)
-  name         String   @db.VarChar(64)
-  baseUrl      String   @default("") @map("base_url") @db.VarChar(300)
-  keyCipher    String   @default("") @map("key_cipher") @db.Text
+  provider     String    @db.VarChar(16)
+  name         String    @db.VarChar(64)
+  baseUrl      String    @default("") @map("base_url") @db.VarChar(300)
+  keyCipher    String    @default("") @map("key_cipher") @db.Text
   /// 火山引擎专用：豆包语音识别（openspeech）的 Key，与方舟 Key 不通用
-  asrKeyCipher String   @default("") @map("asr_key_cipher") @db.Text
+  asrKeyCipher String    @default("") @map("asr_key_cipher") @db.Text
   /// 预设：openai / anthropic / deepseek / qwen / moonshot / zhipu / openrouter / custom
-  preset       String   @default("") @db.VarChar(16)
-  enabled      Boolean  @default(true)
+  preset       String    @default("") @db.VarChar(16)
+  enabled      Boolean   @default(true)
   /// Key 通过连通校验的时间；换 Key / 换地址后清空，未校验的渠道不允许被选为默认模型
   verifiedAt   DateTime? @map("verified_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@unique([userId, provider, name])
   @@index([userId])
@@ -2966,37 +3237,37 @@ model ContentAsset {
 
 /// 数字资产归属台账：只记「本系统哪个账号造过/传过哪条平台资产」，展示与打标都以它圈定范围
 model DigitalAssetEntry {
-  id           Int      @id @default(autoincrement())
-  userId       String   @map("user_id") @db.VarChar(64)
-  aipddAssetId Int      @map("aipdd_asset_id")
+  id               Int      @id @default(autoincrement())
+  userId           String   @map("user_id") @db.VarChar(64)
+  aipddAssetId     Int      @map("aipdd_asset_id")
   /// image | video | audio | file
-  type         String   @default("file") @db.VarChar(16)
-  name         String   @default("") @db.VarChar(200)
-  url          String   @default("") @db.Text
-  previewUrl   String   @default("") @map("preview_url") @db.Text
+  type             String   @default("file") @db.VarChar(16)
+  name             String   @default("") @db.VarChar(200)
+  url              String   @default("") @db.Text
+  previewUrl       String   @default("") @map("preview_url") @db.Text
   /// MB（平台口径）
-  fileSize     Float    @default(0) @map("file_size")
+  fileSize         Float    @default(0) @map("file_size")
   /// 本站 OSS 对象键：非空＝字节存在自有阿里云桶（积分改造后的新底座）；空＝存于 AIPDD 的旧资产
-  ossKey       String   @default("") @map("oss_key") @db.VarChar(500)
+  ossKey           String   @default("") @map("oss_key") @db.VarChar(500)
   /// 迁移来源：migrated＝已从 AIPDD 平台转存进自有桶
-  migratedFrom String   @default("") @map("migrated_from") @db.VarChar(16)
-  labels       Json     @default("[]")
+  migratedFrom     String   @default("") @map("migrated_from") @db.VarChar(16)
+  labels           Json     @default("[]")
   /// 抽取正文：上传时对可读文档（md/txt/csv/json/html/docx/pptx/xlsx/pdf）解析存入，
   /// 供知识库按 assetId 投料直接编译（修 assetId 断链）；图片/音视频为空
-  text         String?  @db.LongText
+  text             String?  @db.LongText
   /// AI 视觉理解/摘要（P1-C）：图片走视觉模型、文档走文本模型的简要描述，供找相似与内容创作复用
-  caption      String?  @db.Text
+  caption          String?  @db.Text
   /// 相似检索向量（P1-C）：本地袋装 256 维或远端真实向量，与 kb_chunks 同一套可插拔口径
-  embedding    Json?
+  embedding        Json?
   /// 向量模型标识：local-hash-256 或 embed:<模型名>；不同模型不混算
-  embedModel   String   @default("") @map("embed_model") @db.VarChar(128)
+  embedModel       String   @default("") @map("embed_model") @db.VarChar(128)
   /// 内容安全检测结论：空＝未检、pass＝通过、block＝拦截、pending＝视频异步待出结果
-  moderation   String   @default("") @db.VarChar(16)
-  moderationNote String @default("") @map("moderation_note") @db.VarChar(300)
+  moderation       String   @default("") @db.VarChar(16)
+  moderationNote   String   @default("") @map("moderation_note") @db.VarChar(300)
   /// 视频异步审核任务 id（阿里云 video/asyncscan），由调度轮询回填结论
-  moderationTaskId String @default("") @map("moderation_task_id") @db.VarChar(128)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  moderationTaskId String   @default("") @map("moderation_task_id") @db.VarChar(128)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@unique([userId, aipddAssetId])
   @@index([userId, updatedAt])
@@ -3721,8 +3992,8 @@ model ServiceDeskConversation {
   @@index([assigneeUserId, status])
   @@index([siteId, createdAt])
   @@index([channelId, externalChatId, status])
-  @@map("service_desk_conversations")
   @@index([orgType, orgUserId])
+  @@map("service_desk_conversations")
 }
 
 /// 会话消息（visitor / agent / ai / system）
@@ -3991,6 +4262,7 @@ model CrmChangeLog {
 model CrmExportTask {
   id          Int      @id @default(autoincrement())
   ownerUserId String   @map("owner_user_id") @db.VarChar(64)
+  createdBy   String   @default("") @map("created_by") @db.VarChar(64)
   module      String   @db.VarChar(24)
   query       Json     @default("{}")
   status      String   @default("DONE") @db.VarChar(16)
@@ -4116,8 +4388,8 @@ model CrmLead {
   @@index([ownerUserId, phoneNorm])
   @@index([ownerUserId, emailNorm])
   @@index([ownerUserId, poolId, inPool])
-  @@map("crm_leads")
   @@index([orgType, orgUserId])
+  @@map("crm_leads")
 }
 
 /// 客户
@@ -4153,8 +4425,8 @@ model CrmCustomer {
   @@index([ownerUserId, ownerId])
   @@index([ownerUserId, nameNorm])
   @@index([ownerUserId, poolId, inPool])
-  @@map("crm_customers")
   @@index([orgType, orgUserId])
+  @@map("crm_customers")
 }
 
 /// 联系人
@@ -4353,8 +4625,8 @@ model CrmOpportunity {
   @@index([ownerUserId, stageId])
   @@index([ownerUserId, ownerId])
   @@index([ownerUserId, customerId])
-  @@map("crm_opportunities")
   @@index([orgType, orgUserId])
+  @@map("crm_opportunities")
 }
 
 model CrmOpportunityItem {
@@ -4456,8 +4728,8 @@ model CrmContract {
   @@index([ownerUserId, stageId])
   @@index([ownerUserId, customerId])
   @@index([ownerUserId, ownerId])
-  @@map("crm_contracts")
   @@index([orgType, orgUserId])
+  @@map("crm_contracts")
 }
 
 model CrmContractItem {
@@ -4591,8 +4863,8 @@ model CrmOrder {
 
   @@index([ownerUserId, stageId])
   @@index([ownerUserId, customerId])
-  @@map("crm_orders")
   @@index([orgType, orgUserId])
+  @@map("crm_orders")
 }
 
 model CrmOrderItem {
@@ -5248,8 +5520,8 @@ model OkrCycle {
 
   @@unique([ownerUserId, kind, year, period])
   @@index([ownerUserId, status])
-  @@map("okr_cycles")
   @@index([orgType, orgUserId])
+  @@map("okr_cycles")
 }
 
 model OkrObjective {
@@ -5282,8 +5554,8 @@ model OkrObjective {
 
   @@index([ownerUserId, cycleId])
   @@index([ownerUserId, ownerMemberUserId])
-  @@map("okr_objectives")
   @@index([orgType, orgUserId])
+  @@map("okr_objectives")
 }
 
 model OkrKeyResult {
@@ -5310,8 +5582,8 @@ model OkrKeyResult {
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([ownerUserId, objectiveId])
-  @@map("okr_key_results")
   @@index([orgType, orgUserId])
+  @@map("okr_key_results")
 }
 
 model OkrProgressLog {
@@ -5376,8 +5648,8 @@ model OkrPlan {
 
   @@index([ownerUserId, memberUserId, kind, periodKey])
   @@index([ownerUserId, status])
-  @@map("okr_plans")
   @@index([orgType, orgUserId])
+  @@map("okr_plans")
 }
 
 model OkrReport {
@@ -5404,8 +5676,8 @@ model OkrReport {
 
   @@unique([ownerUserId, memberUserId, kind, periodKey])
   @@index([ownerUserId, kind, periodKey])
-  @@map("okr_reports")
   @@index([orgType, orgUserId])
+  @@map("okr_reports")
 }
 
 model OkrScore {
@@ -5854,13 +6126,19 @@ model SnsProfile {
 }
 
 model FriendRequest {
-  id         Int       @id @default(autoincrement())
-  fromUserId String    @map("from_user_id") @db.VarChar(64)
-  toUserId   String    @map("to_user_id") @db.VarChar(64)
-  message    String    @default("") @db.VarChar(500)
-  status     String    @default("PENDING") @db.VarChar(16)
-  createdAt  DateTime  @default(now()) @map("created_at")
-  handledAt  DateTime? @map("handled_at")
+  id                Int       @id @default(autoincrement())
+  fromUserId        String    @map("from_user_id") @db.VarChar(64)
+  toUserId          String    @map("to_user_id") @db.VarChar(64)
+  message           String    @default("") @db.VarChar(500)
+  status            String    @default("PENDING") @db.VarChar(16)
+  /// LOCAL | AIWORKIN
+  source            String    @default("LOCAL") @db.VarChar(16)
+  /// 上游申请 ID；只有 AIWORKIN 来源或已成功出站同步时才有值
+  upstreamRequestId String    @default("") @map("upstream_request_id") @db.VarChar(64)
+  /// NONE | PENDING | SYNCED | FAILED | SKIPPED
+  syncState         String    @default("NONE") @map("sync_state") @db.VarChar(16)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  handledAt         DateTime? @map("handled_at")
 
   @@unique([fromUserId, toUserId])
   @@index([toUserId, status])
@@ -5871,6 +6149,10 @@ model Friendship {
   id        Int      @id @default(autoincrement())
   userAId   String   @map("user_a_id") @db.VarChar(64)
   userBId   String   @map("user_b_id") @db.VarChar(64)
+  /// LOCAL | AIWORKIN | BOTH
+  source    String   @default("LOCAL") @db.VarChar(16)
+  /// NONE | PENDING | SYNCED | FAILED | SKIPPED
+  syncState String   @default("NONE") @map("sync_state") @db.VarChar(16)
   createdAt DateTime @default(now()) @map("created_at")
 
   @@unique([userAId, userBId])
@@ -5927,23 +6209,151 @@ model MailThread {
 }
 
 model SnsMessage {
-  id          Int      @id @default(autoincrement())
-  threadId    Int      @map("thread_id")
-  fromUserId  String   @map("from_user_id") @db.VarChar(64)
-  toUserId    String   @map("to_user_id") @db.VarChar(64)
-  subject     String   @default("") @db.VarChar(200)
-  body        String   @db.Text
-  linkCards   Json     @default("[]") @map("link_cards")
-  aiGenerated Boolean  @default(false) @map("ai_generated")
-  inReplyToId Int?     @map("in_reply_to_id")
-  readUserIds Json     @default("[]") @map("read_user_ids")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id                Int      @id @default(autoincrement())
+  threadId          Int      @map("thread_id")
+  fromUserId        String   @map("from_user_id") @db.VarChar(64)
+  toUserId          String   @map("to_user_id") @db.VarChar(64)
+  subject           String   @default("") @db.VarChar(200)
+  body              String   @db.Text
+  linkCards         Json     @default("[]") @map("link_cards")
+  aiGenerated       Boolean  @default(false) @map("ai_generated")
+  inReplyToId       Int?     @map("in_reply_to_id")
+  readUserIds       Json     @default("[]") @map("read_user_ids")
+  /// LOCAL | AIWORKIN
+  source            String   @default("LOCAL") @db.VarChar(16)
+  upstreamMessageId String   @default("") @map("upstream_message_id") @db.VarChar(120)
+  /// NONE | PENDING | SYNCED | FAILED | SKIPPED
+  syncState         String   @default("NONE") @map("sync_state") @db.VarChar(16)
+  createdAt         DateTime @default(now()) @map("created_at")
 
   thread MailThread @relation(fields: [threadId], references: [id])
 
   @@index([threadId, createdAt])
   @@index([toUserId, createdAt])
   @@map("sns_messages")
+}
+
+/// 本地用户 ↔ AIworkin SNS 身份映射；只信 UUID，不按昵称/手机号自动匹配。
+model SocialUpstreamIdentity {
+  id               Int       @id @default(autoincrement())
+  userId           String    @unique @map("user_id") @db.VarChar(64)
+  keyId            Int       @map("key_id")
+  upstreamUserId   String    @default("") @map("upstream_user_id") @db.VarChar(64)
+  upstreamUsername String    @default("") @map("upstream_username") @db.VarChar(120)
+  /// UNBOUND | KEY_INACTIVE | PLACEHOLDER_ID | SNS_GRANT_MISSING | READY | REVOKED
+  state            String    @default("UNBOUND") @db.VarChar(24)
+  profileSnapshot  Json      @default("{}") @map("profile_snapshot")
+  verifiedAt       DateTime? @map("verified_at")
+  lastSyncedAt     DateTime? @map("last_synced_at")
+  lastError        String    @default("") @map("last_error") @db.VarChar(500)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([upstreamUserId])
+  @@map("social_upstream_identities")
+}
+
+/// 每个用户的跨站同步偏好；关闭后立即停止新的 outbox 入队。
+model SocialSyncPreference {
+  id                     Int      @id @default(autoincrement())
+  userId                 String   @unique @map("user_id") @db.VarChar(64)
+  discoverable           Boolean  @default(true)
+  recommendEnabled       Boolean  @default(true) @map("recommend_enabled")
+  businessReasonVisible  Boolean  @default(true) @map("business_reason_visible")
+  friendRequestOutbound  Boolean  @default(true) @map("friend_request_outbound")
+  friendRelationOutbound Boolean  @default(true) @map("friend_relation_outbound")
+  friendRelationInbound  Boolean  @default(false) @map("friend_relation_inbound")
+  mailOutboundDefault    Boolean  @default(false) @map("mail_outbound_default")
+  mailInbound            Boolean  @default(false) @map("mail_inbound")
+  /// AUTO | MCP | LEGACY
+  channel                String   @default("AUTO") @db.VarChar(16)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("social_sync_preferences")
+}
+
+/// 事务性 outbox：所有跨站写先入队，再由调度器执行。
+model SocialSyncJob {
+  id             Int       @id @default(autoincrement())
+  userId         String    @map("user_id") @db.VarChar(64)
+  keyId          Int       @map("key_id")
+  /// OUTBOUND | INBOUND
+  direction      String    @default("OUTBOUND") @db.VarChar(16)
+  /// FRIEND_REQUEST_SEND | FRIEND_REQUEST_HANDLE | MAIL_SEND | RELATION_PULL | MAIL_PULL | BACKFILL_FRIEND
+  action         String    @db.VarChar(32)
+  localType      String    @default("") @map("local_type") @db.VarChar(32)
+  localId        String    @default("") @map("local_id") @db.VarChar(64)
+  payload        Json      @default("{}")
+  idempotencyKey String    @unique @map("idempotency_key") @db.VarChar(100)
+  /// PENDING | RUNNING | SUCCEEDED | FAILED | DEAD
+  status         String    @default("PENDING") @db.VarChar(16)
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at")
+  lockedAt       DateTime? @map("locked_at")
+  lastError      String    @default("") @map("last_error") @db.VarChar(1000)
+  remoteId       String    @default("") @map("remote_id") @db.VarChar(120)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  completedAt    DateTime? @map("completed_at")
+
+  @@index([status, nextAttemptAt])
+  @@index([userId, createdAt])
+  @@index([keyId, createdAt])
+  @@map("social_sync_jobs")
+}
+
+/// 本地对象 ↔ 上游对象映射，兼做去重表。
+model SocialSyncLink {
+  id             Int       @id @default(autoincrement())
+  userId         String    @map("user_id") @db.VarChar(64)
+  /// FRIEND_REQUEST | FRIENDSHIP | MAIL_THREAD | MAIL_MESSAGE
+  kind           String    @db.VarChar(24)
+  localId        String    @map("local_id") @db.VarChar(64)
+  remoteId       String    @default("") @map("remote_id") @db.VarChar(120)
+  remoteParentId String    @default("") @map("remote_parent_id") @db.VarChar(120)
+  /// OUTBOUND | INBOUND
+  direction      String    @default("OUTBOUND") @db.VarChar(16)
+  /// ACTIVE | CONFLICT | STALE
+  state          String    @default("ACTIVE") @db.VarChar(16)
+  contentHash    String    @default("") @map("content_hash") @db.VarChar(64)
+  lastSyncedAt   DateTime? @map("last_synced_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([userId, kind, localId])
+  @@index([userId, kind, remoteId])
+  @@map("social_sync_links")
+}
+
+/// 推荐快照：懒计算 + TTL，避免每次请求都全量聚合。
+model SocialAffinitySnapshot {
+  id           Int      @id @default(autoincrement())
+  userId       String   @map("user_id") @db.VarChar(64)
+  targetUserId String   @map("target_user_id") @db.VarChar(64)
+  score        Int      @default(0)
+  reasons      Json     @default("[]")
+  signals      Json     @default("{}")
+  computedAt   DateTime @default(now()) @map("computed_at")
+  expiresAt    DateTime @map("expires_at")
+
+  @@unique([userId, targetUserId])
+  @@index([userId, score])
+  @@map("social_affinity_snapshots")
+}
+
+/// 「不再推荐」等负反馈；到期后自动失效。
+model SocialRecommendationFeedback {
+  id           Int       @id @default(autoincrement())
+  userId       String    @map("user_id") @db.VarChar(64)
+  targetUserId String    @map("target_user_id") @db.VarChar(64)
+  /// DISMISS | INVITED | ADDED
+  action       String    @db.VarChar(16)
+  expiresAt    DateTime? @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@unique([userId, targetUserId])
+  @@map("social_recommendation_feedback")
 }
 
 /// 经历与学历：用户自填；org_key 为归一化机构名，同历匹配与同机构屏蔽按 (kind, org_key)
@@ -6475,24 +6885,27 @@ model PointAccount {
 
 /// 积分总账：只追加不可改删；每条消费一行一账单，Σamount 与账户余额全量可对账
 model PointTransaction {
-  id            Int      @id @default(autoincrement())
-  userId        String   @map("user_id") @db.VarChar(64)
+  id             Int      @id @default(autoincrement())
+  userId         String   @map("user_id") @db.VarChar(64)
   /// RECHARGE | RECHARGE_BONUS | EARN | SPEND | TRANSFER_IN | TRANSFER_OUT | ADMIN_ADJUST
-  type          String   @db.VarChar(24)
+  type           String   @db.VarChar(24)
   /// register/invite/asset_storage/crm/bi/oa/ai_service/gift/admin…（奖励与消耗场景）
-  scene         String   @default("") @db.VarChar(32)
+  scene          String   @default("") @db.VarChar(32)
   /// 有符号积分：正＝入账，负＝扣减
-  amount        Decimal  @db.Decimal(18, 4)
+  amount         Decimal  @db.Decimal(18, 4)
   /// 入账后余额快照
-  balanceAmount Decimal  @map("balance_amount") @db.Decimal(18, 4)
+  balanceAmount  Decimal  @map("balance_amount") @db.Decimal(18, 4)
   /// 赠送对手方 userId（TRANSFER 两条流水互指，其余为空）
-  counterparty  String   @default("") @db.VarChar(64)
-  refType       String   @default("") @map("ref_type") @db.VarChar(32)
-  refId         String   @default("") @map("ref_id") @db.VarChar(64)
+  counterparty   String   @default("") @db.VarChar(64)
+  refType        String   @default("") @map("ref_type") @db.VarChar(32)
+  refId          String   @default("") @map("ref_id") @db.VarChar(64)
   /// 手动调整时记录操作管理员
-  operator      String   @default("") @db.VarChar(64)
-  remark        String   @default("") @db.VarChar(500)
-  createdAt     DateTime @default(now()) @map("created_at")
+  operator       String   @default("") @db.VarChar(64)
+  remark         String   @default("") @db.VarChar(500)
+  /// 结算幂等键（如 recharge:<orderId>:principal）：非空即受唯一约束保护，
+  /// 重复入账被数据库原子拒绝；同时也是资金结算的对账锚（可恢复结算，§12.6）。
+  idempotencyKey String?  @unique @map("idempotency_key") @db.VarChar(96)
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([userId, createdAt])
   @@index([type, scene])
@@ -6890,18 +7303,29 @@ model DistributionContent {
 
 /// 逐平台发布结果：页面收到插件回调后上报（EXTENSION），或人工补记（MANUAL）
 model DistributionPublishLog {
-  id           Int      @id @default(autoincrement())
-  contentId    Int      @map("content_id")
-  userId       String   @map("user_id") @db.VarChar(64)
-  platformCode String   @map("platform_code") @db.VarChar(32)
-  platformName String   @default("") @map("platform_name") @db.VarChar(64)
+  id                Int       @id @default(autoincrement())
+  contentId         Int       @map("content_id")
+  userId            String    @map("user_id") @db.VarChar(64)
+  platformCode      String    @map("platform_code") @db.VarChar(32)
+  platformName      String    @default("") @map("platform_name") @db.VarChar(64)
   /// FILLED（已填充待确认） | SUCCESS（已发布） | FAILED（失败）
-  status       String   @db.VarChar(16)
-  publishedUrl String   @default("") @map("published_url") @db.VarChar(500)
-  errorMsg     String   @default("") @map("error_msg") @db.VarChar(500)
+  status            String    @db.VarChar(16)
+  publishedUrl      String    @default("") @map("published_url") @db.VarChar(500)
+  /// 平台侧作品标识（微博 mid / B站 bvid 等）：效果回流时用它对齐「哪一条内容」
+  publishedItemId   String    @default("") @map("published_item_id") @db.VarChar(120)
+  errorMsg          String    @default("") @map("error_msg") @db.VarChar(500)
   /// EXTENSION | MANUAL
-  source       String   @default("EXTENSION") @db.VarChar(16)
-  createdAt    DateTime @default(now()) @map("created_at")
+  source            String    @default("EXTENSION") @db.VarChar(16)
+  /// 效果数据（D8）：阅读/播放量、点赞、评论；未回写时为 0
+  views             Int       @default(0)
+  likes             Int       @default(0)
+  comments          Int       @default(0)
+  /// 效果数据来源：EXTENSION（插件读创作中心） | MANUAL（人工补录） | ""（尚未回写）
+  metricsSource     String    @default("") @map("metrics_source") @db.VarChar(16)
+  /// 效果数据抓取时间；未回写时为 null
+  metricsCapturedAt DateTime? @map("metrics_captured_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
 
   content DistributionContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
 
@@ -6991,7 +7415,7 @@ model SkillReviewRun {
 }
 
 /// 平台管理员「生成 Skill」的产物：按技能名唯一，重新生成覆盖并记录更新时间；
-/// 开放集成 → API-MCP-Skill → Skill 页签供全站账号列表与下载。
+/// 模型服务 → API-MCP-Skill → Skill 页签供全站账号列表与下载。
 model GeneratedSkill {
   id             Int      @id @default(autoincrement())
   /// SkillHub 唯一标识（小写 slug）
@@ -7968,34 +8392,34 @@ model AiInsightRecord {
 // ---------------------------------------------------------------------------
 
 model PjProject {
-  id           Int      @id @default(autoincrement())
-  orgType      String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId    String   @map("org_user_id") @db.VarChar(64)
-  code         String   @default("") @db.VarChar(32)
-  name         String   @db.VarChar(120)
-  description  String   @default("") @db.Text
+  id              Int      @id @default(autoincrement())
+  orgType         String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId       String   @map("org_user_id") @db.VarChar(64)
+  code            String   @default("") @db.VarChar(32)
+  name            String   @db.VarChar(120)
+  description     String   @default("") @db.Text
   /// MANUAL | CRM_ORDER | OKR
-  source       String   @default("MANUAL") @db.VarChar(16)
-  sourceRef    String   @default("") @map("source_ref") @db.VarChar(64)
+  source          String   @default("MANUAL") @db.VarChar(16)
+  sourceRef       String   @default("") @map("source_ref") @db.VarChar(64)
   /// 关联 OKR 目标书
-  briefId      Int      @default(0) @map("brief_id")
+  briefId         Int      @default(0) @map("brief_id")
   /// 范围：要达到的目标结果与交付物
-  targetOutcome String  @default("") @map("target_outcome") @db.Text
-  deliverables Json     @default("[]")
-  budgetBreakdown Json  @default("{}") @map("budget_breakdown")
-  customerName String   @default("") @map("customer_name") @db.VarChar(120)
-  contractId   Int      @default(0) @map("contract_id")
-  ownerId      String   @default("") @map("owner_id") @db.VarChar(64)
+  targetOutcome   String   @default("") @map("target_outcome") @db.Text
+  deliverables    Json     @default("[]")
+  budgetBreakdown Json     @default("{}") @map("budget_breakdown")
+  customerName    String   @default("") @map("customer_name") @db.VarChar(120)
+  contractId      Int      @default(0) @map("contract_id")
+  ownerId         String   @default("") @map("owner_id") @db.VarChar(64)
   /// PLANNING | ACTIVE | ACCEPTING | CLOSED | CANCELED
-  status       String   @default("PLANNING") @db.VarChar(16)
-  startDate    String   @default("") @map("start_date") @db.VarChar(16)
-  endDate      String   @default("") @map("end_date") @db.VarChar(16)
-  budgetAmount Decimal  @default(0) @map("budget_amount") @db.Decimal(18, 2)
-  budgetHours  Decimal  @default(0) @map("budget_hours") @db.Decimal(18, 2)
-  currency     String   @default("CNY") @db.VarChar(8)
-  createdBy    String   @default("") @map("created_by") @db.VarChar(64)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  status          String   @default("PLANNING") @db.VarChar(16)
+  startDate       String   @default("") @map("start_date") @db.VarChar(16)
+  endDate         String   @default("") @map("end_date") @db.VarChar(16)
+  budgetAmount    Decimal  @default(0) @map("budget_amount") @db.Decimal(18, 2)
+  budgetHours     Decimal  @default(0) @map("budget_hours") @db.Decimal(18, 2)
+  currency        String   @default("CNY") @db.VarChar(8)
+  createdBy       String   @default("") @map("created_by") @db.VarChar(64)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@index([orgType, orgUserId, status, updatedAt])
   @@index([orgType, orgUserId, code])
@@ -8057,40 +8481,40 @@ model PjMilestone {
 }
 
 model PjTask {
-  id             Int       @id @default(autoincrement())
-  orgType        String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId      String    @map("org_user_id") @db.VarChar(64)
-  projectId      Int       @map("project_id")
-  sprintId       Int       @default(0) @map("sprint_id")
-  milestoneId    Int       @default(0) @map("milestone_id")
-  parentId       Int       @default(0) @map("parent_id")
-  title          String    @db.VarChar(200)
-  description    String    @default("") @db.Text
+  id                 Int       @id @default(autoincrement())
+  orgType            String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId          String    @map("org_user_id") @db.VarChar(64)
+  projectId          Int       @map("project_id")
+  sprintId           Int       @default(0) @map("sprint_id")
+  milestoneId        Int       @default(0) @map("milestone_id")
+  parentId           Int       @default(0) @map("parent_id")
+  title              String    @db.VarChar(200)
+  description        String    @default("") @db.Text
   /// 来源：MANUAL | OKR | CRM_ORDER | DEMAND | OA
-  sourceType     String    @default("MANUAL") @map("source_type") @db.VarChar(16)
-  sourceId       String    @default("") @map("source_id") @db.VarChar(64)
+  sourceType         String    @default("MANUAL") @map("source_type") @db.VarChar(16)
+  sourceId           String    @default("") @map("source_id") @db.VarChar(64)
   /// 验收清单 [{ key,label,required,evidence }]
-  acceptanceCriteria Json  @default("[]") @map("acceptance_criteria")
+  acceptanceCriteria Json      @default("[]") @map("acceptance_criteria")
   /// 质量档位与评分口径
-  qualityRubric  Json      @default("{}") @map("quality_rubric")
-  assessmentWeight Decimal @default(1) @map("assessment_weight") @db.Decimal(6, 2)
+  qualityRubric      Json      @default("{}") @map("quality_rubric")
+  assessmentWeight   Decimal   @default(1) @map("assessment_weight") @db.Decimal(6, 2)
   /// STORY | TASK | BUG | TIMESHEET
-  type           String    @default("TASK") @db.VarChar(16)
-  priority       String    @default("MEDIUM") @db.VarChar(16)
+  type               String    @default("TASK") @db.VarChar(16)
+  priority           String    @default("MEDIUM") @db.VarChar(16)
   /// TODO | DOING | REVIEW | DONE | CANCELED
-  status         String    @default("TODO") @db.VarChar(16)
-  assigneeType   String    @default("NONE") @map("assignee_type") @db.VarChar(16)
-  assigneeId     String    @default("") @map("assignee_id") @db.VarChar(64)
-  estimateHours  Decimal   @default(0) @map("estimate_hours") @db.Decimal(18, 2)
-  estimatePoints Int       @default(0) @map("estimate_points")
-  startDate      String    @default("") @map("start_date") @db.VarChar(16)
-  dueDate        String    @default("") @map("due_date") @db.VarChar(16)
-  completedAt    DateTime? @map("completed_at")
-  sortOrder      Int       @default(0) @map("sort_order")
-  loggedMinutes  Int       @default(0) @map("logged_minutes")
-  createdBy      String    @default("") @map("created_by") @db.VarChar(64)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  status             String    @default("TODO") @db.VarChar(16)
+  assigneeType       String    @default("NONE") @map("assignee_type") @db.VarChar(16)
+  assigneeId         String    @default("") @map("assignee_id") @db.VarChar(64)
+  estimateHours      Decimal   @default(0) @map("estimate_hours") @db.Decimal(18, 2)
+  estimatePoints     Int       @default(0) @map("estimate_points")
+  startDate          String    @default("") @map("start_date") @db.VarChar(16)
+  dueDate            String    @default("") @map("due_date") @db.VarChar(16)
+  completedAt        DateTime? @map("completed_at")
+  sortOrder          Int       @default(0) @map("sort_order")
+  loggedMinutes      Int       @default(0) @map("logged_minutes")
+  createdBy          String    @default("") @map("created_by") @db.VarChar(64)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   @@index([projectId, status, sortOrder])
   @@index([orgType, orgUserId, assigneeType, assigneeId, status], map: "pj_tasks_org_assignee_status_idx")
@@ -8354,6 +8778,13 @@ model ErpPurchaseOrder {
   orgUserId   String    @map("org_user_id") @db.VarChar(64)
   orderNo     String    @map("order_no") @db.VarChar(40)
   vendorId    Int       @map("vendor_id")
+  /// 归属项目（0＝不归集到项目）：入库时按项目自动落 EXTERNAL 成本项
+  projectId   Int       @default(0) @map("project_id")
+  /// 来源单关联（docs §5.3 / §8.4）：MANUAL（直接下单）| OA_PURCHASE（OA 采购申请转采购）|
+  /// STOCK_LOW（库存低于补货点自动生成的补货申请）
+  sourceType  String    @default("MANUAL") @map("source_type") @db.VarChar(24)
+  /// 来源单号：OA 采购申请单号 / 库存信号键等，贯通「申请→采购→入库→应付」的可追溯链
+  sourceNo    String    @default("") @map("source_no") @db.VarChar(40)
   warehouseId Int       @map("warehouse_id")
   items       Json      @default("[]")
   amount      Decimal   @default(0) @db.Decimal(18, 2)
@@ -8431,11 +8862,18 @@ model ErpPayable {
   nextAt     String   @default("") @map("next_at") @db.VarChar(16)
   /// OPEN | PARTIAL | PAID | OVERDUE | CANCELED
   status     String   @default("OPEN") @db.VarChar(16)
+  /// 付款审批（docs §5.3 采购闭环「付款审批」）：大额应付先审批再付款。
+  /// NONE（无需审批）| PENDING | APPROVED | REJECTED
+  approvalStatus String  @default("NONE") @map("approval_status") @db.VarChar(16)
+  approverId     String  @default("") @map("approver_id") @db.VarChar(64)
+  decidedAt      DateTime? @map("decided_at")
+  approvalNote   String  @default("") @map("approval_note") @db.VarChar(500)
   note       String   @default("") @db.VarChar(500)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@index([orgType, orgUserId, status, dueDate])
+  @@index([orgType, orgUserId, approvalStatus])
   @@map("erp_payables")
 }
 
@@ -8560,11 +8998,25 @@ model MktArtifact {
   /// DRAFT | READY | ARCHIVED
   status      String   @default("DRAFT") @db.VarChar(16)
   sourceRunId Int?     @map("source_run_id")
+  /// 内容审核（docs §8.4 营销内容生成→内容审核）：NONE（无需审核/历史数据）| PENDING | APPROVED | REJECTED
+  reviewStatus String   @default("NONE") @map("review_status") @db.VarChar(16)
+  /// 审核轮次：生成或内容改动后 +1，任务幂等锚按轮次区分，历史轮次任务可追溯
+  reviewRound  Int      @default(0) @map("review_round")
+  reviewerId   String   @default("") @map("reviewer_id") @db.VarChar(64)
+  reviewedAt   DateTime? @map("reviewed_at")
+  reviewNote   String   @default("") @map("review_note") @db.VarChar(500)
+  /// 渠道发布（审核通过→渠道发布）：NONE | PENDING | PUBLISHED
+  publishStatus  String    @default("NONE") @map("publish_status") @db.VarChar(16)
+  publishChannel String    @default("") @map("publish_channel") @db.VarChar(60)
+  /// 渠道执行回执：发布的完成依据（各平台执行结果）
+  publishNote    String    @default("") @map("publish_note") @db.VarChar(500)
+  publishedAt    DateTime? @map("published_at")
   createdBy   String   @default("") @map("created_by") @db.VarChar(64)
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@index([orgType, orgUserId, createdAt])
+  @@index([orgType, orgUserId, reviewStatus])
   @@map("mkt_artifacts")
 }
 
@@ -9239,28 +9691,28 @@ model AcqSetting {
 
 /// 监控源：平台 + 查找方式 + 过滤 + 节奏
 model AcqSource {
-  id          Int       @id @default(autoincrement())
-  orgType     String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId   String    @map("org_user_id") @db.VarChar(64)
-  name        String    @db.VarChar(80)
+  id         Int       @id @default(autoincrement())
+  orgType    String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId  String    @map("org_user_id") @db.VarChar(64)
+  name       String    @db.VarChar(80)
   /// XHS | DOUYIN | ZHIHU | WEIBO | BILIBILI | WX_CHANNEL | WX_MP | TIKTOK | X | KUAISHOU
-  platform    String    @db.VarChar(20)
+  platform   String    @db.VarChar(20)
   /// KEYWORD | COMPETITOR | TOPIC | ACCOUNT | URL
-  mode        String    @db.VarChar(20)
+  mode       String    @db.VarChar(20)
   /// keywords[] / competitorIds[] / topicTags[] / accountUrls[] / urls[]
-  query       Json      @default("{}")
+  query      Json      @default("{}")
   /// timeWindow / excludeWords[] / minComments / regions[] / excludeCustomers
-  filters     Json      @default("{}")
+  filters    Json      @default("{}")
   /// 空＝手动；daily / weekly 或 5 段 cron
-  cron        String    @default("") @db.VarChar(60)
-  dailyLimit  Int       @default(200) @map("daily_limit")
+  cron       String    @default("") @db.VarChar(60)
+  dailyLimit Int       @default(200) @map("daily_limit")
   /// ACTIVE | PAUSED
-  status      String    @default("ACTIVE") @db.VarChar(16)
-  lastRunAt   DateTime? @map("last_run_at")
-  nextRunAt   DateTime? @map("next_run_at")
-  createdBy   String    @default("") @map("created_by") @db.VarChar(64)
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  status     String    @default("ACTIVE") @db.VarChar(16)
+  lastRunAt  DateTime? @map("last_run_at")
+  nextRunAt  DateTime? @map("next_run_at")
+  createdBy  String    @default("") @map("created_by") @db.VarChar(64)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   @@index([orgType, orgUserId, status])
   @@index([status, nextRunAt])
@@ -9319,6 +9771,8 @@ model AcqLead {
   /// platform:platformUserId
   dedupeKey      String    @map("dedupe_key") @db.VarChar(200)
   evidenceCount  Int       @default(0) @map("evidence_count")
+  /// 已补抓的公开联系方式条数（仅主页已公开可见字段，见 D7=B）
+  contactCount   Int       @default(0) @map("contact_count")
   firstSeenAt    DateTime  @default(now()) @map("first_seen_at")
   lastSeenAt     DateTime  @default(now()) @map("last_seen_at")
   deletedAt      DateTime? @map("deleted_at")
@@ -9344,6 +9798,8 @@ model AcqLeadEvidence {
   summary    String   @default("") @db.VarChar(500)
   /// likes / comments / publishedAt
   metrics    Json     @default("{}")
+  /// 该条证据里补抓到的公开联系方式 [{field,value,visibility}]（仅已公开可见字段，见 D7=B）
+  contacts   Json     @default("[]")
   capturedAt DateTime @default(now()) @map("captured_at")
 
   @@unique([leadId, url])
@@ -9556,6 +10012,99 @@ model AcqQcReview {
   @@index([orgType, orgUserId, createdAt])
   @@index([conversationId])
   @@map("acq_qc_reviews")
+}
+
+/// 插件会话令牌：签发时只落哈希（明文仅在签发响应里出现一次，服务端不可回读），
+/// 过期靠 `expires_at` 判定、无需定时清理；重启 / 多实例共享同一份状态。
+model PluginSessionToken {
+  id         Int       @id @default(autoincrement())
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(64)
+  userId     String    @map("user_id") @db.VarChar(64)
+  /// 任务类型（collect | outreach），等价于旧 TokenEntry.type
+  scope      String    @default("") @db.VarChar(32)
+  orgType    String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId  String    @default("") @map("org_user_id") @db.VarChar(64)
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("plugin_session_tokens")
+}
+
+/// 平台统一插件的能力目录覆盖（设计 §10.7）：能力定义写在契约（EXTENSION_CAPABILITIES），
+/// 本表只存平台级覆盖——启用 / 灰度 / 强制升级 / 下线；无行即回落契约默认值，避免两处定义漂移。
+model ExtensionCapability {
+  id             Int       @id @default(autoincrement())
+  key            String    @unique @db.VarChar(32)
+  /// '' 表示继承契约默认；否则 ACTIVE | GRAY | DEPRECATED | RETIRED
+  status         String    @default("") @db.VarChar(16)
+  /// '' 表示继承契约默认最低版本
+  minVersion     String    @default("") @map("min_version") @db.VarChar(20)
+  /// 灰度机构 userId 列表（GRAY 时只对这些机构派发）
+  grayOrgIds     Json      @default("[]") @map("gray_org_ids")
+  /// 强制升级时间：到点后低于生效 minVersion 的插件一律拒绝派发
+  forceUpgradeAt DateTime? @map("force_upgrade_at")
+  note           String    @default("") @db.VarChar(300)
+  updatedBy      String    @default("") @map("updated_by") @db.VarChar(64)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("extension_capabilities")
+}
+
+/// 平台统一浏览器任务（设计 §10.3 / §10.7）：服务器创建、插件认领的持久队列，
+/// 配认领租约与结果回执——页面关闭、插件或服务重启后任务不丢，也不误报成功。
+/// 同一来源（source，如 distribution:#<内容 id>）同时只允许一个未终结任务，防止多标签页重复执行。
+model BrowserTask {
+  id             Int       @id @default(autoincrement())
+  /// 能力标识（契约 EXTENSION_CAPABILITY_KEYS）：distribution | acquisition | ...
+  capability     String    @db.VarChar(32)
+  /// 能力动作（契约能力目录里的 action key，如 fill / publish / collect）
+  action         String    @db.VarChar(40)
+  /// 幂等锚：服务端生成的 jobId，同一用户下唯一（重放/重复上报不新建行）
+  jobId          String    @map("job_id") @db.VarChar(80)
+  userId         String    @map("user_id") @db.VarChar(64)
+  orgType        String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId      String    @default("") @map("org_user_id") @db.VarChar(64)
+  /// 目标平台编码清单（能力相关）
+  platforms      Json      @default("[]")
+  /// 业务来源（如 distribution:#<内容 id>）：同来源同时只允许一个未终结任务
+  source         String    @default("") @db.VarChar(120)
+  /// 能力相关参数（服务端与插件按能力解释，不下发任意脚本）
+  payload        Json      @default("{}")
+  /// QUEUED | CLAIMED | RUNNING | SUCCEEDED | PARTIAL | FAILED | UNKNOWN | CANCELLED | EXPIRED
+  status         String    @default("QUEUED") @db.VarChar(16)
+  /// 认领方标识（页面会话 / 设备），租约期内其他认领方不可抢占
+  leaseOwner     String    @default("") @map("lease_owner") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3) @map("max_attempts")
+  /// 最近一次回执口径（契约 BROWSER_RECEIPT_STATUSES）
+  receiptStatus  String    @default("") @map("receipt_status") @db.VarChar(16)
+  receiptCode    String    @default("") @map("receipt_code") @db.VarChar(40)
+  receiptMessage String    @default("") @map("receipt_message") @db.VarChar(500)
+  /// 逐条目/逐平台结果与证据（契约 browserReceiptSchema 的 results / evidence）
+  results        Json      @default("[]")
+  evidence       Json      @default("[]")
+  /// 回执附带的数据快照（契约 browserReceiptSchema 的 data：如获客 runId / outreachId / 新增线索数）
+  receiptData    Json      @default("{}") @map("receipt_data")
+  pluginVersion  String    @default("") @map("plugin_version") @db.VarChar(20)
+  /// 队列 TTL：到点仍未被认领的 QUEUED 任务记为 EXPIRED，避免僵尸任务长期占位
+  expiresAt      DateTime? @map("expires_at")
+  enqueuedAt     DateTime  @default(now()) @map("enqueued_at")
+  claimedAt      DateTime? @map("claimed_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([userId, jobId])
+  @@index([userId, status, enqueuedAt])
+  @@index([source, status])
+  @@index([status, leaseExpiresAt])
+  @@map("browser_tasks")
 }
 
 // ==================== 通用协作底座（方案 §5.2） ====================
@@ -9836,7 +10385,7 @@ model ScrmTag {
 model ScrmContactTag {
   id        Int      @id @default(autoincrement())
   orgType   String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId  String   @map("org_user_id") @db.VarChar(64)
+  orgUserId String   @map("org_user_id") @db.VarChar(64)
   contactId Int      @map("contact_id")
   tagId     Int      @map("tag_id")
   /// WECOM | AUTO | MANUAL
@@ -9896,15 +10445,15 @@ model ScrmCode {
 }
 
 model ScrmCodeStaff {
-  id          Int      @id @default(autoincrement())
-  orgType     String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId   String   @map("org_user_id") @db.VarChar(64)
-  codeId      Int      @map("code_id")
-  staffUserId String   @map("staff_user_id") @db.VarChar(64)
-  weight      Int      @default(1)
-  dailyLimit  Int      @default(0) @map("daily_limit")
-  usedToday   Int      @default(0) @map("used_today")
-  usedDate    String   @default("") @map("used_date") @db.VarChar(10)
+  id          Int    @id @default(autoincrement())
+  orgType     String @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId   String @map("org_user_id") @db.VarChar(64)
+  codeId      Int    @map("code_id")
+  staffUserId String @map("staff_user_id") @db.VarChar(64)
+  weight      Int    @default(1)
+  dailyLimit  Int    @default(0) @map("daily_limit")
+  usedToday   Int    @default(0) @map("used_today")
+  usedDate    String @default("") @map("used_date") @db.VarChar(10)
 
   @@unique([codeId, staffUserId], map: "scrm_code_staff_key")
   @@index([orgType, orgUserId, staffUserId], map: "scrm_code_staff_org_staff_idx")
@@ -10010,51 +10559,51 @@ model ScrmRoomPull {
 
 /// 群发任务：人工审批双闸固定不可关（提交前必须 APPROVED）
 model ScrmMassTask {
-  id           Int       @id @default(autoincrement())
-  orgType      String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId    String    @map("org_user_id") @db.VarChar(64)
+  id            Int       @id @default(autoincrement())
+  orgType       String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId     String    @map("org_user_id") @db.VarChar(64)
   /// CONTACT | CHAT | MOMENT
-  type         String    @db.VarChar(16)
-  name         String    @db.VarChar(60)
-  targetFilter Json      @map("target_filter")
-  content      Json      @default("{}")
+  type          String    @db.VarChar(16)
+  name          String    @db.VarChar(60)
+  targetFilter  Json      @map("target_filter")
+  content       Json      @default("{}")
   /// DRAFT | PENDING_REVIEW | APPROVED | REJECTED | SUBMITTED | DONE | PARTIAL | FAILED
-  status       String    @default("DRAFT") @db.VarChar(16)
-  scheduledAt  DateTime? @map("scheduled_at")
-  submittedAt  DateTime? @map("submitted_at")
-  reviewerId   String    @default("") @map("reviewer_id") @db.VarChar(64)
-  reviewedAt   DateTime? @map("reviewed_at")
-  reviewNote   String    @default("") @map("review_note") @db.VarChar(300)
-  externalJobId String   @default("") @map("external_job_id") @db.VarChar(64)
-  total        Int       @default(0)
-  sent         Int       @default(0)
-  failed       Int       @default(0)
-  unknown      Int       @default(0)
-  createdBy    String    @default("") @map("created_by") @db.VarChar(64)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  status        String    @default("DRAFT") @db.VarChar(16)
+  scheduledAt   DateTime? @map("scheduled_at")
+  submittedAt   DateTime? @map("submitted_at")
+  reviewerId    String    @default("") @map("reviewer_id") @db.VarChar(64)
+  reviewedAt    DateTime? @map("reviewed_at")
+  reviewNote    String    @default("") @map("review_note") @db.VarChar(300)
+  externalJobId String    @default("") @map("external_job_id") @db.VarChar(64)
+  total         Int       @default(0)
+  sent          Int       @default(0)
+  failed        Int       @default(0)
+  unknown       Int       @default(0)
+  createdBy     String    @default("") @map("created_by") @db.VarChar(64)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@index([orgType, orgUserId, status, createdAt], map: "scrm_mass_org_status_idx")
   @@map("scrm_mass_tasks")
 }
 
 model ScrmMassTarget {
-  id         Int       @id @default(autoincrement())
-  orgType    String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId  String    @map("org_user_id") @db.VarChar(64)
-  taskId     Int       @map("task_id")
+  id          Int       @id @default(autoincrement())
+  orgType     String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId   String    @map("org_user_id") @db.VarChar(64)
+  taskId      Int       @map("task_id")
   /// CONTACT | CHAT
-  kind       String    @default("CONTACT") @db.VarChar(16)
-  targetId   Int       @default(0) @map("target_id")
-  targetName String    @default("") @map("target_name") @db.VarChar(120)
-  staffUserId String   @default("") @map("staff_user_id") @db.VarChar(64)
-  staffName  String    @default("") @map("staff_name") @db.VarChar(120)
+  kind        String    @default("CONTACT") @db.VarChar(16)
+  targetId    Int       @default(0) @map("target_id")
+  targetName  String    @default("") @map("target_name") @db.VarChar(120)
+  staffUserId String    @default("") @map("staff_user_id") @db.VarChar(64)
+  staffName   String    @default("") @map("staff_name") @db.VarChar(120)
   /// PENDING | SENT | FAILED | UNKNOWN
-  status     String    @default("PENDING") @db.VarChar(16)
-  error      String    @default("") @db.VarChar(300)
-  msgId      String    @default("") @map("msg_id") @db.VarChar(64)
-  sentAt     DateTime? @map("sent_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  status      String    @default("PENDING") @db.VarChar(16)
+  error       String    @default("") @db.VarChar(300)
+  msgId       String    @default("") @map("msg_id") @db.VarChar(64)
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([taskId, status], map: "scrm_mass_targets_task_status_idx")
   @@map("scrm_mass_targets")
@@ -10336,24 +10885,24 @@ model AppointmentSlot {
 }
 
 model AppointmentBooking {
-  id          Int       @id @default(autoincrement())
-  orgType     String    @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId   String    @map("org_user_id") @db.VarChar(64)
-  eventId     Int       @map("event_id")
-  slotId      Int       @map("slot_id")
-  name        String    @db.VarChar(64)
-  phone       String    @default("") @db.VarChar(32)
-  email       String    @default("") @db.VarChar(120)
-  company     String    @default("") @db.VarChar(120)
-  note        String    @default("") @db.VarChar(1000)
+  id        Int      @id @default(autoincrement())
+  orgType   String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId String   @map("org_user_id") @db.VarChar(64)
+  eventId   Int      @map("event_id")
+  slotId    Int      @map("slot_id")
+  name      String   @db.VarChar(64)
+  phone     String   @default("") @db.VarChar(32)
+  email     String   @default("") @db.VarChar(120)
+  company   String   @default("") @db.VarChar(120)
+  note      String   @default("") @db.VarChar(1000)
   /// 关联业务对象：HRM_INTERVIEW / CUSTOMER / PROJECT_MEETING
-  refType     String    @default("") @map("ref_type") @db.VarChar(24)
-  refId       String    @default("") @map("ref_id") @db.VarChar(64)
+  refType   String   @default("") @map("ref_type") @db.VarChar(24)
+  refId     String   @default("") @map("ref_id") @db.VarChar(64)
   /// BOOKED | DONE | CANCELED
-  status      String    @default("BOOKED") @db.VarChar(16)
-  createdBy   String    @default("") @map("created_by") @db.VarChar(64)
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  status    String   @default("BOOKED") @db.VarChar(16)
+  createdBy String   @default("") @map("created_by") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([orgType, orgUserId, status, createdAt])
   @@index([slotId])
@@ -10430,17 +10979,17 @@ model AiTranscript {
 
 /// 工时改动审计（B3#21）：谁在什么时候把哪条工时改成了什么
 model PjTimeLogEdit {
-  id        Int      @id @default(autoincrement())
-  orgType   String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
-  orgUserId String   @map("org_user_id") @db.VarChar(64)
-  timeLogId Int      @map("time_log_id")
+  id         Int      @id @default(autoincrement())
+  orgType    String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId  String   @map("org_user_id") @db.VarChar(64)
+  timeLogId  Int      @map("time_log_id")
   /// UPDATE | DELETE | APPROVE | REJECT
-  action    String   @db.VarChar(16)
-  editorId  String   @map("editor_id") @db.VarChar(64)
-  beforeJson Json    @default("{}") @map("before_json")
-  afterJson  Json    @default("{}") @map("after_json")
-  reason    String   @default("") @db.VarChar(500)
-  createdAt DateTime @default(now()) @map("created_at")
+  action     String   @db.VarChar(16)
+  editorId   String   @map("editor_id") @db.VarChar(64)
+  beforeJson Json     @default("{}") @map("before_json")
+  afterJson  Json     @default("{}") @map("after_json")
+  reason     String   @default("") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([orgType, orgUserId, createdAt])
   @@index([timeLogId])
@@ -10466,43 +11015,153 @@ model PointPromoCode {
   createdBy      String    @default("") @map("created_by") @db.VarChar(64)
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
+  /// 兑换内容：POINTS 兑积分（存量码默认）| CARD 兑时长卡
+  assetType      String    @default("POINTS") @map("asset_type") @db.VarChar(16)
+  /// assetType=CARD 时指向 point_card_templates.code
+  cardCode       String    @default("") @map("card_code") @db.VarChar(32)
 
   @@index([status, endsAt])
   @@map("point_promo_codes")
 }
 
 model PointPromoRedemption {
-  id         Int      @id @default(autoincrement())
-  promoId    Int      @map("promo_id")
-  code       String   @db.VarChar(32)
-  userId     String   @map("user_id") @db.VarChar(64)
-  points     Decimal  @db.Decimal(18, 4)
-  refAmount  Decimal  @default(0) @map("ref_amount") @db.Decimal(18, 4)
-  createdAt  DateTime @default(now()) @map("created_at")
+  id        Int      @id @default(autoincrement())
+  promoId   Int      @map("promo_id")
+  code      String   @db.VarChar(32)
+  userId    String   @map("user_id") @db.VarChar(64)
+  points    Decimal  @db.Decimal(18, 4)
+  refAmount Decimal  @default(0) @map("ref_amount") @db.Decimal(18, 4)
+  /// 卡码核销时快照规格 code（积分码留空）；兑换记录页据此说明「兑的是哪张卡」
+  cardCode  String   @default("") @map("card_code") @db.VarChar(32)
+  /// 卡码核销发出的卡（0=未发卡）；撤销后仍能顺着这里查到「已撤销」
+  userCardId Int     @default(0) @map("user_card_id")
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([promoId, userId])
   @@index([userId, createdAt])
   @@map("point_promo_redemptions")
 }
 
+/// 时长卡规格目录（平台管理员维护）：一张卡 = 一个模型 + 一个额度 + 一个有效期
+model PointCardTemplate {
+  id              Int      @id @default(autoincrement())
+  code            String   @unique @db.VarChar(32)
+  name            String   @db.VarChar(80)
+  /// 绑定的唯一模型（model_catalog.id）；一张卡不允许挂多个模型
+  catalogId       Int      @map("catalog_id")
+  /// 模型快照：目录行改名/下架后，已发出去的卡仍能说明自己本来配的是谁
+  provider        String   @db.VarChar(24)
+  modelKey        String   @map("model_key") @db.VarChar(128)
+  /// 量纲快照（token | image | second），由 catalogId 的 billingUnit 派生后写死
+  billingUnit     String   @map("billing_unit") @db.VarChar(16)
+  /// 额度总量：token=tokens 个数；image=张；second=秒（基准档，倍率见 specMultipliers）
+  quotaTotal      Decimal  @default(0) @map("quota_total") @db.Decimal(18, 4)
+  /// 有效天数：日卡=1，30 天卡=30；从 activatedAt 起算，精确到秒
+  validDays       Int      @default(1) @map("valid_days")
+  /// 规格倍率：[{ match: { video_resolution: "720p" }, multiplier: 2 }]；空表=一律 1 倍
+  specMultipliers Json     @default("[]") @map("spec_multipliers")
+  /// 积分直兑价（0=不允许用积分兑换）
+  pointsPrice     Decimal  @default(0) @map("points_price") @db.Decimal(18, 4)
+  /// 现金购买价（分，0=不上架购买）
+  cashCents       Int      @default(0) @map("cash_cents")
+  /// 同一用户在该规格下最多持有几张（兑换码 / 积分 / 现金三入口合计）；0=不限
+  perUserLimit    Int      @default(0) @map("per_user_limit")
+  /// ACTIVE | DISABLED
+  status          String   @default("ACTIVE") @db.VarChar(16)
+  sortOrder       Int      @default(0) @map("sort_order")
+  remark          String   @default("") @db.VarChar(200)
+  createdBy       String   @default("") @map("created_by") @db.VarChar(64)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([status, sortOrder])
+  @@index([catalogId])
+  @@map("point_card_templates")
+}
+
+/// 用户持有的卡实例：码兑换 / 积分直兑 / 现金购买 / 后台发放都写这一张
+model PointUserCard {
+  id           Int      @id @default(autoincrement())
+  userId       String   @map("user_id") @db.VarChar(64)
+  templateId   Int      @map("template_id")
+  templateCode String   @map("template_code") @db.VarChar(32)
+  name         String   @db.VarChar(80)
+  provider     String   @db.VarChar(24)
+  modelKey     String   @map("model_key") @db.VarChar(128)
+  billingUnit  String   @map("billing_unit") @db.VarChar(16)
+  quotaTotal   Decimal  @default(0) @map("quota_total") @db.Decimal(18, 4)
+  quotaUsed    Decimal  @default(0) @map("quota_used") @db.Decimal(18, 4)
+  /// ACTIVE | EXHAUSTED | EXPIRED | REVOKED
+  status       String   @default("ACTIVE") @db.VarChar(16)
+  /// 发卡那一刻；expiresAt = activatedAt + validDays×24h
+  activatedAt  DateTime @default(now()) @map("activated_at")
+  expiresAt    DateTime @map("expires_at")
+  /// REDEEM 码兑换 | POINTS 积分直兑 | CASH 现金购买 | ADMIN 后台发放
+  source       String   @db.VarChar(16)
+  /// 来源单据：兑换订单 orderNo（码兑换同样走 point_card_orders，四类来源口径统一）
+  sourceRef    String   @default("") @map("source_ref") @db.VarChar(64)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, provider, modelKey, status])
+  @@index([userId, status, expiresAt])
+  @@index([templateId])
+  @@map("point_user_cards")
+}
+
+/// 兑换订单：日卡购买 / 日卡兑换 / 积分兑换三类同表，消耗进度关联 point_user_cards
+model PointCardOrder {
+  id            Int       @id @default(autoincrement())
+  orderNo       String    @unique @map("order_no") @db.VarChar(32)
+  userId        String    @map("user_id") @db.VarChar(64)
+  /// CARD_CASH 日卡购买 | CARD_CODE 日卡兑换 | CARD_POINTS 积分兑换
+  kind          String    @db.VarChar(16)
+  templateId    Int       @map("template_id")
+  templateCode  String    @map("template_code") @db.VarChar(32)
+  name          String    @db.VarChar(80)
+  billingUnit   String    @map("billing_unit") @db.VarChar(16)
+  quotaTotal    Decimal   @default(0) @map("quota_total") @db.Decimal(18, 4)
+  /// 现金单实付（分）
+  amountCents   Int       @default(0) @map("amount_cents")
+  /// 积分单实扣积分
+  pointsAmount  Decimal   @default(0) @map("points_amount") @db.Decimal(18, 4)
+  /// CREATED | PAID | ISSUED | CLOSED | FAILED | REFUNDED
+  status        String    @default("CREATED") @db.VarChar(16)
+  transactionId String?   @unique @map("transaction_id") @db.VarChar(64)
+  prepayId      String    @default("") @map("prepay_id") @db.VarChar(128)
+  codeUrl       String    @default("") @map("code_url") @db.VarChar(512)
+  /// 发卡后回填，进度条据此读 point_user_cards
+  userCardId    Int?      @map("user_card_id")
+  promoCode     String    @default("") @map("promo_code") @db.VarChar(32)
+  paidAt        DateTime? @map("paid_at")
+  issuedAt      DateTime? @map("issued_at")
+  failReason    String    @default("") @map("fail_reason") @db.VarChar(200)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, kind, createdAt])
+  @@index([userId, createdAt])
+  @@map("point_card_orders")
+}
+
 /// 售后工单（B3#22②）：引入 returns 的状态机，挂在服务台的会话/订单上
 model ServiceAfterSalesTicket {
-  id             Int       @id @default(autoincrement())
-  ownerUserId    String    @map("owner_user_id") @db.VarChar(64)
-  conversationId Int       @default(0) @map("conversation_id")
-  orderNo        String    @default("") @map("order_no") @db.VarChar(64)
+  id             Int      @id @default(autoincrement())
+  ownerUserId    String   @map("owner_user_id") @db.VarChar(64)
+  conversationId Int      @default(0) @map("conversation_id")
+  orderNo        String   @default("") @map("order_no") @db.VarChar(64)
   /// RETURN 退货 | REPAIR 维修 | REFUND 退款 | EXCHANGE 换货
-  kind           String    @default("RETURN") @db.VarChar(16)
-  reason         String    @default("") @db.VarChar(500)
-  amount         Decimal   @default(0) @db.Decimal(18, 2)
-  contact        String    @default("") @db.VarChar(80)
-  note           String    @default("") @db.VarChar(1000)
+  kind           String   @default("RETURN") @db.VarChar(16)
+  reason         String   @default("") @db.VarChar(500)
+  amount         Decimal  @default(0) @db.Decimal(18, 2)
+  contact        String   @default("") @db.VarChar(80)
+  note           String   @default("") @db.VarChar(1000)
   /// PENDING | REVIEWING | APPROVED | REJECTED | RECEIVED | SHIPPED | COMPLETED | CANCELED
-  status         String    @default("PENDING") @db.VarChar(16)
-  assigneeUserId String    @default("") @map("assignee_user_id") @db.VarChar(64)
-  createdBy      String    @default("") @map("created_by") @db.VarChar(64)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  status         String   @default("PENDING") @db.VarChar(16)
+  assigneeUserId String   @default("") @map("assignee_user_id") @db.VarChar(64)
+  createdBy      String   @default("") @map("created_by") @db.VarChar(64)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   events ServiceAfterSalesEvent[]
 
@@ -10605,20 +11264,20 @@ model TaskSyncRun {
 
 /// 法律条款版本（B3#26）：注册/改版后逐用户重确认，记录版本/时间/IP
 model TermsDocument {
-  id               Int       @id @default(autoincrement())
-  code             String    @db.VarChar(32)
-  version          String    @db.VarChar(24)
-  title            String    @db.VarChar(160)
+  id              Int       @id @default(autoincrement())
+  code            String    @db.VarChar(32)
+  version         String    @db.VarChar(24)
+  title           String    @db.VarChar(160)
   /// SERVICE 服务协议 | PRIVACY 隐私政策 | REGISTRATION 注册协议 | OTHER
-  category         String    @default("SERVICE") @db.VarChar(16)
-  content          String    @db.LongText
-  requireReaccept  Boolean   @default(true) @map("require_reaccept")
-  effectiveAt      DateTime? @map("effective_at")
+  category        String    @default("SERVICE") @db.VarChar(16)
+  content         String    @db.LongText
+  requireReaccept Boolean   @default(true) @map("require_reaccept")
+  effectiveAt     DateTime? @map("effective_at")
   /// DRAFT | ACTIVE | ARCHIVED
-  status           String    @default("DRAFT") @db.VarChar(16)
-  createdBy        String    @default("") @map("created_by") @db.VarChar(64)
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  status          String    @default("DRAFT") @db.VarChar(16)
+  createdBy       String    @default("") @map("created_by") @db.VarChar(64)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@unique([code, version], map: "terms_documents_code_version_key")
   @@index([status, category])
@@ -10646,7 +11305,7 @@ model OnboardingTemplate {
   orgType     String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
   orgUserId   String   @map("org_user_id") @db.VarChar(64)
   name        String   @db.VarChar(80)
-  /// HIRE | ADMIN
+  /// HIRE（员工入职）| ADMIN（管理员开通）| OFFBOARD（离职交接）
   kind        String   @default("HIRE") @db.VarChar(16)
   description String   @default("") @db.VarChar(500)
   active      Boolean  @default(true)
@@ -10685,6 +11344,8 @@ model OnboardingRun {
   staffUserId  String    @map("staff_user_id") @db.VarChar(64)
   memberUserId String    @default("") @map("member_user_id") @db.VarChar(64)
   offerId      Int       @default(0) @map("offer_id")
+  /// 入职后应开通的岗位（Offer 岗位标题快照 / 手工指定）：全部事项完成后按职能目录授权
+  positionName String    @default("") @map("position_name") @db.VarChar(64)
   /// ACTIVE | DONE | CANCELED
   status       String    @default("ACTIVE") @db.VarChar(16)
   startedAt    DateTime  @default(now()) @map("started_at")
@@ -10726,19 +11387,19 @@ model OnboardingTask {
 
 /// 产品更新日志（B3#28）：与技能版本 changelog 分开，按产品版本号发布
 model HelpChangelog {
-  id         Int       @id @default(autoincrement())
-  version    String    @db.VarChar(32)
-  title      String    @db.VarChar(160)
-  summary    String    @default("") @db.Text
-  body       String    @default("") @db.LongText
+  id         Int      @id @default(autoincrement())
+  version    String   @db.VarChar(32)
+  title      String   @db.VarChar(160)
+  summary    String   @default("") @db.Text
+  body       String   @default("") @db.LongText
   /// PRODUCT | MODULE | FIX | SECURITY
-  category   String    @default("PRODUCT") @db.VarChar(16)
-  releasedAt DateTime  @default(now()) @map("released_at")
+  category   String   @default("PRODUCT") @db.VarChar(16)
+  releasedAt DateTime @default(now()) @map("released_at")
   /// DRAFT | PUBLISHED
-  status     String    @default("PUBLISHED") @db.VarChar(16)
-  createdBy  String    @default("") @map("created_by") @db.VarChar(64)
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  status     String   @default("PUBLISHED") @db.VarChar(16)
+  createdBy  String   @default("") @map("created_by") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@unique([version, category], map: "help_changelog_version_category_key")
   @@index([status, releasedAt])
@@ -11120,56 +11781,56 @@ model ModelUpstream {
 
 /// 模型广场·可售模型目录：人民币价为每百万 tokens（CALL 类为每次），积分价 0＝按汇率自动换算
 model ModelCatalog {
-  id                Int      @id @default(autoincrement())
-  upstreamId        Int      @default(0) @map("upstream_id")
-  provider          String   @default("AIPDD") @db.VarChar(24)
-  modelKey          String   @map("model_key") @db.VarChar(128)
+  id                 Int      @id @default(autoincrement())
+  upstreamId         Int      @default(0) @map("upstream_id")
+  provider           String   @default("AIPDD") @db.VarChar(24)
+  modelKey           String   @map("model_key") @db.VarChar(128)
   /// 转发上游时用的真实模型名；空＝与 modelKey 相同
-  upstreamModelKey  String   @default("") @map("upstream_model_key") @db.VarChar(128)
-  displayName       String   @default("") @map("display_name") @db.VarChar(128)
-  vendor            String   @default("") @db.VarChar(64)
-  description       String   @default("") @db.VarChar(500)
+  upstreamModelKey   String   @default("") @map("upstream_model_key") @db.VarChar(128)
+  displayName        String   @default("") @map("display_name") @db.VarChar(128)
+  vendor             String   @default("") @db.VarChar(64)
+  description        String   @default("") @db.VarChar(500)
   /// TOKEN | CALL（历史字段，按 billingUnit 派生）
-  quotaType         String   @default("TOKEN") @map("quota_type") @db.VarChar(16)
+  quotaType          String   @default("TOKEN") @map("quota_type") @db.VarChar(16)
   /// 上游计费单位：token | image | second | call（与 aipdd.pricing.billing_unit 一致）
-  billingUnit       String   @default("token") @map("billing_unit") @db.VarChar(16)
+  billingUnit        String   @default("token") @map("billing_unit") @db.VarChar(16)
   /// 能力分类：text | image | video | audio | embedding | other
-  category          String   @default("text") @db.VarChar(16)
+  category           String   @default("text") @db.VarChar(16)
   /// 官方输入价（元 / 百万 tokens，billingUnit=token）
-  inputRmbPrice     Decimal  @default(0) @map("input_rmb_price") @db.Decimal(18, 6)
+  inputRmbPrice      Decimal  @default(0) @map("input_rmb_price") @db.Decimal(18, 6)
   /// 官方输出价（元 / 百万 tokens，billingUnit=token）
-  outputRmbPrice    Decimal  @default(0) @map("output_rmb_price") @db.Decimal(18, 6)
+  outputRmbPrice     Decimal  @default(0) @map("output_rmb_price") @db.Decimal(18, 6)
   /// 官方单位价（元 / 张、/ 秒、/ 次，billingUnit≠token）
-  callRmbPrice      Decimal  @default(0) @map("call_rmb_price") @db.Decimal(18, 6)
+  callRmbPrice       Decimal  @default(0) @map("call_rmb_price") @db.Decimal(18, 6)
   /// 官方缓存读价（元 / 百万 tokens）
-  cacheReadRmbPrice Decimal  @default(0) @map("cache_read_rmb_price") @db.Decimal(18, 6)
+  cacheReadRmbPrice  Decimal  @default(0) @map("cache_read_rmb_price") @db.Decimal(18, 6)
   /// 官方缓存写价（元 / 百万 tokens）
-  cacheWriteRmbPrice Decimal @default(0) @map("cache_write_rmb_price") @db.Decimal(18, 6)
+  cacheWriteRmbPrice Decimal  @default(0) @map("cache_write_rmb_price") @db.Decimal(18, 6)
   /// 单次最低收费（元），上游 minimum_rmb
-  minimumRmb        Decimal  @default(0) @map("minimum_rmb") @db.Decimal(18, 6)
+  minimumRmb         Decimal  @default(0) @map("minimum_rmb") @db.Decimal(18, 6)
   /// 上游分档价：[{ match: { quality|size|video_resolution }, unitRmb }]
-  tiers             Json?
+  tiers              Json?
   /// 上游附加计费：[{ code, freeUnits, unit, unitRmb, tiers }]
-  components        Json?
+  components         Json?
   /// 平台折扣：0.8 = 8 折；1 = 官方原价
-  discountRate      Decimal  @default(1) @map("discount_rate") @db.Decimal(6, 4)
+  discountRate       Decimal  @default(1) @map("discount_rate") @db.Decimal(6, 4)
   /// 历史积分覆写价（已停用，保留列用于兼容旧数据）
-  inputPointsPrice  Decimal  @default(0) @map("input_points_price") @db.Decimal(18, 6)
-  outputPointsPrice Decimal  @default(0) @map("output_points_price") @db.Decimal(18, 6)
-  callPointsPrice   Decimal  @default(0) @map("call_points_price") @db.Decimal(18, 6)
-  contextWindow     Int      @default(0) @map("context_window")
-  maxOutputTokens   Int      @default(0) @map("max_output_tokens")
+  inputPointsPrice   Decimal  @default(0) @map("input_points_price") @db.Decimal(18, 6)
+  outputPointsPrice  Decimal  @default(0) @map("output_points_price") @db.Decimal(18, 6)
+  callPointsPrice    Decimal  @default(0) @map("call_points_price") @db.Decimal(18, 6)
+  contextWindow      Int      @default(0) @map("context_window")
+  maxOutputTokens    Int      @default(0) @map("max_output_tokens")
   /// { input: ["text","image"], output: ["text"] }
-  modalities        Json     @default("{}")
+  modalities         Json     @default("{}")
   /// ["/chat/completions", "/embeddings"]
-  endpoints         Json     @default("[]")
-  tags              Json     @default("[]")
-  enabled           Boolean  @default(false)
-  sort              Int      @default(0)
-  remark            String   @default("") @db.VarChar(200)
-  createdBy         String   @default("") @map("created_by") @db.VarChar(64)
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  endpoints          Json     @default("[]")
+  tags               Json     @default("[]")
+  enabled            Boolean  @default(false)
+  sort               Int      @default(0)
+  remark             String   @default("") @db.VarChar(200)
+  createdBy          String   @default("") @map("created_by") @db.VarChar(64)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@unique([provider, modelKey])
   @@index([upstreamId])
@@ -11209,11 +11870,16 @@ model ModelUsageLog {
   /// SUCCESS | FAILED
   status           String   @default("SUCCESS") @db.VarChar(16)
   message          String   @default("") @db.VarChar(200)
+  /// 本次从哪张时长卡扣的额度（空＝没用到卡）
+  userCardId       Int?     @map("user_card_id")
+  /// 本次从卡里实际扣掉的量（单位同 billingUnit，已含规格倍率）
+  cardDeduct       Decimal  @default(0) @map("card_deduct") @db.Decimal(18, 4)
   createdAt        DateTime @default(now()) @map("created_at")
 
   @@index([userId, createdAt])
   @@index([catalogId, createdAt])
   @@index([apiKeyId, createdAt])
+  @@index([userCardId])
   @@map("model_usage_logs")
 }
 
@@ -11359,4 +12025,552 @@ model HwToolGrant {
   @@unique([userId, toolId])
   @@index([userId])
   @@map("hw_tool_grants")
+}
+
+/// 官方服务套餐目录：平台按业务板块上架，企业用积分采购；
+/// 套餐由平台整合多家优质服务商完成交付（采购后平台主持企业与服务商签约兑现）。
+model ServicePackage {
+  id                 Int      @id @default(autoincrement())
+  /// 板块码（SERVICE_TYPES 12 选 1，板块级归属）
+  serviceType        String   @map("service_type") @db.VarChar(32)
+  name               String   @db.VarChar(120)
+  description        String   @default("") @db.VarChar(500)
+  /// 人民币价（整数分，与充值同口径）；积分价按官方汇率实时换算、购买时快照
+  priceCents         Int      @map("price_cents")
+  /// 计价单位文案（年/次/月）
+  unit               String   @default("年") @db.VarChar(16)
+  /// 包含服务清单：string[]（对应财税 13 项）
+  features           Json     @default("[]")
+  /// 交付项：[{ code, label, providerUserId?, providerOrg? }]，code 为板块类目或其细项
+  deliveryItems      Json     @default("[]") @map("delivery_items")
+  /// 交付说明（补充「本套餐由平台整合优质服务商完成交付」固定声明）
+  deliveryDesc       String   @default("") @map("delivery_desc") @db.VarChar(500)
+  /// 购买后自动发起签约（需交付项预绑优质服务商）；失败明细回落待匹配，不阻断购买
+  autoInitiate       Boolean  @default(false) @map("auto_initiate")
+  /// 仅财税：SMALL/GENERAL，用于「您的适用档」按企业纳税人性质匹配
+  taxpayerType       String?  @map("taxpayer_type") @db.VarChar(16)
+  /// 每企业限购（按采购时的企业档案计数，跨账号共享），0=不限
+  perEnterpriseLimit Int      @default(0) @map("per_enterprise_limit")
+  /// ACTIVE | DISABLED
+  status             String   @default("ACTIVE") @db.VarChar(16)
+  sortOrder          Int      @default(0) @map("sort_order")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([serviceType, status, sortOrder])
+  @@map("service_packages")
+}
+
+/// 服务套餐采购订单：积分直购即 PAID；汇率与积分价购买时快照，永不追溯。
+/// 交付状态机 PENDING_MATCH→SIGNING→DELIVERED（展示为「已签约」）；整单退款置 CLOSED。
+/// 套餐只做一次性签约交付，不参与周期/到期管理；unit 仅作价格展示。
+model ServicePackageOrder {
+  id                   Int      @id @default(autoincrement())
+  orderNo              String   @unique @map("order_no") @db.VarChar(32)
+  userId               String   @map("user_id") @db.VarChar(64)
+  /// 购买时取企业档案（个人主体按现有规则拦财税/出海交付项）
+  enterpriseId         Int      @map("enterprise_id")
+  packageId            Int      @map("package_id")
+  /// 快照：套餐名 / 板块 / 人民币价（分）
+  packageName          String   @map("package_name") @db.VarChar(120)
+  serviceType          String   @map("service_type") @db.VarChar(32)
+  priceCents           Int      @map("price_cents")
+  /// 购买时官方汇率快照（1 元 = N 积分）
+  rateAmount           Decimal  @map("rate_amount") @db.Decimal(18, 4)
+  /// 实扣积分快照
+  pointsAmount         Decimal  @map("points_amount") @db.Decimal(18, 4)
+  /// 累计已退积分（部分退可多次；达到 pointsAmount 即整单退完）
+  refundedPointsAmount Decimal  @default(0) @map("refunded_points_amount") @db.Decimal(18, 4)
+  /// 积分流水引用（point_transactions.id）
+  txId                 Int      @default(0) @map("tx_id")
+  /// PAID | PARTIAL_REFUNDED | REFUNDED
+  status               String   @default("PAID") @db.VarChar(16)
+  /// PENDING_MATCH | SIGNING | DELIVERED | CLOSED
+  fulfillmentStatus    String   @default("PENDING_MATCH") @map("fulfillment_status") @db.VarChar(16)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@index([enterpriseId, packageId])
+  @@index([fulfillmentStatus])
+  @@map("service_package_orders")
+}
+
+/// 套餐交付明细：一项一服务商；明细状态实时读关联 Contract.status（避免双写不一致）。
+/// 未发起=待匹配/待发起；PENDING=签约待确认；ACTIVE=已生效；TERMINATED=已撤销/否决。
+model ServicePackageOrderItem {
+  id             Int      @id @default(autoincrement())
+  orderId        Int      @map("order_id")
+  /// 交付项类目/细项码
+  code           String   @db.VarChar(32)
+  label          String   @default("") @db.VarChar(120)
+  /// 匹配/预绑的服务商
+  providerUserId String   @default("") @map("provider_user_id") @db.VarChar(64)
+  providerOrg    String   @default("") @map("provider_org") @db.VarChar(200)
+  /// 发起签约后回填，0=未发起
+  contractId     Int      @default(0) @map("contract_id")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([orderId])
+  @@index([contractId])
+  @@map("service_package_order_items")
+}
+
+/// 套餐退款记录：每次部分/整单退款一条，金额与积分流水一一对应，供对账与展示。
+model ServicePackageRefund {
+  id             Int      @id @default(autoincrement())
+  orderId        Int      @map("order_id")
+  amount         Decimal  @db.Decimal(18, 4)
+  /// 本次退款后订单是否已退完（整单退）
+  fullRefund     Boolean  @default(false) @map("full_refund")
+  /// 对应 point_transactions.id
+  txId           Int      @default(0) @map("tx_id")
+  operatorUserId String   @map("operator_user_id") @db.VarChar(64)
+  remark         String   @default("") @db.VarChar(200)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([orderId, createdAt])
+  @@map("service_package_refunds")
+}
+
+/// 统一任务中心：任意板块 @ 到某账号的一件待办。写入口收口在 TaskCenterService。
+model MyTask {
+  id                Int       @id @default(autoincrement())
+  /// 账号级，跨角色（服务商 / 职员 / 企业 / 平台）
+  assigneeUserId    String    @map("assignee_user_id") @db.VarChar(64)
+  /// 源 key：oa | okr | pj | crm | desk | contract | platform | workflow ...
+  source            String    @db.VarChar(32)
+  sourceId          String    @default("") @map("source_id") @db.VarChar(64)
+  /// 去重锚：source + source_id + assignee，防重复派发
+  dedupKey          String    @unique @map("dedup_key") @db.VarChar(191)
+  /// approval | report | task | matter | audit
+  category          String    @default("matter") @db.VarChar(16)
+  title             String    @db.VarChar(200)
+  description       String    @default("") @db.Text
+  /// 去处理的 URL
+  link              String    @default("") @db.VarChar(500)
+  priority          String    @default("NORMAL") @db.VarChar(16)
+  /// 中心状态机：OPEN → DOING → DONE / CANCELED / EXPIRED
+  status            String    @default("OPEN") @db.VarChar(16)
+  /// 业务方权威状态（只展示、由源回写）
+  sourceStatus      String    @default("") @map("source_status") @db.VarChar(32)
+  sourceStatusLabel String    @default("") @map("source_status_label") @db.VarChar(40)
+  /// 上下文主体（可选）：该任务归属的组织/企业；空表示纯账号级任务
+  orgType           String    @default("") @map("org_type") @db.VarChar(16)
+  orgUserId         String    @default("") @map("org_user_id") @db.VarChar(64)
+  /// USER 派到具体账号 | ORG 落在机构队列等负责人转发
+  assigneeType      String    @default("USER") @map("assignee_type") @db.VarChar(8)
+  /// 派单人（自动分配时写 system）
+  assignedBy        String    @default("") @map("assigned_by") @db.VarChar(64)
+  assignedAt        DateTime? @map("assigned_at")
+  /// DIRECT | ROUND_ROBIN | LOAD —— 这条任务最终是怎么落到现状的
+  assignPolicy      String    @default("DIRECT") @map("assign_policy") @db.VarChar(16)
+  /// 机构/个人接手时间
+  acceptedAt        DateTime? @map("accepted_at")
+  createdBy         String    @default("") @map("created_by") @db.VarChar(64)
+  dueAt             DateTime? @map("due_at")
+  closedAt          DateTime? @map("closed_at")
+  closedBy          String    @default("") @map("closed_by") @db.VarChar(64)
+  closeNote         String    @default("") @map("close_note") @db.VarChar(500)
+  /// 表单节点定义：{ title, fields: [{ key, label, required }] }；普通任务为空
+  formSchema        Json?     @map("form_schema")
+  /// 表单填写结果：{ [fieldKey]: string }；提交即关闭任务
+  formData          Json?     @map("form_data")
+  lastSyncedAt      DateTime? @map("last_synced_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([assigneeUserId, status, createdAt])
+  @@index([assigneeUserId, category, status])
+  @@index([assigneeUserId, source, status])
+  @@index([assigneeType, orgType, orgUserId, status])
+  @@map("my_tasks")
+}
+
+/// 派单规则：按板块/类目/地域把服务商任务落到具体账号或轮询池。
+model TaskAssignmentRule {
+  id        Int      @id @default(autoincrement())
+  orgType   String   @map("org_type") @db.VarChar(16)
+  orgUserId String   @map("org_user_id") @db.VarChar(64)
+  /// 任务源，* 表示通配
+  source    String   @db.VarChar(32)
+  /// 任务类目，* 表示通配
+  category  String   @db.VarChar(16)
+  region    String   @default("") @db.VarChar(32)
+  /// DIRECT | ROUND_ROBIN | LOAD
+  strategy  String   @db.VarChar(16)
+  /// DIRECT 时的目标账号；轮询/负载时为目标职员池（JSON 数组）
+  targets   Json
+  priority  Int      @default(0)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([orgType, orgUserId, enabled, priority])
+  @@map("task_assignment_rules")
+}
+
+/// 改派留痕：只追加不覆盖（任务当前承办人看 MyTask，历史看这里）。
+model TaskAssignmentLog {
+  id         Int      @id @default(autoincrement())
+  taskId     Int      @map("task_id")
+  fromUserId String   @default("") @map("from_user_id") @db.VarChar(64)
+  toUserId   String   @map("to_user_id") @db.VarChar(64)
+  strategy   String   @db.VarChar(16)
+  note       String   @default("") @db.VarChar(500)
+  actorId    String   @map("actor_id") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@map("task_assignment_logs")
+}
+
+/// 通用「用户界面偏好」：账号级、跨设备。本轮只承载 dashboard.shortcuts。
+model UserPreference {
+  id        Int      @id @default(autoincrement())
+  userId    String   @map("user_id") @db.VarChar(64)
+  key       String   @db.VarChar(64)
+  value     Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, key])
+  @@map("user_preferences")
+}
+
+/// 工作流：一张有向图（节点 + 连线）+ 输入/输出契约；有版本。
+model Workflow {
+  id           Int      @id @default(autoincrement())
+  ownerUserId  String   @map("owner_user_id") @db.VarChar(64)
+  orgType      String   @default("ENTERPRISE") @map("org_type") @db.VarChar(16)
+  orgUserId    String   @default("") @map("org_user_id") @db.VarChar(64)
+  name         String   @db.VarChar(120)
+  description  String   @default("") @db.VarChar(500)
+  /// 稳定别名：业务代码按它 invoke（不依赖自增 id）；发布时未填自动补 wf.<id>
+  businessKey  String?  @unique @map("business_key") @db.VarChar(80)
+  /// PRIVATE | ORG | PROVIDER
+  scope        String   @default("PRIVATE") @db.VarChar(16)
+  /// DRAFT | PUBLISHED | ARCHIVED
+  status       String   @default("DRAFT") @db.VarChar(16)
+  version      Int      @default(1)
+  /// { nodes:[...], edges:[...] }
+  graph        Json     @default("{}")
+  /// 执行预算（§7.3-9）：{ maxAiCalls, maxTokens, maxToolCalls, maxBrowserActions, maxNodes }，0＝不限
+  budgets      Json     @default("{}")
+  /// 输入/输出契约（run 时的入参与返回值）
+  inputSchema  Json     @default("{}") @map("input_schema")
+  outputSchema Json     @default("{}") @map("output_schema")
+  createdBy    String   @default("") @map("created_by") @db.VarChar(64)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerUserId, status])
+  @@index([orgType, orgUserId, scope, status])
+  @@map("workflows")
+}
+
+/// 发布时的图快照：改图不影响在途/已发布的运行。
+model WorkflowVersion {
+  id          Int      @id @default(autoincrement())
+  workflowId  Int      @map("workflow_id")
+  version     Int
+  graph       Json     @default("{}")
+  inputSchema Json     @default("{}") @map("input_schema")
+  publishedBy String   @default("") @map("published_by") @db.VarChar(64)
+  publishedAt DateTime @default(now()) @map("published_at")
+
+  @@unique([workflowId, version])
+  @@map("workflow_versions")
+}
+
+model WorkflowRun {
+  id         Int       @id @default(autoincrement())
+  workflowId Int       @map("workflow_id")
+  version    Int       @default(1)
+  /// MANUAL | SCHEDULE | EVENT | TASK | AGENT | MCP（外部 Webhook 触发不开放）
+  trigger    String    @default("MANUAL") @db.VarChar(16)
+  /// PENDING | RUNNING | WAITING | DONE | FAILED | CANCELED
+  status     String    @default("PENDING") @db.VarChar(16)
+  input      Json      @default("{}")
+  output     Json      @default("{}")
+  actorId    String    @default("") @map("actor_id") @db.VarChar(64)
+  error      String    @default("") @db.VarChar(500)
+  /// 业务关联：单据类型 + 主键，供单据页反查「由工作流 #N 驱动」
+  sourceType String    @default("") @map("source_type") @db.VarChar(32)
+  sourceId   String    @default("") @map("source_id") @db.VarChar(64)
+  /// 触发幂等锚：定时=(workflowId,计划时间点)、事件=eventLogId、任务=(taskId,事件类型)
+  dedupeKey  String?   @unique @map("dedupe_key") @db.VarChar(191)
+  /// 本次运行生效的执行预算（§7.3-9）：发布时快照，运行中途改图不影响在途运行
+  budgets    Json      @default("{}")
+  /// 已耗用量：{ nodes, aiCalls, tokenIn, tokenOut, toolCalls, browserActions }
+  usage      Json      @default("{}")
+  /// 触顶的预算项（NONE 未触顶 / AI_CALLS / TOKENS / TOOL_CALLS / BROWSER_ACTIONS / LOOP_LIMIT）
+  budgetStop String   @default("NONE") @map("budget_stop") @db.VarChar(16)
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([workflowId, status, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("workflow_runs")
+}
+
+model WorkflowRunStep {
+  id         Int       @id @default(autoincrement())
+  runId      Int       @map("run_id")
+  nodeId     String    @map("node_id") @db.VarChar(64)
+  nodeType   String    @map("node_type") @db.VarChar(32)
+  /// PENDING | RUNNING | DONE | FAILED | SKIPPED | WAITING
+  status     String    @default("PENDING") @db.VarChar(16)
+  input      Json      @default("{}")
+  output     Json      @default("{}")
+  error      String    @default("") @db.VarChar(500)
+  attempts   Int       @default(0)
+  durationMs Int       @default(0) @map("duration_ms")
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+
+  @@index([runId, status])
+  @@map("workflow_run_steps")
+}
+
+/// 平台升级包：GitHub Release / 源码包 / 管理员上传，解压到 update/sources 后再参与分析。
+model PlatformUpgradePackage {
+  id            Int      @id @default(autoincrement())
+  /// GITHUB_RELEASE | GITHUB_SOURCE | UPLOAD
+  source        String   @db.VarChar(24)
+  /// DOWNLOADING | VERIFIED | EXTRACTED | INVALID
+  status        String   @default("VERIFIED") @db.VarChar(16)
+  version       String   @default("") @db.VarChar(64)
+  tag           String   @default("") @db.VarChar(64)
+  fileName      String   @map("file_name") @db.VarChar(255)
+  path          String   @db.VarChar(500)
+  candidateDir  String   @default("") @map("candidate_dir") @db.VarChar(500)
+  bytes         Int      @default(0)
+  sha256        String   @default("") @db.VarChar(64)
+  releaseNotes  String   @default("") @map("release_notes") @db.Text
+  publishedAt   String   @default("") @map("published_at") @db.VarChar(64)
+  extracted     Boolean  @default(false)
+  invalidReason String   @default("") @map("invalid_reason") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("platform_upgrade_packages")
+}
+
+/// 平台升级任务：ANALYSIS 只分析；UPGRADE/RESTORE/CODE_EDIT 由独立 runner 执行并回写状态。
+model PlatformUpgradeJob {
+  id          Int       @id @default(autoincrement())
+  /// ANALYSIS | UPGRADE | RESTORE | CODE_EDIT
+  type        String    @db.VarChar(16)
+  /// PENDING | RUNNING | SUCCESS | FAILED | CANCELLED | INTERRUPTED | ROLLED_BACK
+  status      String    @default("PENDING") @db.VarChar(16)
+  /// 来源：UPGRADE 升级包 / RESTORE 还原 / CODE_EDIT AI 编程改码；refId 为 AI 编程会话 id
+  sourceKind  String    @default("UPGRADE") @map("source_kind") @db.VarChar(16)
+  sourceRefId Int?      @map("source_ref_id")
+  packageId   Int       @default(0) @map("package_id")
+  backupId    Int       @default(0) @map("backup_id")
+  fromVersion String    @default("") @map("from_version") @db.VarChar(64)
+  toVersion   String    @default("") @map("to_version") @db.VarChar(64)
+  currentStep String    @default("") @map("current_step") @db.VarChar(40)
+  progress    Int       @default(0)
+  error       String    @default("") @db.VarChar(1000)
+  optionsJson String?   @map("options_json") @db.Text
+  adviceJson  String?   @map("advice_json") @db.Text
+  operatorId  String    @default("") @map("operator_id") @db.VarChar(64)
+  jobDir      String    @default("") @map("job_dir") @db.VarChar(500)
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([type, status, createdAt])
+  @@map("platform_upgrade_jobs")
+}
+
+model PlatformUpgradeStep {
+  id         Int       @id @default(autoincrement())
+  jobId      Int       @map("job_id")
+  stepKey    String    @map("step_key") @db.VarChar(40)
+  label      String    @db.VarChar(80)
+  /// PENDING | RUNNING | SUCCESS | FAILED | SKIPPED
+  status     String    @default("PENDING") @db.VarChar(16)
+  message    String    @default("") @db.VarChar(1000)
+  sortOrder  Int       @default(0) @map("sort_order")
+  startedAt  DateTime? @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+
+  @@index([jobId, sortOrder])
+  @@map("platform_upgrade_steps")
+}
+
+/// 升级备份：数据库导出 + 代码归档共用一张表；文件路径只在后台可见。
+model PlatformBackup {
+  id           Int      @id @default(autoincrement())
+  jobId        Int      @map("job_id")
+  /// DATABASE | CODE
+  kind         String   @db.VarChar(16)
+  version      String   @default("") @db.VarChar(64)
+  dialect      String   @default("mysql") @db.VarChar(16)
+  fileName     String   @map("file_name") @db.VarChar(255)
+  filePath     String   @map("file_path") @db.VarChar(500)
+  manifestPath String   @map("manifest_path") @db.VarChar(500)
+  bytes        Int      @default(0)
+  sha256       String   @default("") @db.VarChar(64)
+  verified     Boolean  @default(false)
+  locked       Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("platform_backups")
+}
+
+/// AI 编程会话：模型只写 update/ai-code/<id>/ 暂存区，管理员审阅差异后才可应用。
+/// 应用时新建 CODE_EDIT 类型升级任务，备份 / 构建 / 重启 / 回滚复用平台升级执行器。
+model AiCodeSession {
+  id          Int      @id @default(autoincrement())
+  /// 操作人（平台管理员账号 id）
+  ownerId     String   @map("owner_id") @db.VarChar(64)
+  title       String   @default("") @db.VarChar(120)
+  model       String   @default("") @db.VarChar(200)
+  /// ACTIVE | APPLIED | ARCHIVED
+  status      String   @default("ACTIVE") @db.VarChar(16)
+  stagingDir  String   @default("") @map("staging_dir") @db.VarChar(500)
+  /// 最近一次「备份并执行」产生的升级任务 id
+  jobId       Int?     @map("job_id")
+  lastMessage String   @default("") @map("last_message") @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerId, updatedAt])
+  @@index([status, updatedAt])
+  @@map("ai_code_sessions")
+}
+
+/// AI 编程对话消息：references（上传的参考图 / 文件）与 toolCalls（代码工具留痕）以 JSON 文本存。
+model AiCodeMessage {
+  id             Int      @id @default(autoincrement())
+  sessionId      Int      @map("session_id")
+  /// user | assistant | system
+  role           String   @db.VarChar(16)
+  content        String   @db.LongText
+  model          String   @default("") @db.VarChar(200)
+  referencesJson String?  @map("references_json") @db.Text
+  toolCallsJson  String?  @map("tool_calls_json") @db.LongText
+  /// STREAMING | DONE | ERROR
+  status         String   @default("DONE") @db.VarChar(16)
+  error          String   @default("") @db.VarChar(1000)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId, id])
+  @@map("ai_code_messages")
+}
+
+/// AI 编程变更：暂存区里每个文件一条，存 unified diff 与审阅状态。
+model AiCodeEdit {
+  id           Int      @id @default(autoincrement())
+  sessionId    Int      @map("session_id")
+  path         String   @db.VarChar(400)
+  /// added | modified | deleted
+  changeType   String   @map("change_type") @db.VarChar(16)
+  oldSha       String   @default("") @map("old_sha") @db.VarChar(64)
+  newSha       String   @default("") @map("new_sha") @db.VarChar(64)
+  bytes        Int      @default(0)
+  diff         String?  @db.LongText
+  /// pending | approved | rejected | applied
+  status       String   @default("pending") @db.VarChar(16)
+  appliedJobId Int?     @map("applied_job_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([sessionId, path])
+  @@index([sessionId, status])
+  @@map("ai_code_edits")
+}
+
+/// 平台微信服务号绑定：一个站内账号至多绑定一个服务号 openId。
+/// 关注状态、取关时间与 48 小时会话窗口是服务号独有语义，故不复用 AccountBinding。
+model WechatMpBinding {
+  id                Int       @id @default(autoincrement())
+  userId            String    @unique @map("user_id") @db.VarChar(64)
+  openId            String    @unique @map("open_id") @db.VarChar(64)
+  unionId           String?   @map("union_id") @db.VarChar(64)
+  nickname          String    @default("") @db.VarChar(120)
+  avatarUrl         String    @default("") @map("avatar_url") @db.VarChar(500)
+  subscribed        Boolean   @default(true)
+  subscribedAt      DateTime? @map("subscribed_at")
+  unsubscribedAt    DateTime? @map("unsubscribed_at")
+  /// 用户回复「退订」后关闭微信推送，但保留绑定关系。
+  pushMuted         Boolean   @default(false) @map("push_muted")
+  /// 最近一次互动（关注/发消息/点菜单），用于 48 小时客服消息窗口判定。
+  lastInteractionAt DateTime? @map("last_interaction_at")
+  /// qrcode | admin | oauth
+  source            String    @default("qrcode") @db.VarChar(24)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([unionId])
+  @@index([subscribed, updatedAt])
+  @@map("wechat_mp_bindings")
+}
+
+/// 一次性绑定场景值：带参二维码扫码后反查 userId。
+model WechatMpBindScene {
+  id        Int       @id @default(autoincrement())
+  scene     String    @unique @db.VarChar(64)
+  userId    String    @map("user_id") @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("wechat_mp_bind_scenes")
+}
+
+/// 微信推送记录：每次模板/客服消息尝试都落一条，便于排查、限频与重试。
+model WechatMpMessage {
+  id         Int       @id @default(autoincrement())
+  userId     String    @map("user_id") @db.VarChar(64)
+  openId     String    @map("open_id") @db.VarChar(64)
+  /// template | custom
+  kind       String    @db.VarChar(16)
+  eventKey   String    @default("") @map("event_key") @db.VarChar(48)
+  templateId String    @default("") @map("template_id") @db.VarChar(64)
+  title      String    @default("") @db.VarChar(200)
+  content    String    @default("") @db.Text
+  link       String    @default("") @db.VarChar(500)
+  /// 重试所需的原始模板数据（JSON 文本），仅 template 使用。
+  payload    String    @default("") @db.Text
+  /// pending | sent | failed | skipped
+  status     String    @default("pending") @db.VarChar(16)
+  errcode    Int?
+  errmsg     String    @default("") @db.VarChar(300)
+  attempts   Int       @default(0)
+  msgId      String    @default("") @map("msg_id") @db.VarChar(64)
+  entityType String    @default("") @map("entity_type") @db.VarChar(32)
+  entityId   String    @default("") @map("entity_id") @db.VarChar(64)
+  sentAt     DateTime? @map("sent_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([eventKey, createdAt])
+  @@map("wechat_mp_messages")
+}
+
+/// 回调幂等：微信会重试，同一 MsgId 只处理一次。
+model WechatMpInboundEvent {
+  id        Int      @id @default(autoincrement())
+  msgId     String   @unique @map("msg_id") @db.VarChar(96)
+  openId    String   @map("open_id") @db.VarChar(64)
+  msgType   String   @default("") @map("msg_type") @db.VarChar(24)
+  event     String   @default("") @db.VarChar(32)
+  eventKey  String   @default("") @map("event_key") @db.VarChar(64)
+  payload   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([openId, createdAt])
+  @@map("wechat_mp_inbound_events")
 }

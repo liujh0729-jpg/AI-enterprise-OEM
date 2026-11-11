@@ -11,6 +11,7 @@ import { ErrorCode } from '../common/error-code';
 import { ContractsService } from '../contracts/contracts.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import type { TaskDispatchPort } from '../task-center/task-router.service';
 import { readContact } from '../shared/contacts';
 /** 单据状态（订货单与预约单共用；订货单另有「已否决」终态）。 */
 export const SUPPLY_STATUS_LABELS: Record<string, string> = {
@@ -118,6 +119,56 @@ export class SupplyService {
     private readonly contracts: ContractsService,
     private readonly aiworkin: AiworkinClient,
   ) {}
+
+  /** 派单原语由 services.ts 装配后回填；未装配时（单测/脚本）跳过任务中心联动。 */
+  private taskDispatch?: TaskDispatchPort;
+
+  useTaskDispatch(port: TaskDispatchPort) {
+    this.taskDispatch = port;
+  }
+
+  /** 派单失败不影响建单：任务中心是辅助链路，主链路照常可用。 */
+  private dispatchTask(input: Parameters<TaskDispatchPort['dispatch']>[0]) {
+    // 没有归属服务商就不是机构任务，不往任务中心塞孤儿行。
+    if (!input.orgUserId) return Promise.resolve(null);
+    return this.taskDispatch?.dispatch(input).catch(() => null);
+  }
+
+  private orderTask(row: SupplyOrder) {
+    return {
+      source: 'supply',
+      sourceId: `so-${row.id}`,
+      orgUserId: row.providerUserId,
+      category: 'task',
+      title: `订货单 ${row.orderNo} · ${row.stationName}`,
+      description: `${row.enterpriseName || '企业'} 提交订货需求，期望 ${row.expectedDate} 到货`,
+      link: '/supply?tab=orders',
+      priority: 'NORMAL',
+      dueAt: row.expectedDate || null,
+      createdBy: row.createdBy,
+      staffUserId: row.staffUserId,
+      sourceStatus: row.status,
+      sourceStatusLabel: SUPPLY_STATUS_LABELS[row.status] || row.status,
+    };
+  }
+
+  private bookingTask(row: SupplyBooking) {
+    return {
+      source: 'supply-booking',
+      sourceId: `sb-${row.id}`,
+      orgUserId: row.providerUserId,
+      category: 'task',
+      title: `服务预约 ${row.bookingNo} · ${row.serviceName}`,
+      description: `${row.enterpriseName || '企业'} 预约 ${row.planDate} 上门服务`,
+      link: '/supply?tab=bookings',
+      priority: 'NORMAL',
+      dueAt: row.planDate || null,
+      createdBy: row.createdBy,
+      staffUserId: row.staffUserId,
+      sourceStatus: row.status,
+      sourceStatusLabel: SUPPLY_STATUS_LABELS[row.status] || row.status,
+    };
+  }
   /* ------------------------------------------------------------------ 服务站 */
 
   async bookingPage(user: CurrentUser, query: Record<string, unknown>) {
@@ -993,6 +1044,7 @@ export class SupplyService {
       draft ? 'SUPPLY_ORDER_DRAFT' : 'SUPPLY_ORDER_CREATE',
       `#${row.id} ${row.orderNo}`,
     );
+    if (!draft) await this.dispatchTask(this.orderTask(row));
     return { id: row.id, order_no: row.orderNo, status: row.status };
   }
   /** 草稿 → 已提交。 */
@@ -1006,6 +1058,7 @@ export class SupplyService {
       data: { status: 'SUBMITTED', revision: { increment: 1 } },
     });
     await this.writeLog(user, 'ORDER', id, 'SUBMIT', row.orderNo);
+    await this.dispatchTask(this.orderTask(updated));
     return { id, status: updated.status, revision: updated.revision };
   }
   /** 企业修改需求并重新提交（数量/规格/期望到货时间/备注），多轮磋商。 */
@@ -1296,10 +1349,22 @@ export class SupplyService {
         );
       }
     }
-    const updated = await this.prisma.supplyOrder.update({
-      where: { id },
-      data: { staffUserId: staff },
-    });
+    // 任务与单据同事务改承办人（决策 D3=A）：改派后原账号不可见、新账号可见。
+    const staffUserIdValue = this.taskDispatch
+      ? await this.taskDispatch.assignDocument({
+          source: 'supply',
+          sourceId: `so-${id}`,
+          orgUserId: row.providerUserId,
+          staffUserId: staff,
+          actorId: user.userId,
+          note: `${row.orderNo} · 指派承办职员`,
+        })
+      : (
+          await this.prisma.supplyOrder.update({
+            where: { id },
+            data: { staffUserId: staff },
+          })
+        ).staffUserId;
     await this.writeLog(
       user,
       'ORDER',
@@ -1309,7 +1374,7 @@ export class SupplyService {
         ? `${row.orderNo} · 指派承办职员 ${await this.staffName(staff)}`
         : `${row.orderNo} · 收回承办（由服务商账号办理）`,
     );
-    return { id, staff_user_id: updated.staffUserId };
+    return { id, staff_user_id: staffUserIdValue };
   }
   async removeOrder(user: CurrentUser, id: number) {
     const row = await this.requireOwnOrder(user, id);
@@ -1424,6 +1489,7 @@ export class SupplyService {
       draft ? 'SUPPLY_BOOKING_DRAFT' : 'SUPPLY_BOOKING_CREATE',
       `#${row.id} ${row.bookingNo}`,
     );
+    if (!draft) await this.dispatchTask(this.bookingTask(row));
     return { id: row.id, booking_no: row.bookingNo, status: row.status };
   }
   async submitBooking(user: CurrentUser, id: number) {
@@ -1436,6 +1502,7 @@ export class SupplyService {
       data: { status: 'SUBMITTED', revision: { increment: 1 } },
     });
     await this.writeLog(user, 'BOOKING', id, 'SUBMIT', row.bookingNo);
+    await this.dispatchTask(this.bookingTask(updated));
     return { id, status: updated.status, revision: updated.revision };
   }
   async updateBooking(
@@ -1637,10 +1704,21 @@ export class SupplyService {
         );
       }
     }
-    const updated = await this.prisma.supplyBooking.update({
-      where: { id },
-      data: { staffUserId: staff },
-    });
+    const staffUserIdValue = this.taskDispatch
+      ? await this.taskDispatch.assignDocument({
+          source: 'supply-booking',
+          sourceId: `sb-${id}`,
+          orgUserId: row.providerUserId,
+          staffUserId: staff,
+          actorId: user.userId,
+          note: `${row.bookingNo} · 指派承办职员`,
+        })
+      : (
+          await this.prisma.supplyBooking.update({
+            where: { id },
+            data: { staffUserId: staff },
+          })
+        ).staffUserId;
     await this.writeLog(
       user,
       'BOOKING',
@@ -1650,7 +1728,7 @@ export class SupplyService {
         ? `${row.bookingNo} · 指派承办职员 ${await this.staffName(staff)}`
         : `${row.bookingNo} · 收回承办（由服务商账号办理）`,
     );
-    return { id, staff_user_id: updated.staffUserId };
+    return { id, staff_user_id: staffUserIdValue };
   }
   async removeBooking(user: CurrentUser, id: number) {
     const row = await this.requireOwnBooking(user, id);

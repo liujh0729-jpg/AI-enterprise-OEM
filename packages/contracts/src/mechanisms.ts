@@ -34,6 +34,7 @@ export const WEBHOOK_EVENTS = [
   "demand.accepted",
   "demand.closed",
   "engagement.created",
+  "risk.detected",
   "custom",
 ] as const;
 export const WEBHOOK_EVENT_LABELS: Record<string, string> = {
@@ -58,6 +59,7 @@ export const WEBHOOK_EVENT_LABELS: Record<string, string> = {
   "demand.accepted": "任务需求采纳",
   "demand.closed": "任务需求关闭",
   "engagement.created": "外部合作创建",
+  "risk.detected": "经营异常发现",
   custom: "自定义事件",
 };
 
@@ -154,6 +156,14 @@ export const createExportJobBodySchema = z.object({
   format: z.enum(["csv", "json"]).default("csv"),
   filters: z.record(z.string(), z.string()).default({}),
 });
+/** 认证下载：文件内容经当前会话按组织资格复核后回传，不再暴露长期公开直链。 */
+export const exportDownloadSchema = z.object({
+  id: z.number(),
+  module: z.string(),
+  format: z.enum(["csv", "json"]),
+  fileName: z.string(),
+  content: z.string(),
+});
 
 export const reportCatalogSchema = z.object({
   id: z.number(),
@@ -199,8 +209,16 @@ export const ruleConditionSchema = z.object({
   op: z.enum(RULE_OPERATORS),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
 });
+export const RULE_ACTION_TYPES = [
+  "webhook",
+  "notify",
+  "insight",
+  "task",
+  "run_workflow",
+  "assign_task",
+] as const;
 export const ruleActionSchema = z.object({
-  type: z.enum(["webhook", "notify", "insight", "task"]),
+  type: z.enum(RULE_ACTION_TYPES),
   target: z.string().max(200).default(""),
   payload: z.record(z.string(), z.unknown()).default({}),
 });
@@ -276,7 +294,11 @@ export const oidcProviderSchema = z.object({
 });
 export const saveOidcProviderBodySchema = z.object({
   id: z.number().int().positive().optional(),
-  code: z.string().min(1).max(32).regex(/^[a-z0-9-]+$/),
+  code: z
+    .string()
+    .min(1)
+    .max(32)
+    .regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(80),
   issuer: z.string().url().max(300),
   clientId: z.string().min(1).max(200),
@@ -406,7 +428,9 @@ export const mechanismsEndpoints = {
     params: z.object({}),
     query: emptyQuery,
     body: z.object({ id: z.number().int().positive() }),
-    response: envelope(z.object({ ok: z.boolean(), status: z.number(), message: z.string() })),
+    response: envelope(
+      z.object({ ok: z.boolean(), status: z.number(), message: z.string() }),
+    ),
   },
 
   // ---------- 导入 ----------
@@ -492,6 +516,14 @@ export const mechanismsEndpoints = {
     body: z.object({ id: z.number().int().positive() }),
     response: envelope(z.object({ id: z.number() })),
   },
+  Export_download: {
+    method: "get" as const,
+    path: "/enterprise/export/jobs/:id/download",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(exportDownloadSchema),
+  },
 
   // ---------- 报表目录 ----------
   Report_listCatalog: {
@@ -557,7 +589,12 @@ export const mechanismsEndpoints = {
       z.object({
         matched: z.boolean(),
         details: z.array(
-          z.object({ field: z.string(), op: z.string(), actual: z.string(), pass: z.boolean() }),
+          z.object({
+            field: z.string(),
+            op: z.string(),
+            actual: z.string(),
+            pass: z.boolean(),
+          }),
         ),
       }),
     ),
@@ -664,7 +701,10 @@ export const mechanismsEndpoints = {
     method: "get" as const,
     path: "/enterprise/im-sync/bindings",
     params: z.object({}),
-    query: z.object({ channel: z.string().optional(), domain: z.string().optional() }),
+    query: z.object({
+      channel: z.string().optional(),
+      domain: z.string().optional(),
+    }),
     body: z.undefined(),
     response: envelope(z.array(syncBindingSchema)),
   },

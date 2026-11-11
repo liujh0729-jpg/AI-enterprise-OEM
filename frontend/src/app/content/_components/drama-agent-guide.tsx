@@ -91,7 +91,7 @@ export function DramaAgentGuide() {
             ))}
           </div>
           <div className="text-12 muted">
-            Key 从哪来：本站「开放集成 → API Key 管理」里列出的 sk- Key
+            Key 从哪来：本站「模型服务 → API Key 管理」里列出的 sk- Key
             就是平台签发的那把（内容创作、数字资产、RPA 与 Workbuddy
             的模型调用都共用它），复制过来直接粘贴即可。
           </div>

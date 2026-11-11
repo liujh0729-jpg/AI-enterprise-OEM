@@ -5,12 +5,11 @@ import { PageHero } from "@/components/ui/panel";
 import { FeedTab } from "./_components/feed-tab";
 import { FriendsTab } from "./_components/friends-tab";
 import { GroupsTab } from "./_components/groups-tab";
-import { ListingTab } from "./_components/listing-tab";
 import { MailTab } from "./_components/mail-tab";
 import { ProfileTab } from "./_components/profile-tab";
 import { ResumeTab } from "./_components/resume-tab";
 
-type SocialView = "feed" | "friends" | "groups" | "mail" | "listing" | "profile" | "resume";
+type SocialView = "feed" | "friends" | "groups" | "mail" | "profile" | "resume";
 
 /**
  * 社交板块（M5，工作台）：把原 NestJS SNS 的关系 / 动态 / 小组 / 私信 / 简历本地化进本站，
@@ -22,13 +21,12 @@ export default function SocialPage() {
     <>
       <PageHero
         title="商务社交"
-        desc="结识同行人、发布动态、加入小组讨论、站内私信往来，并维护你的职场简历。全部在你的账号下本地闭环，不受上游影响。"
+        desc="结识同行人、发布动态、加入小组讨论、站内私信往来，并维护你的职场简历。本地数据为主；绑定个人 API Key 后，可把好友关系与私信按需同步到 AIworkin 对应账号。"
         tabs={[
           { key: "feed", label: "动态" },
           { key: "friends", label: "好友" },
           { key: "groups", label: "小组" },
           { key: "mail", label: "私信" },
-          { key: "listing", label: "供求广场" },
           { key: "profile", label: "资料" },
           { key: "resume", label: "简历" },
         ]}
@@ -39,7 +37,6 @@ export default function SocialPage() {
       {view === "friends" ? <FriendsTab /> : null}
       {view === "groups" ? <GroupsTab /> : null}
       {view === "mail" ? <MailTab /> : null}
-      {view === "listing" ? <ListingTab /> : null}
       {view === "profile" ? <ProfileTab /> : null}
       {view === "resume" ? <ResumeTab /> : null}
     </>

@@ -17,7 +17,6 @@ import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { PointsService } from '../points/points.service';
-import { PointsSettingsService } from '../points/points-settings.service';
 import { AiworkinClient } from '../aiworkin/aiworkin.client';
 import { ContentJobService } from './content-job.service';
 
@@ -154,7 +153,6 @@ export class VideoTemplateService {
     private readonly prisma: PrismaService,
     private readonly users: UserLookupService,
     private readonly points: PointsService,
-    private readonly pointsSettings: PointsSettingsService,
     private readonly jobs: ContentJobService,
     private readonly client: AiworkinClient,
   ) {}
@@ -845,25 +843,6 @@ export class VideoTemplateService {
   private async payAndRecord(row: TemplateRow, user: CurrentUser) {
     const cost = row.viewCost;
     const ownerId = row.userId;
-    const cfg = await this.pointsSettings.view();
-    if (cfg.spendDailyCap > 0) {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const spent = await this.prisma.pointTransaction.aggregate({
-        where: {
-          userId: user.userId,
-          type: { in: ['SPEND', 'TRANSFER_OUT'] },
-          createdAt: { gte: start },
-        },
-        _sum: { amount: true },
-      });
-      if (Math.abs(Number(spent._sum.amount) || 0) + cost > cfg.spendDailyCap) {
-        throw new BusinessException(
-          ErrorCode.FORBIDDEN,
-          `已触发单日消费上限（${cfg.spendDailyCap} 积分），请明天再试或联系管理员`,
-        );
-      }
-    }
     await this.points.ensureAccount(user.userId);
     await this.points.ensureAccount(ownerId);
     try {

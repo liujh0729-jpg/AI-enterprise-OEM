@@ -45,6 +45,17 @@ export type AgentToolContext = {
     user: CurrentUser,
     input: { title: string; content: string; spaceId?: number },
   ) => Promise<{ id: number; spaceId: number; title: string }>;
+  /** 已共享工作流工具（wf__ 前缀）：以登录人身份按发布版本运行 */
+  workflows?: WorkflowToolRunner;
+};
+
+/** 工作流工具调用口：结构与 WorkflowService.runAsTool 对齐，避免模块间循环依赖。 */
+export type WorkflowToolRunner = {
+  runAsTool: (
+    user: CurrentUser,
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<AgentToolResult>;
 };
 
 export type AgentReference = {
@@ -477,11 +488,21 @@ export async function runAgentTool(
         text: text || (result.isError ? '硬件工具调用失败' : '硬件工具已执行'),
       };
     }
+    if (name.startsWith('wf__')) {
+      if (!context.workflows) return { text: '工作流工具未启用' };
+      return await context.workflows.runAsTool(actor.user, name, args);
+    }
     const business = await runBusinessTool(name, args, context.business, actor);
     if (business) return business;
     if (name === 'generate_image') {
       const prompt = readString(args, 'prompt');
       if (!prompt) return { text: '缺少 prompt，无法生成图片' };
+      // 生成类工具花的是用户自己的模型额度：无人值守 / 只读回合不发起
+      if (currentAgentScope()?.allowWrite !== true) {
+        return {
+          text: '这一轮是只读模式，不能发起生成（会消耗模型额度）；请让用户在对话里直接发起。',
+        };
+      }
       const labels = readLabels(args);
       const { picked, missing } = resolveReferences(actor, labels);
       const images = picked.filter((item) => item.media === 'image');
@@ -529,6 +550,11 @@ export async function runAgentTool(
     if (name === 'generate_video') {
       const prompt = readString(args, 'prompt');
       if (!prompt) return { text: '缺少 prompt，无法生成视频' };
+      if (currentAgentScope()?.allowWrite !== true) {
+        return {
+          text: '这一轮是只读模式，不能发起生成（会消耗模型额度）；请让用户在对话里直接发起。',
+        };
+      }
       const labels = readLabels(args);
       const { picked, missing } = resolveReferences(actor, labels);
       if (missing.length) {
@@ -773,6 +799,11 @@ export async function runAgentTool(
       const content = readString(args, 'content');
       if (!title) return { text: '缺少 name：请给这份产出起个名字' };
       if (!content) return { text: '缺少 content：没有可回流的正文' };
+      if (currentAgentScope()?.allowWrite !== true) {
+        return {
+          text: '这一轮按无人值守执行，不允许写资料库；请在对话里由用户确认后再回流。',
+        };
+      }
       const item = await context.library.publish(actor.user, actor.token, {
         name: title,
         content,

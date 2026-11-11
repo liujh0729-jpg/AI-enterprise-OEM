@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentActionLabel, agentDomainLabel } from "./agent";
+import { browserMcpToolArgs, browserMcpTools } from "./chrome-rpa";
 import { endpoints } from "./endpoints";
 import { mailMcpToolArgs } from "./mail";
 
@@ -236,6 +237,8 @@ export const mcpToolArgs = {
     .strict(),
   /** 邮件五个专用工具：参数是业务字段（mailboxId / key / body），不接受 operationId。 */
   ...mailMcpToolArgs,
+  /** 浏览器代理七个专用工具：设备在线（绿灯）时把任务派给本人本机的 Chrome。 */
+  ...browserMcpToolArgs,
 };
 export type McpToolName = keyof typeof mcpToolArgs;
 const isMcpToolName = (name: string): name is McpToolName =>
@@ -336,6 +339,7 @@ export const MCP_TOOLS: Record<
       openWorldHint: true,
     },
   },
+  ...browserMcpTools,
 };
 
 export const mcpJsonRpcRequestSchema = z
@@ -371,6 +375,7 @@ export const MCP_INSTRUCTIONS = [
   "写动作只有该账号在「智能体记忆 → 可自动执行的动作」里勾选过的才会真正执行；未勾选的返回 executed=false 的草案，请把草案交给用户确认后再由用户勾选授权。",
   "签约成立/解除、报税提交、开票申请、外呼号码导入属于永久排除项，无论如何都不自动执行。",
   "收发邮件用 mail_list_mailboxes → mail_list_messages → mail_read_message → mail_create_draft / mail_send_reply 这五个专用工具；邮箱主机、端口与密码只能由用户本人在「AI邮箱服务」界面填写，机器通道不提供配置接口。",
+  "要让 Agent 在用户自己的浏览器里干活（rtrvr 式浏览器代理），用 browser_agent_start / browser_agent_status / browser_agent_result / browser_agent_stop 这一组；设备必须是「在线（绿灯）」状态，离线时请让用户在 AIPDD Enterprise 插件里登录并保持侧边栏在线。抽取用 browser_extract，用户沉淀的技能用 browser_skill_list / browser_skill_run。发起会话会接管用户浏览器，属敏感操作。",
 ].join("\n");
 
 /**

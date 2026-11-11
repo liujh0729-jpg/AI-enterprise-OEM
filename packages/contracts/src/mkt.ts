@@ -79,6 +79,17 @@ export const mktArtifactSchema = z.object({
   body: z.string(),
   status: z.enum(["DRAFT", "READY", "ARCHIVED"]),
   sourceRunId: z.number().nullable(),
+  /** 内容审核（docs §8.4 营销内容生成→内容审核） */
+  reviewStatus: z.enum(["NONE", "PENDING", "APPROVED", "REJECTED"]),
+  reviewRound: z.number(),
+  reviewerId: z.string(),
+  reviewedAt: z.string(),
+  reviewNote: z.string(),
+  /** 渠道发布（内容审核通过→渠道发布） */
+  publishStatus: z.enum(["NONE", "PENDING", "PUBLISHED"]),
+  publishChannel: z.string(),
+  publishNote: z.string(),
+  publishedAt: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -152,6 +163,20 @@ export const saveMktArtifactBodySchema = z.object({
   body: z.string().min(1).max(20000),
   status: z.enum(["DRAFT", "READY", "ARCHIVED"]).default("DRAFT"),
   sourceRunId: z.number().int().positive().optional(),
+});
+
+/** 内容审核结论：通过后自动进入渠道发布待办，驳回退回内容资产继续修改。 */
+export const reviewMktArtifactBodySchema = z.object({
+  id: z.number().int().positive(),
+  decision: z.enum(["approve", "reject"]),
+  note: z.string().max(500).default(""),
+});
+
+/** 渠道发布回执：渠道＋执行结果，作为发布任务的完成依据。 */
+export const publishMktArtifactBodySchema = z.object({
+  id: z.number().int().positive(),
+  channel: z.string().min(1).max(60),
+  note: z.string().max(500).default(""),
 });
 
 export const updateMktContextBodySchema = z.object({
@@ -243,6 +268,8 @@ export const mktEndpoints = {
     query: pageQuerySchema.extend({
       kind: z.string().optional(),
       status: z.string().optional(),
+      reviewStatus: z.string().optional(),
+      publishStatus: z.string().optional(),
       q: z.string().optional(),
     }),
     body: z.undefined(),
@@ -254,6 +281,22 @@ export const mktEndpoints = {
     params: z.object({}),
     query: emptyQuery,
     body: saveMktArtifactBodySchema,
+    response: envelope(mktArtifactSchema),
+  },
+  Mkt_reviewArtifact: {
+    method: "post" as const,
+    path: "/enterprise/mkt/artifacts/review",
+    params: z.object({}),
+    query: emptyQuery,
+    body: reviewMktArtifactBodySchema,
+    response: envelope(mktArtifactSchema),
+  },
+  Mkt_publishArtifact: {
+    method: "post" as const,
+    path: "/enterprise/mkt/artifacts/publish",
+    params: z.object({}),
+    query: emptyQuery,
+    body: publishMktArtifactBodySchema,
     response: envelope(mktArtifactSchema),
   },
   Mkt_readContext: {

@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { PrismaService } from '../prisma/prisma.service';
+import type { TenantScopeService } from '../tenant/tenant-scope.service';
 
 export type BiRole = 'ADMIN' | 'EDITOR' | 'ANALYST' | 'VIEWER' | '';
 export type BiAction = 'read' | 'write' | 'editor' | 'admin' | 'ask';
@@ -22,6 +23,8 @@ export type BiContext = {
   isOwner: boolean;
   isMember: boolean;
   isAdmin: boolean;
+  /** 当前操作者在本账号下的部门（行权限 ${deptId} 占位符取此值）。 */
+  department: string;
 };
 
 export type BiStaff = {
@@ -41,6 +44,18 @@ export const BI_ROLE_LABELS: Record<string, string> = {
 };
 
 /**
+ * 列权限口径（方案 §四：行列权限进入实际查询、预览、导出及 AI 问答链）：
+ * `columnRules.hidden` 列出该角色不可见的字段键，在生成结果与喂模型前一律剔除。
+ * 空对象 / 无 hidden 数组表示不额外限制。
+ */
+export function hiddenColumnsOf(rules: unknown): Set<string> {
+  if (!rules || typeof rules !== 'object') return new Set();
+  const hidden = (rules as { hidden?: unknown }).hidden;
+  if (!Array.isArray(hidden)) return new Set();
+  return new Set(hidden.map((item) => text(item)).filter(Boolean));
+}
+
+/**
  * BI 账号与权限：成员来自本账号「职员与代理人」唯一一套人；
  * 与 CRM 一样按账号统一，企业/服务商身份切换不换人。
  */
@@ -48,6 +63,7 @@ export class BiScopeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UserLookupService,
+    private readonly tenant?: TenantScopeService,
   ) {}
 
   async context(user: CurrentUser): Promise<BiContext> {
@@ -60,6 +76,7 @@ export class BiScopeService {
         isOwner: true,
         isMember: true,
         isAdmin: true,
+        department: '',
       };
     }
     const member = await this.prisma.biMember.findUnique({
@@ -78,6 +95,7 @@ export class BiScopeService {
         isOwner: false,
         isMember: false,
         isAdmin: false,
+        department: '',
       };
     }
     const role = (member.role as BiRole) || 'ANALYST';
@@ -88,10 +106,40 @@ export class BiScopeService {
       isOwner: false,
       isMember: true,
       isAdmin: role === 'ADMIN',
+      department: await this.departmentOf(owner, user.userId),
     };
   }
 
-  private async ownerOf(userId: string) {
+  /** 操作者在本账号下的部门：先看企业职员表，再看服务商职员表。 */
+  private async departmentOf(ownerUserId: string, userId: string) {
+    const [org, provider] = await Promise.all([
+      this.prisma.orgStaff.findFirst({
+        where: {
+          orgUserId: ownerUserId,
+          memberUserId: userId,
+          status: 'ACTIVE',
+        },
+        select: { department: true },
+      }),
+      this.prisma.providerStaff.findFirst({
+        where: {
+          providerUserId: ownerUserId,
+          staffUserId: userId,
+          status: 'ACTIVE',
+        },
+        select: { department: true },
+      }),
+    ]);
+    return org?.department || provider?.department || '';
+  }
+
+  /**
+   * 当前用户所属账号（ownerUserId）。优先采用主体切换器选定的组织（与 HRM/CRM/OKR 同一口径，
+   * 见 tenant-scope.service）；未选择时才按「自己是主账号 → 所属 ACTIVE 成员组织」兜底。
+   */
+  private async ownerOf(userId: string): Promise<string> {
+    const preferred = await this.tenant?.preferred(userId);
+    if (preferred) return preferred.orgUserId;
     const [orgOwner, providerOwner, member] = await Promise.all([
       this.prisma.orgStaff.findFirst({
         where: { orgUserId: userId, status: 'ACTIVE' },

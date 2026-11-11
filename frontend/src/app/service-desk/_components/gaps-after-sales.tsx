@@ -267,7 +267,7 @@ export function GapsAfterSalesTab() {
               items={[
                 {
                   color: "blue",
-                  children: (
+                  content: (
                     <span className="text-12">
                       创建工单 · {zhTime(detail.createdAt)}
                     </span>
@@ -275,7 +275,7 @@ export function GapsAfterSalesTab() {
                 },
                 ...detail.events.map((event) => ({
                   color: "green",
-                  children: (
+                  content: (
                     <span className="text-12">
                       {AFTER_SALES_STATUS_LABELS[event.fromStatus] || event.fromStatus} →{" "}
                       {AFTER_SALES_STATUS_LABELS[event.toStatus] || event.toStatus}

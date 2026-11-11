@@ -4,6 +4,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { httpRequest, TransportError } from '../http/transport';
+import { recordAiUsage } from '../ai/ai-gateway';
 import { ContentAssetService } from './asset-registry.service';
 import { AipddAssetClient } from './aipdd-asset.client';
 import { ContentModelSettingService } from './model-setting.service';
@@ -54,6 +55,21 @@ function anthropicText(node: Record<string, unknown>) {
     )
     .join('')
     .trim();
+}
+
+/** 上游 usage → 统一口径：OpenAI 是 prompt/completion_tokens，Anthropic 是 input/output_tokens。 */
+function readUsage(
+  raw: unknown,
+  usage: { tokenIn: number; tokenOut: number; call: number },
+) {
+  if (!raw || typeof raw !== 'object') return;
+  const node = raw as Record<string, unknown>;
+  const num = (value: unknown) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  usage.tokenIn = num(node.prompt_tokens ?? node.input_tokens);
+  usage.tokenOut = num(node.completion_tokens ?? node.output_tokens);
 }
 
 function unwrap(body: unknown): Record<string, unknown> {
@@ -399,14 +415,21 @@ export class ContentMediaService {
     };
   }
 
-  /** 文本生成（口播稿、反推剧本等纯文本卡片与 Agent 共用）。 */
+  /**
+   * 文本生成（口播稿、反推剧本等纯文本卡片与 Agent 共用）。
+   * 传 meta 时把上游回的 usage 记成用量事实（工作流 AI 节点的成本归属走这里）。
+   */
   async chat(
     user: CurrentUser,
     token: string | undefined,
     messages: { role: string; content: string }[],
     mediaType: 'text' | 'vision' = 'text',
     overrides?: ModelOverrides,
-  ) {
+    meta?: { module: string; operation: string },
+  ): Promise<{
+    text: string;
+    usage: { tokenIn: number; tokenOut: number; call: number };
+  }> {
     const slot = await this.settings.resolveTarget(
       user,
       mediaType,
@@ -414,6 +437,7 @@ export class ContentMediaService {
       overrides?.[mediaType],
     );
     const base = this.baseOf(slot);
+    const usage = { tokenIn: 0, tokenOut: 0, call: 1 };
     if (isAnthropic(slot)) {
       const system = messages
         .filter((item) => item.role === 'system')
@@ -437,14 +461,17 @@ export class ContentMediaService {
         },
         'content:chat',
       );
-      const content = anthropicText(unwrap(body));
+      const node = unwrap(body);
+      readUsage(node.usage, usage);
+      const content = anthropicText(node);
       if (!content) {
         throw new BusinessException(
           ErrorCode.SERVICE_UNAVAILABLE,
           '模型没有返回文本内容',
         );
       }
-      return content;
+      await this.meterChat(user, slot.model, usage, meta);
+      return { text: content, usage };
     }
     const body = await this.post(
       `${base}/chat/completions`,
@@ -453,6 +480,7 @@ export class ContentMediaService {
       'content:chat',
     );
     const node = unwrap(body);
+    readUsage(node.usage, usage);
     const choice = Array.isArray(node.choices)
       ? (node.choices[0] as Record<string, unknown>)
       : undefined;
@@ -464,7 +492,23 @@ export class ContentMediaService {
         '模型没有返回文本内容',
       );
     }
-    return content;
+    await this.meterChat(user, slot.model, usage, meta);
+    return { text: content, usage };
+  }
+
+  /** 只记用量不扣分：与网关调用落在同一张用量表，成本报表按板块汇总。 */
+  private async meterChat(
+    user: CurrentUser,
+    model: string,
+    usage: { tokenIn: number; tokenOut: number; call: number },
+    meta: { module: string; operation: string } | undefined,
+  ) {
+    if (!meta) return;
+    await recordAiUsage(user.userId, usage, {
+      module: meta.module,
+      operation: meta.operation,
+      model,
+    }).catch(() => undefined);
   }
 
   /** 多模态视频生成：复刻 / 数字人视频 / 视频换人换产品 / 混剪都走这里（网关的「全能参考」）。 */

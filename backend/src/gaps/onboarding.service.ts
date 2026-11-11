@@ -33,10 +33,11 @@ const RUN_STATUS_LABELS: Record<string, string> = {
   DONE: '已完成',
   CANCELED: '已取消',
 };
-const KINDS = ['HIRE', 'ADMIN'] as const;
+const KINDS = ['HIRE', 'ADMIN', 'OFFBOARD'] as const;
 const KIND_LABELS: Record<string, string> = {
   HIRE: '员工入职',
   ADMIN: '管理员开通',
+  OFFBOARD: '离职交接',
 };
 
 const dueOf = (days: number): Date =>
@@ -78,6 +79,7 @@ type RunRow = {
   staffUserId: string;
   memberUserId: string;
   offerId: number;
+  positionName: string;
   status: string;
   startedAt: Date;
   completedAt: Date | null;
@@ -141,6 +143,7 @@ export class OnboardingService {
       staffUserId: row.staffUserId,
       memberUserId: row.memberUserId,
       offerId: row.offerId,
+      positionName: row.positionName,
       status: row.status,
       statusLabel: RUN_STATUS_LABELS[row.status] || row.status,
       done,
@@ -334,6 +337,7 @@ export class OnboardingService {
       staffUserId: asText(body.staffUserId).trim(),
       memberUserId: asText(body.memberUserId).trim(),
       offerId: asInt(body.offerId),
+      positionName: clip(body.positionName, 64).trim(),
       createdBy: org.actorId,
     });
     return this.runView(run, await this.templateNameOf(run.templateId));
@@ -377,12 +381,71 @@ export class OnboardingService {
         where: { id: task.runId },
         data: { status: 'DONE', completedAt: new Date() },
       });
+      // 入职清单全部完成 → 按流程登记的岗位开通职能权限（离职交接 OFFBOARD 不授权）。
+      await this.grantPositionOnComplete(task.run);
     }
     const row = await this.prisma.onboardingRun.findUniqueOrThrow({
       where: { id: task.runId },
       include: { tasks: true },
     });
     return this.runView(row, await this.templateNameOf(row.templateId));
+  }
+
+  /**
+   * 入职完成后按岗位目录开通岗位权限：只在流程登记了岗位、且本组织职能目录里
+   * 存在同名岗位时授权；已在岗位清单里的不重复添加，异常只记日志不阻断收口。
+   */
+  private async grantPositionOnComplete(run: {
+    orgType: string;
+    orgUserId: string;
+    staffUserId: string;
+    memberUserId: string;
+    positionName: string;
+    templateId: number;
+  }) {
+    const name = run.positionName.trim();
+    if (!name) return;
+    try {
+      const template = await this.prisma.onboardingTemplate.findUnique({
+        where: { id: run.templateId },
+        select: { kind: true },
+      });
+      if (template?.kind === 'OFFBOARD') return;
+      const position = await this.prisma.orgPosition.findFirst({
+        where: { orgType: run.orgType, orgUserId: run.orgUserId, name },
+      });
+      if (!position) return;
+      const memberUserId = run.memberUserId || run.staffUserId;
+      const staff = await this.prisma.orgStaff.findFirst({
+        where: {
+          orgType: run.orgType,
+          orgUserId: run.orgUserId,
+          memberUserId,
+        },
+        select: { id: true, positions: true },
+      });
+      if (!staff) return;
+      const positions = Array.isArray(staff.positions)
+        ? (staff.positions as { name?: unknown; description?: unknown }[])
+            .map((item) => ({
+              name: clip(item?.name, 64),
+              description: clip(item?.description, 200),
+            }))
+            .filter((item) => item.name)
+        : [];
+      if (positions.some((item) => item.name === position.name)) return;
+      await this.prisma.orgStaff.update({
+        where: { id: staff.id },
+        data: {
+          positions: [
+            ...positions,
+            { name: position.name, description: position.description },
+          ],
+        },
+      });
+    } catch {
+      // 辅助链路：岗位目录/成员关系异常时不影响入职流程收口。
+    }
   }
 }
 
@@ -395,6 +458,7 @@ export async function startOnboardingRun(
     staffUserId: string;
     memberUserId?: string;
     offerId?: number;
+    positionName?: string;
     createdBy?: string;
   },
 ): Promise<RunRow & { templateName: string }> {
@@ -422,6 +486,7 @@ export async function startOnboardingRun(
         staffUserId: input.staffUserId,
         memberUserId: input.memberUserId || '',
         offerId: input.offerId || 0,
+        positionName: clip(input.positionName, 64).trim(),
         status: 'ACTIVE',
         createdBy: input.createdBy || org.actorId,
       },
@@ -453,7 +518,12 @@ export async function startOnboardingRun(
 export async function startOnboardingForOffer(
   prisma: PrismaService,
   org: Pick<HrmOrg, 'orgType' | 'orgUserId' | 'actorId'>,
-  input: { offerId: number; staffUserId: string; memberUserId: string },
+  input: {
+    offerId: number;
+    staffUserId: string;
+    memberUserId: string;
+    positionName?: string;
+  },
 ): Promise<void> {
   try {
     const existing = await prisma.onboardingRun.count({
@@ -479,9 +549,49 @@ export async function startOnboardingForOffer(
       staffUserId: input.staffUserId,
       memberUserId: input.memberUserId,
       offerId: input.offerId,
+      positionName: input.positionName || '',
       createdBy: org.actorId,
     });
   } catch {
     // 辅助链路：模板配置有误时只跳过一次自动开工，不阻断 Offer 接受。
+  }
+}
+
+/** 离职自动开工：有启用中的 OFFBOARD 模板才建交接流程（交接、资产、撤权逐条勾选）。 */
+export async function startOffboardingRun(
+  prisma: PrismaService,
+  org: Pick<HrmOrg, 'orgType' | 'orgUserId' | 'actorId'>,
+  memberUserId: string,
+): Promise<void> {
+  const staffUserId = memberUserId.trim();
+  if (!staffUserId) return;
+  try {
+    const active = await prisma.onboardingRun.count({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        staffUserId,
+        status: 'ACTIVE',
+      },
+    });
+    if (active > 0) return;
+    const template = await prisma.onboardingTemplate.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        kind: 'OFFBOARD',
+        active: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    });
+    if (!template) return;
+    await startOnboardingRun(prisma, org, {
+      templateId: template.id,
+      staffUserId,
+      memberUserId: staffUserId,
+      createdBy: org.actorId,
+    });
+  } catch {
+    // 辅助链路：模板配置有误时不影响离职主链路。
   }
 }

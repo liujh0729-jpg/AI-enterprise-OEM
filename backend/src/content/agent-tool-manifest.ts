@@ -18,6 +18,7 @@ export const AGENT_TOOL_KINDS = [
   'hardware',
   'skill',
   'plugin',
+  'workflow',
 ] as const;
 export type AgentToolKind = (typeof AGENT_TOOL_KINDS)[number];
 
@@ -28,6 +29,7 @@ export const AGENT_TOOL_KIND_LABELS: Record<AgentToolKind, string> = {
   hardware: '硬件工具',
   skill: '技能',
   plugin: '插件',
+  workflow: '工作流',
 };
 
 export type AgentToolManifestEntry = {
@@ -124,6 +126,14 @@ export type ManifestResource = {
   reviewStatus?: string;
 };
 
+/** 工作流工具行：已发布且已共享（scope ≥ ORG）的工作流才进 manifest。 */
+export type ManifestWorkflow = {
+  name: string;
+  description?: string;
+  scope?: string;
+  status?: string;
+};
+
 /** 先审后用：只有过审并启用的技能/插件才进 manifest（与系统提示同一口径）。 */
 function usable(rows: ManifestResource[]) {
   return rows.filter(
@@ -136,6 +146,7 @@ export function buildAgentToolManifest(input: {
   skills: ManifestResource[];
   plugins: ManifestResource[];
   hardwareTools?: HardwareMcpTool[];
+  workflows?: ManifestWorkflow[];
 }): AgentToolManifestEntry[] {
   const rows: AgentToolManifestEntry[] = [
     ...builtinToolManifest(),
@@ -172,6 +183,22 @@ export function buildAgentToolManifest(input: {
       write: true,
       permission: '先审后用：过审并启用后，模型可读取并运行其命令',
       billing: '按命令内容执行',
+    });
+  }
+  for (const workflow of input.workflows ?? []) {
+    if (workflow.status !== 'PUBLISHED') continue;
+    // 发布为 Agent / MCP 工具要求已共享（scope ≥ ORG），私有的不进 manifest。
+    if (!workflow.scope || workflow.scope === 'PRIVATE') continue;
+    rows.push({
+      name: workflow.name,
+      kind: 'workflow',
+      description: workflow.description || '（工作流未填写说明）',
+      write: true,
+      permission:
+        '已共享工作流：以登录人身份按发布版本运行，写动作按各模块规则',
+      billing: '按流程内各节点自身口径计量',
+      source:
+        workflow.scope === 'PROVIDER' ? '服务商共享工作流' : '公司共享工作流',
     });
   }
   return rows;

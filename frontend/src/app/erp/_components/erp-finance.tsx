@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Form, Input, InputNumber, Modal, Select, Table, message } from "antd";
+import { Button, Form, Input, InputNumber, Modal, Select, Table, Tag, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
 import { erpApi } from "@/api/erp";
@@ -30,6 +30,7 @@ export function ErpFinanceTab() {
   const [payables, setPayables] = useState<ErpPayable[]>([]);
   const [payableTotal, setPayableTotal] = useState(0);
   const [payablePage, setPayablePage] = useState(1);
+  const [payableApproval, setPayableApproval] = useState("");
   const [expenses, setExpenses] = useState<ErpExpenseReport[]>([]);
   const [expenseTotal, setExpenseTotal] = useState(0);
   const [expensePage, setExpensePage] = useState(1);
@@ -67,7 +68,13 @@ export function ErpFinanceTab() {
   const loadPayables = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await erpApi.payables({ query: { page: payablePage, pageSize: 20 } });
+      const data = await erpApi.payables({
+        query: {
+          page: payablePage,
+          pageSize: 20,
+          ...(payableApproval ? { approvalStatus: payableApproval } : {}),
+        },
+      });
       setPayables(data?.list || []);
       setPayableTotal(data?.total || 0);
     } catch (err) {
@@ -75,7 +82,7 @@ export function ErpFinanceTab() {
     } finally {
       setLoading(false);
     }
-  }, [payablePage]);
+  }, [payablePage, payableApproval]);
 
   const loadExpenses = useCallback(async () => {
     setLoading(true);
@@ -195,6 +202,16 @@ export function ErpFinanceTab() {
     }
   };
 
+  const decidePayable = async (row: ErpPayable, decision: "approve" | "reject") => {
+    try {
+      await erpApi.decidePayable({ body: { id: row.id, decision, note: "" } });
+      message.success(decision === "approve" ? "付款审批已通过" : "付款审批已驳回");
+      await loadPayables();
+    } catch (err) {
+      message.error(erpError(err));
+    }
+  };
+
   const receivableColumns: ColumnsType<ErpReceivable> = [
     { title: "单号", dataIndex: "code", width: 160 },
     { title: "客户", dataIndex: "customerName" },
@@ -228,13 +245,36 @@ export function ErpFinanceTab() {
     { title: "周期", dataIndex: "recurrence", width: 90, render: (v: string) => ({ NONE: "一次性", MONTHLY: "每月", QUARTERLY: "每季", YEARLY: "每年" } as Record<string, string>)[v] || v },
     { title: "状态", dataIndex: "status", width: 100, render: (v: string) => receivableStatusTag(v) },
     {
+      title: "付款审批",
+      dataIndex: "approvalStatus",
+      width: 120,
+      render: (v: string) =>
+        v === "PENDING" ? (
+          <Tag color="gold">待审批</Tag>
+        ) : v === "APPROVED" ? (
+          <Tag color="green">已通过</Tag>
+        ) : v === "REJECTED" ? (
+          <Tag color="red">已驳回</Tag>
+        ) : (
+          <span className="muted">—</span>
+        ),
+    },
+    {
       title: "操作",
       key: "actions",
-      width: 160,
+      width: 220,
       render: (_: unknown, row) =>
         row.status !== "PAID" && row.status !== "CANCELED" ? (
           <>
-            <Button type="link" size="small" onClick={() => { setEditing(row); collectForm.setFieldsValue({ amount: Number(row.outstanding) }); setModal("pay"); }}>登记付款</Button>
+            {row.approvalStatus === "PENDING" ? (
+              <>
+                <Button type="link" size="small" onClick={() => void decidePayable(row, "approve")}>通过</Button>
+                <Button type="link" size="small" danger onClick={() => void decidePayable(row, "reject")}>驳回</Button>
+              </>
+            ) : null}
+            {row.approvalStatus !== "PENDING" && row.approvalStatus !== "REJECTED" ? (
+              <Button type="link" size="small" onClick={() => { setEditing(row); collectForm.setFieldsValue({ amount: Number(row.outstanding) }); setModal("pay"); }}>登记付款</Button>
+            ) : null}
             <Button type="link" size="small" onClick={() => { setEditing(row); setModal("payable"); }}>编辑</Button>
           </>
         ) : null,
@@ -310,16 +350,32 @@ export function ErpFinanceTab() {
       ) : null}
 
       {mode === "payables" ? (
-        <Table<ErpPayable>
-          rowKey="id"
-          size="middle"
-          loading={loading}
-          columns={payableColumns}
-          dataSource={payables}
-          scroll={{ x: "max-content" }}
-          pagination={{ current: payablePage, pageSize: 20, total: payableTotal, showSizeChanger: false, onChange: setPayablePage }}
-          locale={{ emptyText: "暂无应付" }}
-        />
+        <>
+          <Toolbar hint="应付金额 ≥ 50000 元需财务审批通过后才能登记付款">
+            <PillTabs
+              items={[
+                { key: "", label: "全部" },
+                { key: "PENDING", label: "待付款审批" },
+                { key: "APPROVED", label: "审批通过" },
+                { key: "REJECTED", label: "审批驳回" },
+              ]}
+              value={payableApproval}
+              onChange={(key) => { setPayableApproval(key); setPayablePage(1); }}
+              size="small"
+              variant="soft"
+            />
+          </Toolbar>
+          <Table<ErpPayable>
+            rowKey="id"
+            size="middle"
+            loading={loading}
+            columns={payableColumns}
+            dataSource={payables}
+            scroll={{ x: "max-content" }}
+            pagination={{ current: payablePage, pageSize: 20, total: payableTotal, showSizeChanger: false, onChange: setPayablePage }}
+            locale={{ emptyText: "暂无应付" }}
+          />
+        </>
       ) : null}
 
       {mode === "expenses" ? (
@@ -375,7 +431,7 @@ export function ErpFinanceTab() {
         fields={[
           { name: "vendorId", label: "供应商", kind: "select", options: vendors.map((row) => ({ value: row.id, label: row.name })) },
           { name: "code", label: "单号" },
-          { name: "amount", label: "应付金额", kind: "money", required: true },
+          { name: "amount", label: "应付金额（≥5 万需付款审批）", kind: "money", required: true },
           { name: "dueDate", label: "到期日期", kind: "date" },
           { name: "recurrence", label: "周期性", kind: "select", options: [{ value: "NONE", label: "一次性" }, { value: "MONTHLY", label: "每月" }, { value: "QUARTERLY", label: "每季" }, { value: "YEARLY", label: "每年" }] },
           { name: "nextAt", label: "下次应付日期", kind: "date" },

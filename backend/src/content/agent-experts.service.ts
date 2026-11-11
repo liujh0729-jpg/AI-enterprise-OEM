@@ -108,7 +108,7 @@ export class ContentAgentExpertService {
       { role: 'system', content: EXPERT_SYSTEM_PROMPT },
       { role: 'user', content: instruction },
     ]);
-    const parsed = parseExpertJson(answer);
+    const parsed = parseExpertJson(answer.text);
     if (!parsed) {
       throw new BusinessException(
         ErrorCode.SERVICE_UNAVAILABLE,

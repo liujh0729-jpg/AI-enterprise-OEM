@@ -23,6 +23,8 @@ export type AssistantHistory =
   NonNullable<EndpointResponse<"Assistant_history">["data"]>["list"][number];
 export type AssistantRegistry =
   NonNullable<EndpointResponse<"Assistant_registry">["data"]>[number];
+export type AssistantExtractResult =
+  NonNullable<EndpointResponse<"Assistant_extractActions">["data"]>;
 export type AiTranscript =
   NonNullable<EndpointResponse<"Transcribe_transcripts">["data"]>["list"][number];
 export type QuotationTracking =
@@ -59,6 +61,17 @@ export type UsageEvent =
   NonNullable<EndpointResponse<"Usage_events">["data"]>["list"][number];
 export type UsageSummary = NonNullable<EndpointResponse<"Usage_summary">["data"]>;
 
+// 时长卡（日卡 / 30 天卡）：视图类型全部从契约响应派生
+export type CardTemplate =
+  NonNullable<EndpointResponse<"Card_templates">["data"]>[number];
+export type MyCard = NonNullable<EndpointResponse<"Card_myCards">["data"]>[number];
+export type UsableCard =
+  NonNullable<EndpointResponse<"Card_usableCards">["data"]>[number];
+export type CardOrder =
+  NonNullable<EndpointResponse<"Card_orders">["data"]>["list"][number];
+export type CardUsageRow =
+  NonNullable<EndpointResponse<"Card_orderUsage">["data"]>["list"][number];
+
 export const gapsApi = {
   // B1#2 权益配额目录
   plans: endpoint(endpoints.Plan_plans),
@@ -90,6 +103,7 @@ export const gapsApi = {
   askAssistant: endpoint(endpoints.Assistant_ask),
   assistantHistory: endpoint(endpoints.Assistant_history),
   assistantRegistry: endpoint(endpoints.Assistant_registry),
+  extractAssistantActions: endpoint(endpoints.Assistant_extractActions),
 
   // B2#16 会话语音转写
   transcripts: endpoint(endpoints.Transcribe_transcripts),
@@ -162,6 +176,30 @@ export const gapsApi = {
   saveUsageSettings: endpoint(endpoints.Usage_saveSettings),
 };
 
+/* ------------------------------------------------------------------ 时长卡 */
+
+/**
+ * 日卡 / 30 天卡：规格目录、我的卡、兑换订单与扣量明细。
+ * 用户侧与平台管理侧分开导出，管理侧只给「积分与计费 → 时长卡规格」页签使用。
+ */
+export const cardApi = {
+  templates: endpoint(endpoints.Card_templates),
+  myCards: endpoint(endpoints.Card_myCards),
+  usableCards: endpoint(endpoints.Card_usableCards),
+  orders: endpoint(endpoints.Card_orders),
+  orderUsage: endpoint(endpoints.Card_orderUsage),
+  exchangeByPoints: endpoint(endpoints.Card_exchangeByPoints),
+  createCashOrder: endpoint(endpoints.Card_createCashOrder),
+  queryOrder: endpoint(endpoints.Card_queryOrder),
+};
+
+export const adminCardApi = {
+  templates: endpoint(endpoints.AdminCard_templates),
+  saveTemplate: endpoint(endpoints.AdminCard_saveTemplate),
+  removeTemplate: endpoint(endpoints.AdminCard_removeTemplate),
+  revokeCard: endpoint(endpoints.AdminCard_revokeCard),
+};
+
 /* ------------------------------------------------------------------ 公开通道 */
 
 const publicAppointmentSlotSchema = z.object({
@@ -193,6 +231,8 @@ const publicTermsSchema = z.object({
   content: z.string(),
   requireReaccept: z.boolean(),
   effectiveAt: z.string().nullable().optional(),
+  /** CUSTOM＝后台已发布版本；DEFAULT＝平台内置默认文本（尚未在后台发布）。 */
+  source: z.enum(["CUSTOM", "DEFAULT"]).optional(),
 });
 
 export type PublicTerms = z.infer<typeof publicTermsSchema>;
@@ -232,5 +272,13 @@ export const gapsPublicApi = {
     );
     if (!result.data.data) throw new Error("条款不存在");
     return result.data.data;
+  },
+  /** 注册页必读清单（用户注册协议 + 隐私政策，含当前生效版本号）。 */
+  async registerConsents() {
+    const result = await http(
+      "/api/public/terms/register-consents",
+      apiEnvelope(z.array(publicTermsSchema)),
+    );
+    return result.data.data ?? [];
   },
 };

@@ -127,7 +127,7 @@ export function HiringTab() {
   const [keyword, setKeyword] = useState("");
   const [committedKeyword, setCommittedKeyword] = useState("");
 
-  // 发布弹层：页面只留一个入口按钮，表单放进弹层（与供求广场同一交互口径）。
+  // 发布弹层：页面只留一个入口按钮，表单放进弹层（与商务社交动态同一交互口径）。
   const [publishOpen, setPublishOpen] = useState(false);
   const [type, setType] = useState<string>("FULL_TIME");
   const [title, setTitle] = useState("");
@@ -242,7 +242,7 @@ export function HiringTab() {
         // 本地岗位已经发出去了，同步失败不拖丢发布：回明原因并留出重试入口
         const text =
           error instanceof ApiError && error.status === 403
-            ? "同步需先在「开放集成 → API Key 管理」绑定 AIPDD API Key"
+            ? "同步需先在「模型服务 → API Key 管理」绑定 AIPDD API Key"
             : error instanceof Error
               ? error.message
               : "同步发布失败";
@@ -271,7 +271,7 @@ export function HiringTab() {
       void feed.refetch();
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
-        message.error("同步发布需先在「开放集成 → API Key 管理」绑定 AIPDD API Key");
+        message.error("同步发布需先在「模型服务 → API Key 管理」绑定 AIPDD API Key");
       } else {
         message.error(error instanceof Error ? error.message : "同步发布失败");
       }
@@ -446,7 +446,7 @@ export function HiringTab() {
           </Checkbox>
           {!sync.bound ? (
             <span className="sns-sync-hint">
-              同步需先到「开放集成 → <Link href="/developer/keys">API Key 管理</Link>」绑定 AIPDD API Key；不绑定也不影响本地发布。
+              同步需先到「模型服务 → <Link href="/developer/keys">API Key 管理</Link>」绑定 AIPDD API Key；不绑定也不影响本地发布。
             </span>
           ) : null}
         </div>

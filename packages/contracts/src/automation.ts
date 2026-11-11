@@ -1,4 +1,15 @@
 import { z } from "zod";
+import {
+  rcAgentMessageSchema,
+  rcAgentSchema,
+  rcDeviceSchema,
+  rcExtractResultSchema,
+  rcRecordingSchema,
+  rcScheduleSchema,
+  rcSessionSchema,
+  rcSettingsSchema,
+  rcSkillSchema,
+} from "./chrome-rpa";
 
 const envelope = <T extends z.ZodType>(data: T) =>
   z.object({
@@ -567,6 +578,63 @@ const rpaExecutionListQuery = z
   .passthrough();
 
 const rpaIdQuery = z.object({ keyword: z.string().optional() }).passthrough();
+
+// ---------- 本地 Chrome 插件 RPA（docs/本地Chrome插件RPA控制方案.md） ----------
+
+/** 会话列表项：不带 steps（逐步留痕只在会话详情里看）。 */
+export const rpaChromeSessionBriefSchema = rcSessionSchema.omit({ steps: true });
+
+/** 设备与全局设置一起给：页面顶栏灯与「本地 Chrome」页签读同一份。 */
+export const rpaChromeDevicesSchema = z.object({
+  devices: z.array(rcDeviceSchema),
+  settings: rcSettingsSchema,
+});
+
+export const rpaChromeDeviceParams = z.object({ clientId: z.string() });
+export const rpaChromeSessionParams = z.object({ id: z.string() });
+export const rpaChromeStepParams = z.object({ id: z.string() });
+
+const rpaChromeSessionQuery = z
+  .object({
+    clientId: z.string().optional(),
+    status: z.string().optional(),
+    page: z.coerce.number().int().positive().max(PAGE_NUMBER_MAX).default(1),
+    pageSize: z.coerce.number().int().positive().max(200).default(20),
+  })
+  .passthrough();
+
+const rpaChromeActiveQuery = z.object({ clientId: z.string().optional() }).passthrough();
+
+// ---------- 浏览器代理（侧边栏 Agent）：会话 / 消息 / 技能 / 录制 / 抽取 ----------
+
+const rpaChromeAgentQuery = z
+  .object({
+    clientId: z.string().optional(),
+    status: z.string().optional(),
+    keyword: z.string().optional(),
+    page: z.coerce.number().int().positive().max(PAGE_NUMBER_MAX).default(1),
+    pageSize: z.coerce.number().int().positive().max(200).default(20),
+  })
+  .passthrough();
+
+const rpaChromeSkillQuery = z
+  .object({ kind: z.string().optional(), keyword: z.string().optional() })
+  .passthrough();
+
+const rpaChromeExtractQuery = z
+  .object({
+    agentId: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(200).optional(),
+  })
+  .passthrough();
+
+export const rpaChromeAgentParams = z.object({ id: z.string() });
+export const rpaChromeSkillParams = z.object({ id: z.string() });
+export const rpaChromeRecordingParams = z.object({ id: z.string() });
+export const rpaChromeScheduleParams = z.object({ id: z.string() });
+const rpaChromeScheduleQuery = z
+  .object({ status: z.string().optional() })
+  .passthrough();
 
 // ---------- Workbuddy ----------
 
@@ -2638,6 +2706,258 @@ export const automationEndpoints = {
     query: emptyQuery,
     body: passthroughBody,
     response: envelope(rpaExecutionSchema),
+  },
+
+  // 本地 Chrome 插件 RPA（界面侧）：设备清单 + 会话引擎（LLM 决策 → 插件执行）
+  RpaChrome_devices: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/devices",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(rpaChromeDevicesSchema),
+  },
+  RpaChrome_setDevice: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/devices/:clientId/status",
+    params: rpaChromeDeviceParams,
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ device: rcDeviceSchema })),
+  },
+  RpaChrome_removeDevice: {
+    method: "delete" as const,
+    path: "/enterprise/rpa/chrome/devices/:clientId",
+    params: rpaChromeDeviceParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ removed: z.boolean() })),
+  },
+  RpaChrome_sessions: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/sessions",
+    params: z.object({}),
+    query: rpaChromeSessionQuery,
+    body: z.undefined(),
+    response: envelope(
+      z.object({
+        total: z.number(),
+        page: z.number(),
+        pageSize: z.number(),
+        list: z.array(rpaChromeSessionBriefSchema),
+      }),
+    ),
+  },
+  RpaChrome_activeSessions: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/sessions/active",
+    params: z.object({}),
+    query: rpaChromeActiveQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ list: z.array(rpaChromeSessionBriefSchema) })),
+  },
+  RpaChrome_session: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/sessions/:id",
+    params: rpaChromeSessionParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ session: rcSessionSchema })),
+  },
+  RpaChrome_startSession: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/sessions",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ session: rcSessionSchema })),
+  },
+  RpaChrome_pauseSession: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/sessions/:id/pause",
+    params: rpaChromeSessionParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ session: rcSessionSchema })),
+  },
+  RpaChrome_resumeSession: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/sessions/:id/resume",
+    params: rpaChromeSessionParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ session: rcSessionSchema })),
+  },
+  RpaChrome_stopSession: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/sessions/:id/stop",
+    params: rpaChromeSessionParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ session: rcSessionSchema })),
+  },
+  RpaChrome_retryStep: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/steps/:id/retry",
+    params: rpaChromeStepParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ session: rcSessionSchema })),
+  },
+  RpaChrome_settings: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/settings",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(rcSettingsSchema),
+  },
+  RpaChrome_saveSettings: {
+    method: "put" as const,
+    path: "/enterprise/rpa/chrome/settings",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(rcSettingsSchema),
+  },
+
+  // 浏览器代理（侧边栏 Agent）：会话台账 + 消息流 + 技能库 + 录制 + 抽取结果
+  RpaChrome_agents: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/agents",
+    params: z.object({}),
+    query: rpaChromeAgentQuery,
+    body: z.undefined(),
+    response: envelope(
+      z.object({
+        total: z.number(),
+        page: z.number(),
+        pageSize: z.number(),
+        list: z.array(rcAgentSchema.omit({ messages: true })),
+      }),
+    ),
+  },
+  RpaChrome_agent: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/agents/:id",
+    params: rpaChromeAgentParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ agent: rcAgentSchema })),
+  },
+  RpaChrome_saveAgent: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/agents",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ agent: rcAgentSchema })),
+  },
+  RpaChrome_appendMessage: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/agents/:id/messages",
+    params: rpaChromeAgentParams,
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ message: rcAgentMessageSchema })),
+  },
+  RpaChrome_skills: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/skills",
+    params: z.object({}),
+    query: rpaChromeSkillQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ list: z.array(rcSkillSchema) })),
+  },
+  RpaChrome_saveSkill: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/skills",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ skill: rcSkillSchema })),
+  },
+  RpaChrome_removeSkill: {
+    method: "delete" as const,
+    path: "/enterprise/rpa/chrome/skills/:id",
+    params: rpaChromeSkillParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ removed: z.boolean() })),
+  },
+  RpaChrome_recordings: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/recordings",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ list: z.array(rcRecordingSchema) })),
+  },
+  RpaChrome_saveRecording: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/recordings",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ recording: rcRecordingSchema })),
+  },
+  RpaChrome_removeRecording: {
+    method: "delete" as const,
+    path: "/enterprise/rpa/chrome/recordings/:id",
+    params: rpaChromeRecordingParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ removed: z.boolean() })),
+  },
+  RpaChrome_extracts: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/extracts",
+    params: z.object({}),
+    query: rpaChromeExtractQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ list: z.array(rcExtractResultSchema) })),
+  },
+  RpaChrome_saveExtract: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/extracts",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ extract: rcExtractResultSchema })),
+  },
+
+  // 浏览器代理计划任务：到点让本人某台在线设备跑一个目标（离线即跳过当轮）。
+  RpaChrome_schedules: {
+    method: "get" as const,
+    path: "/enterprise/rpa/chrome/schedules",
+    params: z.object({}),
+    query: rpaChromeScheduleQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ list: z.array(rcScheduleSchema) })),
+  },
+  RpaChrome_saveSchedule: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/schedules",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ schedule: rcScheduleSchema })),
+  },
+  RpaChrome_removeSchedule: {
+    method: "delete" as const,
+    path: "/enterprise/rpa/chrome/schedules/:id",
+    params: rpaChromeScheduleParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ removed: z.boolean() })),
+  },
+  RpaChrome_runSchedule: {
+    method: "post" as const,
+    path: "/enterprise/rpa/chrome/schedules/:id/run",
+    params: rpaChromeScheduleParams,
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ schedule: rcScheduleSchema })),
   },
 
   // Workbuddy 企业云

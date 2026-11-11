@@ -57,13 +57,13 @@ export function LivecodeTab() {
     />
   );
   return tab === "codes" ? (
-    <CodesPanel tabs={tabs} />
+    <CodesPanel tabs={tabs} onGoDomains={() => setTab("domains")} />
   ) : (
     <DomainsPanel tabs={tabs} />
   );
 }
 
-function CodesPanel({ tabs }: { tabs: ReactNode }) {
+function CodesPanel({ tabs, onGoDomains }: { tabs: ReactNode; onGoDomains: () => void }) {
   const [rows, setRows] = useState<QrCodeRow[]>([]);
   const [domains, setDomains] = useState<QrDomainRow[]>([]);
   const [open, setOpen] = useState(false);
@@ -372,6 +372,7 @@ function CodesPanel({ tabs }: { tabs: ReactNode }) {
           <CodeDetail
             code={detail}
             domains={domains}
+            onGoDomains={onGoDomains}
             onChanged={async () => {
               await load();
               const refreshed = await livecodeApi.get({
@@ -392,10 +393,12 @@ function CodeDetail({
   code,
   domains,
   onChanged,
+  onGoDomains,
 }: {
   code: QrCodeRow;
   domains: QrDomainRow[];
   onChanged: () => Promise<void>;
+  onGoDomains: () => void;
 }) {
   const [childOpen, setChildOpen] = useState(false);
   const [childDraft, setChildDraft] = useState<Record<string, unknown>>({
@@ -498,7 +501,12 @@ function CodeDetail({
             </div>
           </div>
         ) : (
-          <div className="muted">还没有可用入口：请先在「域名池」绑定并检测生效。</div>
+          <div className="muted">
+            还没有可用入口：请先在「域名池」绑定并检测生效。{" "}
+            <Button type="link" size="small" onClick={onGoDomains}>
+              去域名池绑定
+            </Button>
+          </div>
         )}
       </section>
 

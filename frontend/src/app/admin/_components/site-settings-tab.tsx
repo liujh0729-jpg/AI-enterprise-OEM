@@ -1,5 +1,5 @@
 "use client";
-import { App, Button, Checkbox, Form, Input, Select, Space } from "antd";
+import { App, Button, Checkbox, Form, Input, Select, Space, Switch } from "antd";
 import { useEffect } from "react";
 import { SettingOutlined } from "@ant-design/icons";
 import { Panel, Notice } from "@/components/ui/panel";
@@ -15,7 +15,7 @@ import { PermissionNotice, useAdminData } from "./common";
 /**
  * 用户侧菜单候选项：与侧栏菜单定义（enterpriseRoute）同源，新增/删减栏目只改 routes.ts。
  * 顶级单条（如首页）与每个分组各成一节；分组内的嵌套分组（如「工作台 → 内容创作」）拍平进所属节。
- * 值即菜单里的 path（「AI增值服务」的外链为完整 URL）。
+ * 值即菜单里的 path（「AIPDD算力平台」的外链为完整 URL）。
  */
 function leafMenuItems(routes: EnterpriseRoute[]): { label: string; value: string }[] {
   return routes.flatMap((route) =>
@@ -186,6 +186,7 @@ export function SiteSettingsTab() {
           hiddenMenuPaths: values.hiddenMenuPaths || [],
           hiddenBoardTabs: values.hiddenBoardTabs || [],
           defaultLanguage: values.defaultLanguage || "zh-CN",
+          extensionEntryEnabled: values.extensionEntryEnabled !== false,
           // 后端只保留「协议 + 域名」，这里先把用户输入的原值交出去（清空即回落当前访问域名）
           siteUrl: String(values.siteUrl || "").trim(),
         },
@@ -257,7 +258,7 @@ export function SiteSettingsTab() {
           <Form.Item
             name="hiddenMenuPaths"
             label="用户侧菜单显隐（勾选即隐藏）"
-            extra="控制前台侧栏每一条菜单是否显示，覆盖首页入口与每个分组（含「AI增值服务」的外链），保存后对所有用户即时生效；仅影响菜单展示，已收藏链接的直接访问不受影响；某分组内的菜单项全部隐藏后该分组自动消失。"
+            extra="控制前台侧栏每一条菜单是否显示，覆盖首页入口与每个分组（含「AIPDD算力平台」的外链），保存后对所有用户即时生效；仅影响菜单展示，已收藏链接的直接访问不受影响；某分组内的菜单项全部隐藏后该分组自动消失。"
           >
             <MenuVisibilityPicker />
           </Form.Item>
@@ -274,6 +275,14 @@ export function SiteSettingsTab() {
             extra="从未手动切换过语言的新访客首次进站按此语言展示界面（可选：简体中文 / English / Tiếng Việt / 日本語 / العربية / Français / Español / Русский）；每位访客在前台右上角随时可切，切换后以访客自己的选择为准。"
           >
             <Select options={LANGUAGE_OPTIONS} placeholder="简体中文（zh-CN）" />
+          </Form.Item>
+          <Form.Item
+            name="extensionEntryEnabled"
+            label="顶部浏览器插件入口"
+            valuePropName="checked"
+            extra="开启后所有登录用户在顶栏看到统一的插件入口（下载、安装、使用说明、更新记录），与营销、获客等业务开关解耦；平台未发布插件包时入口不展示。"
+          >
+            <Switch />
           </Form.Item>
           <Space>
             <Button type="primary" htmlType="submit" loading={save.isPending}>

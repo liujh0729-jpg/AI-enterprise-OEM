@@ -97,6 +97,58 @@ export const CONTENT_CHANNEL_PRESET_LABELS: Record<
   custom: "自定义",
 };
 
+/**
+ * 自定义 OpenAI 兼容渠道的预设兜底模型类型：上游 `/models` 没有 aipdd 元数据时，
+ * 平台管理端按这张表把模型归到默认槽位。vision 表示「文本模型且支持图片输入」。
+ */
+export const CONTENT_PRESET_DEFAULT_MEDIA_TYPES: Record<
+  ContentChannelPreset,
+  ContentMediaType
+> = {
+  openai: "vision",
+  anthropic: "vision",
+  deepseek: "text",
+  qwen: "text",
+  moonshot: "text",
+  zhipu: "text",
+  minimax: "text",
+  minimax_cn: "text",
+  hunyuan: "text",
+  qianfan: "text",
+  spark: "text",
+  siliconflow: "text",
+  openrouter: "text",
+  gemini: "vision",
+  xai: "text",
+  mistral: "text",
+  perplexity: "text",
+  cohere: "text",
+  custom: "text",
+};
+
+/**
+ * 平台对用户算力渠道的统一策略：
+ * allowCustom 控制用户还能不能新增这类渠道（已存在的渠道继续可用）；
+ * presetTypes 是预设 → 模型类型的兜底映射，只影响上游没有声明类型的模型；
+ * disabledProviders 是平台管理员关闭的算力渠道（默认空＝全部支持）：被关闭的渠道
+ * 用户不能新增、也选不到；AIPDD 被关闭只影响算力，不影响业务服务的 API Key 链路。
+ */
+export const contentChannelPolicySchema = z.object({
+  allowCustom: z.boolean(),
+  presetTypes: z.record(z.string(), z.enum(CONTENT_MEDIA_TYPES)),
+  disabledProviders: z.array(z.enum(CONTENT_CHANNEL_PROVIDERS)),
+});
+export type ContentChannelPolicy = z.infer<typeof contentChannelPolicySchema>;
+
+/** 某个算力渠道是否被平台开启支持（默认全部支持）。 */
+export function isProviderSupported(
+  policy: Pick<ContentChannelPolicy, "disabledProviders"> | null | undefined,
+  provider: string,
+): boolean {
+  const disabled: readonly string[] = policy?.disabledProviders || [];
+  return !disabled.includes(provider);
+}
+
 export const CONTENT_CHANNEL_PRESET_BASE_URLS: Record<
   ContentChannelPreset,
   string
@@ -170,6 +222,8 @@ export const contentSettingsSchema = z.object({
     /** 账号在本系统单独保存 AIPDD Key 时的渠道行 id（0＝只用「API Key 管理」里的 Key） */
     localChannelId: z.number(),
   }),
+  /** 平台管理员对自定义 OpenAI 兼容渠道的统一策略 */
+  policy: contentChannelPolicySchema,
 });
 
 /** 上游模型目录里的一条：kind 已归一成槽位口径，vision 标记来自 modalities 或名字兜底。 */

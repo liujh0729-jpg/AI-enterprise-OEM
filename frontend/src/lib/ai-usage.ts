@@ -75,6 +75,9 @@ export const TX_SCENE_LABELS: Record<string, string> = {
   gift: "积分赠送",
   invite: "邀请",
   register: "注册",
+  service_package: "购买套餐",
+  service_package_refund: "套餐退款",
+  service_package_rollback: "套餐建单回滚",
 };
 
 export function billingSubjectLabel(code: string): string {

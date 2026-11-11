@@ -65,6 +65,15 @@ export function ConversationPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTo, setTransferTo] = useState<string>("");
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    assigneeUserId: "",
+    priority: "NORMAL",
+    note: "",
+  });
+  const [solutionOpen, setSolutionOpen] = useState(false);
+  const [solutionForm, setSolutionForm] = useState({ question: "", answer: "" });
 
   const loadList = useCallback(async () => {
     try {
@@ -226,6 +235,57 @@ export function ConversationPanel({
         }
       },
     });
+  };
+
+  const submitTask = async () => {
+    if (!current) return;
+    if (!taskForm.assigneeUserId) {
+      message.warning("请选择任务负责人");
+      return;
+    }
+    try {
+      const data = await serviceDeskApi.createTask({
+        params: { id: String(current) },
+        body: {
+          title: taskForm.title.trim(),
+          assigneeUserId: taskForm.assigneeUserId,
+          priority: taskForm.priority,
+          note: taskForm.note.trim(),
+        },
+      });
+      message.success(`已派发交付任务 #${data?.taskId || ""}`);
+      setTaskOpen(false);
+      setTaskForm({ title: "", assigneeUserId: "", priority: "NORMAL", note: "" });
+      await loadDetail(current);
+      await loadList();
+    } catch (error) {
+      message.error((error as Error).message || "派发失败");
+    }
+  };
+
+  const submitSolution = async () => {
+    if (!current) return;
+    if (!solutionForm.answer.trim()) {
+      message.warning("请填写解决方案");
+      return;
+    }
+    try {
+      const data = await serviceDeskApi.draftSolution({
+        params: { id: String(current) },
+        body: {
+          question: solutionForm.question.trim(),
+          answer: solutionForm.answer.trim(),
+          spaceId: 0,
+        },
+      });
+      message.success(`解决稿已入库并提交审核（页面 #${data?.pageId || ""}）`);
+      setSolutionOpen(false);
+      setSolutionForm({ question: "", answer: "" });
+      await loadDetail(current);
+      await loadList();
+    } catch (error) {
+      message.error((error as Error).message || "入库失败");
+    }
   };
 
   const suggest = async () => {
@@ -448,6 +508,33 @@ export function ConversationPanel({
               {detail.conversation.crmLeadId ? null : (
                 <Button onClick={convertToCrm}>转 CRM 线索</Button>
               )}
+              <Button
+                onClick={() => {
+                  setTaskForm({
+                    title: detail.conversation.subject || "",
+                    assigneeUserId: "",
+                    priority: "NORMAL",
+                    note: "",
+                  });
+                  setTaskOpen(true);
+                }}
+              >
+                派交付任务
+              </Button>
+              <Button
+                onClick={() => {
+                  const last = [...detail.messages]
+                    .reverse()
+                    .find((item) => item.senderType === "visitor");
+                  setSolutionForm({
+                    question: last?.content || detail.conversation.subject || "",
+                    answer: "",
+                  });
+                  setSolutionOpen(true);
+                }}
+              >
+                解决稿入库
+              </Button>
               <Button danger onClick={() => void close()}>
                 结束
               </Button>
@@ -557,6 +644,82 @@ export function ConversationPanel({
               label: `${item.memberName}（${item.roleLabel}）`,
             }))}
         />
+      </Modal>
+      <Modal
+        open={taskOpen}
+        title="派发交付任务"
+        onCancel={() => setTaskOpen(false)}
+        onOk={() => void submitTask()}
+        okText="派发"
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <Input
+            value={taskForm.title}
+            placeholder="任务标题（留空按会话主题生成）"
+            onChange={(event) =>
+              setTaskForm((prev) => ({ ...prev, title: event.target.value }))
+            }
+          />
+          <Select
+            style={{ width: "100%" }}
+            value={taskForm.assigneeUserId || undefined}
+            placeholder="选择任务负责人"
+            onChange={(value) =>
+              setTaskForm((prev) => ({ ...prev, assigneeUserId: value }))
+            }
+            options={agents.map((item) => ({
+              value: item.memberUserId,
+              label: `${item.memberName}（${item.roleLabel}）`,
+            }))}
+          />
+          <Select
+            style={{ width: "100%" }}
+            value={taskForm.priority}
+            onChange={(value) =>
+              setTaskForm((prev) => ({ ...prev, priority: value }))
+            }
+            options={[
+              { value: "URGENT", label: "紧急" },
+              { value: "HIGH", label: "高" },
+              { value: "NORMAL", label: "普通" },
+              { value: "LOW", label: "低" },
+            ]}
+          />
+          <Input.TextArea
+            value={taskForm.note}
+            autoSize={{ minRows: 2, maxRows: 5 }}
+            placeholder="补充说明（选填）"
+            onChange={(event) =>
+              setTaskForm((prev) => ({ ...prev, note: event.target.value }))
+            }
+          />
+        </div>
+      </Modal>
+      <Modal
+        open={solutionOpen}
+        title="解决稿入库"
+        onCancel={() => setSolutionOpen(false)}
+        onOk={() => void submitSolution()}
+        okText="提交审核"
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <Input.TextArea
+            value={solutionForm.question}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            placeholder="访客问题"
+            onChange={(event) =>
+              setSolutionForm((prev) => ({ ...prev, question: event.target.value }))
+            }
+          />
+          <Input.TextArea
+            value={solutionForm.answer}
+            autoSize={{ minRows: 4, maxRows: 10 }}
+            placeholder="解决方案（入库后进入待审核状态，审核通过才会对外生效）"
+            onChange={(event) =>
+              setSolutionForm((prev) => ({ ...prev, answer: event.target.value }))
+            }
+          />
+        </div>
       </Modal>
       </div>
     </>

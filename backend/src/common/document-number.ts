@@ -87,6 +87,16 @@ const sources: Record<string, { table: string; column: string }> = {
     table: 'recharge_orders',
     column: 'order_no',
   },
+  // 官方服务套餐订单（积分直购）：号段 SPYYYYMMDD-0001，与计费单据体系同一套原子取号。
+  SP: {
+    table: 'service_package_orders',
+    column: 'order_no',
+  },
+  // 时长卡兑换订单（码兑换 / 积分直兑 / 现金购买同表）：号段 CDYYYYMMDD-0001。
+  CD: {
+    table: 'point_card_orders',
+    column: 'order_no',
+  },
 };
 /** UTC day format is retained from the existing numbering rule. Gaps are permitted; duplicates are not. */
 export async function allocateNo(

@@ -25,6 +25,7 @@ import {
 } from "@/components/contact-edit-modal";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import Link from "next/link";
 import { useFlexOnboardings } from "@/query/workspaces";
 
 import { uploadAttachments } from "@/lib/upload-attachments";
@@ -344,7 +345,10 @@ export function OnboardingTab({
               onClick={() => {
                 if (!usableContracts.length) {
                   message.warning(
-                    "暂无生效签约，请先在「代理人资源库」选择该代理人合作",
+                    <>
+                      暂无生效签约，请先在「代理人资源库」选择该代理人合作{" "}
+                      <Link href="/flex?tab=agents">立即去签约</Link>
+                    </>,
                   );
                   return;
                 }
@@ -356,6 +360,12 @@ export function OnboardingTab({
           ) : null
         }
       >
+        {isEnterprise && !usableContracts.length ? (
+          <Notice variant="warn">
+            提交进件前需先与代理人在「代理人资源库」完成签约。{" "}
+            <Link href="/flex?tab=agents">立即去签约</Link>
+          </Notice>
+        ) : null}
         {switcher}
         {listQuery.isError ? (
           <Notice variant="error">

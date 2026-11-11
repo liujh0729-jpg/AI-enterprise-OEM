@@ -1,7 +1,7 @@
 // 获客执行器（后台侧）：把服务端排好的「采集 / 触达」任务拉到本机浏览器执行，
 // 复用用户已登录的平台会话。不读取、不导出 Cookie，不绕过验证码，遇登录墙/风控立即停。
 // 由 background.js 顶部 importScripts 载入，与分发共用同一个 Service Worker 全局作用域，
-// 因此这里直接调用 background.js 声明的 waitForTabComplete / isTrustedSender。
+// 因此这里直接调用 background.js 声明的 waitForTabComplete / sendToPage / missingSites。
 (() => {
   if (self.AIPDD_ACQ) return;
 
@@ -263,6 +263,8 @@
         url,
         excerpt,
         metrics: entry.metrics && typeof entry.metrics === "object" ? entry.metrics : {},
+        // 主页公开联系方式：collector 只给已公开可见字段，这里原样透传，服务端再收敛白名单。
+        contacts: Array.isArray(entry.contacts) ? entry.contacts : [],
       });
     }
     return items;
@@ -283,16 +285,20 @@
     await sleep(FOCUS_SETTLE_MS);
     let result;
     try {
-      result = await chrome.tabs.sendMessage(tab.id, {
-        type: "AIPDD_COLLECT",
-        payload: {
-          platform: String(job?.platform || ""),
-          mode: String(job?.mode || ""),
-          kind: target.kind,
-          filters: job?.filters || {},
-          limits: { ...(job?.limits || {}), maxItems: remaining },
+      result = await sendToPage(
+        tab.id,
+        {
+          type: "AIPDD_COLLECT",
+          payload: {
+            platform: String(job?.platform || ""),
+            mode: String(job?.mode || ""),
+            kind: target.kind,
+            filters: job?.filters || {},
+            limits: { ...(job?.limits || {}), maxItems: remaining },
+          },
         },
-      });
+        ["collector.js"],
+      );
     } catch (error) {
       result = { items: [], stopReason: "PAGE_CHANGED", error: `采集脚本未就绪：${errMsg(error)}` };
     }
@@ -432,6 +438,19 @@
     );
   }
 
+  /**
+   * 执行前按任务的目标 URL 复核站点是否在声明范围内：不在范围就不开页，按 UNTRUSTED_SITE 停下。
+   * 返回未覆盖的站点模式（空数组＝全部可执行）。
+   */
+  async function missingSitesOf(job) {
+    const urls = [];
+    if (job?.targetUrl) urls.push(String(job.targetUrl));
+    for (const item of Array.isArray(job?.urls) ? job.urls : []) {
+      urls.push(typeof item === "string" ? item : String(item?.url || ""));
+    }
+    return missingSites("acquisition", urls.filter(Boolean));
+  }
+
   async function runLoop() {
     state.phase = "running";
     broadcast("已连接插件，开始领取任务");
@@ -458,6 +477,15 @@
         broadcast(`领到 ${jobs.length} 个任务，串行执行中`);
         for (const job of jobs) {
           if (state.stop) break;
+          const missing = await missingSitesOf(job);
+          if (missing.length) {
+            // 站点不在插件声明范围内：不开空页、不猜结果，整体停下并如实提示。
+            state.phase = "stopped";
+            broadcast(
+              `以下采集/触达站点不在插件可执行的声明范围内：${missing.join("、")}；请更新插件后重新连接`,
+            );
+            return;
+          }
           await runJob(job);
           // 触达是真实对外动作：两次操作之间按服务端下发的区间随机等待，避免固定节奏。
           if (state.type === "outreach" && !state.stop) await sleep(ctx.interval());
@@ -486,17 +514,15 @@
   }
 
   /**
-   * 启动前的三道校验：站点已信任（与分发共用白名单）、apiBase 必须是来源页自己的 origin
+   * 启动前的两道校验：apiBase 必须是来源页自己的 origin
    * （否则恶意页能把令牌引到别的服务器）、任务类型已注册。
+   * 站点权限在 runLoop 领取到具体任务后再按目标 URL 逐个复核（见 ensureTaskSites）。
    */
   async function start(message, sender) {
     const payload = message.payload || {};
     const taskType = String(payload.type || message.taskType || "");
     if (!runners.has(taskType)) {
       return { ok: false, errorMsg: `插件不支持 ${taskType || "该"} 类任务，请升级到最新版` };
-    }
-    if (!(await isTrustedSender(sender))) {
-      return { ok: false, errorMsg: "当前站点未被信任：请在插件弹窗中点「信任此站点」后重试" };
     }
     const senderUrl = sender.tab?.url || sender.url || "";
     let senderOrigin = "";

@@ -49,6 +49,8 @@ export class MechanismController {
       this.service.createExportJob(user, body),
     jobs: (user: CurrentUser, query: PageQuery) =>
       this.service.exportJobs(user, query),
+    download: (user: CurrentUser, id: string) =>
+      this.service.downloadExport(user, id),
     removeJob: (user: CurrentUser, body: Row) =>
       this.service.removeExportJob(user, body),
   };

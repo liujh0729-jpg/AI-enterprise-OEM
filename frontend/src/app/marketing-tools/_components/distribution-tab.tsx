@@ -57,10 +57,14 @@ import { AiResultModal } from "@/components/ai-result";
 import { fmtTime } from "@/lib/datetime";
 import { RichTextEditor } from "./rich-text-editor";
 import {
+  ackExtensionReceipts,
   distributeViaExtension,
   distributionApi,
   onExtensionResult,
   pingExtension,
+  requestMetrics,
+  requestPendingReceipts,
+  type MetricEntry,
 } from "./distribution-common";
 import { useSeoActions, useSeoProjects } from "@/query/seo";
 import { presentMutationError } from "@/query/errors";
@@ -103,8 +107,16 @@ const htmlToText = (html: string) => {
   return (box.textContent || "").trim();
 };
 
+/** 效果计数走万/亿折叠，避免台账列被长数字撑开；与插件 countOf 展示口径一致。 */
+const fmtCount = (value: number) => {
+  if (!value) return "0";
+  if (value >= 100000000) return `${(value / 100000000).toFixed(1)}亿`;
+  if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
+  return String(value);
+};
+
 export function DistributionTab() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [meta, setMeta] = useState<DistributionMeta | null>(null);
   const [extensionVersion, setExtensionVersion] = useState<string | null>(null);
 
@@ -136,6 +148,8 @@ export function DistributionTab() {
   const [manualCode, setManualCode] = useState("");
   const [manualStatus, setManualStatus] = useState<(typeof DISTRIBUTION_LOG_STATUSES)[number]>("SUCCESS");
   const [manualSaving, setManualSaving] = useState(false);
+  /** D8：正在让插件回创作中心抓效果。 */
+  const [metricsLoading, setMetricsLoading] = useState(false);
 
   /** 分发进行中的台账 id：插件结果消息回来后据此写 reportLogs。 */
   const [distributingId, setDistributingId] = useState(0);
@@ -169,6 +183,27 @@ export function DistributionTab() {
     void reload();
   }, [reload]);
 
+  /** D8：把插件读到的逐平台效果幂等回写（同内容同平台覆盖），失败只提示不阻断发布结果。 */
+  const reportExtensionMetrics = useCallback(
+    async (contentId: number, metrics: MetricEntry[]) => {
+      await distributionApi.reportMetrics({
+        params: { id: String(contentId) },
+        body: {
+          source: "EXTENSION",
+          metrics: metrics.map((metric) => ({
+            platformCode: metric.platformCode,
+            publishedItemId: metric.publishedItemId || "",
+            views: metric.views,
+            likes: metric.likes,
+            comments: metric.comments,
+            ...(metric.capturedAt ? { capturedAt: metric.capturedAt } : {}),
+          })),
+        },
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     distributionApi
       .meta()
@@ -178,21 +213,22 @@ export function DistributionTab() {
     void pingExtension().then((pong) => setExtensionVersion(pong?.version ?? null));
   }, [message]);
 
-  /** 插件发布结果 → reportLogs 落库（按 jobId 关联到对应台账；页面开着才收得到，关了就走人工补记）。 */
+  /** 插件发布结果 → reportLogs 落库（按 jobId 关联到对应台账；页面开着才收得到，关了走本地队列补传）。 */
   useEffect(() => {
-    return onExtensionResult(async (logs, jobId) => {
-      const contentId = pendingMapRef.current.get(jobId);
-      if (!contentId || !logs.length) return;
+    return onExtensionResult(async (logs, jobId, contentId) => {
+      // 本页登记的 jobId→台账 优先；页面关过再开时 map 已空，回落插件回传的 contentId。
+      const targetId = pendingMapRef.current.get(jobId) ?? contentId;
+      if (!targetId || !logs.length) return;
       pendingMapRef.current.delete(jobId);
       const timer = fallbackTimerRef.current[jobId];
       if (timer) {
         clearTimeout(timer);
         delete fallbackTimerRef.current[jobId];
       }
-      setDistributingId((cur) => (cur === contentId ? 0 : cur));
+      setDistributingId((cur) => (cur === targetId ? 0 : cur));
       try {
         await distributionApi.reportLogs({
-          params: { id: String(contentId) },
+          params: { id: String(targetId) },
           body: {
             source: "EXTENSION",
             logs: logs.map((log) => ({
@@ -221,6 +257,62 @@ export function DistributionTab() {
       pending.clear();
     };
   }, []);
+
+  /** 只跑一次的守卫：补传在挂载（或检测到插件）后做一次，不随筛选/分页变化重复拉队。 */
+  const flushedRef = useRef(false);
+
+  /**
+   * 页面打开时把插件离线期间攒下的回执补落库：逐条 reportLogs（服务端按内容+平台幂等，
+   * 重复上报只覆盖最新一条），落库成功的按 jobId 回执清队，避免关页后结果丢在插件里。
+   */
+  const flushPendingReceipts = useCallback(async () => {
+    const items = await requestPendingReceipts();
+    if (!items.length) return;
+    const acked: string[] = [];
+    let applied = 0;
+    let failed = 0;
+    for (const item of items) {
+      // 没有可落库的内容（contentId/logs 缺失）：直接回执清队，别让僵尸条目长期占位。
+      if (!item.contentId || !item.logs.length) {
+        acked.push(item.jobId);
+        continue;
+      }
+      try {
+        await distributionApi.reportLogs({
+          params: { id: String(item.contentId) },
+          body: {
+            source: "EXTENSION",
+            logs: item.logs.map((log) => ({
+              platformCode: log.platformCode,
+              status: DISTRIBUTION_LOG_STATUSES.find((s) => s === log.status) ?? "FILLED",
+              publishedUrl: log.publishedUrl || "",
+              errorMsg: log.errorMsg || "",
+            })),
+          },
+        });
+        acked.push(item.jobId);
+        applied += 1;
+      } catch {
+        // 单条失败（如内容已删除）不中断整批，也不回执：留队列下次再试，3 天后自然过期。
+        failed += 1;
+      }
+    }
+    ackExtensionReceipts(acked);
+    if (applied) {
+      message.success(`已补传 ${applied} 条离线发布结果`);
+      void reload();
+    }
+    if (failed) {
+      message.warning(`有 ${failed} 条离线发布结果未能补传，将在下次打开本页时重试`);
+    }
+  }, [message, reload]);
+
+  // 检测到插件后补传一次离线回执（未装插件时队列也为空，无需触发）。
+  useEffect(() => {
+    if (!extensionVersion || flushedRef.current) return;
+    flushedRef.current = true;
+    void flushPendingReceipts();
+  }, [extensionVersion, flushPendingReceipts]);
 
   // ---------- 编辑 ----------
 
@@ -352,17 +444,10 @@ export function DistributionTab() {
 
   // ---------- 分发 ----------
 
-  const distribute = async (row: DistributionContent) => {
-    if (!extensionVersion) {
-      message.warning("未检测到 AIPDD Enterprise 插件：请先按下方说明安装，并刷新本页");
-      return;
-    }
-    if (!row.platformCodes.length) {
-      message.warning("这条内容还没勾选发布平台，请先编辑勾选");
-      return;
-    }
+  const sendDistribution = async (row: DistributionContent) => {
     setDistributingId(row.id);
     const ack = await distributeViaExtension({
+      contentId: row.id,
       title: row.title,
       content: row.content,
       images: row.images,
@@ -371,7 +456,7 @@ export function DistributionTab() {
     });
     if (!ack.ok) {
       setDistributingId(0);
-      message.error(ack.errorMsg || "推送到插件失败，请确认插件已安装、已在本页弹窗中「信任此站点」，并刷新本页");
+      message.error(ack.errorMsg || "推送到插件失败，请确认插件已安装并启用，然后刷新本页");
       return;
     }
     // 接单成功后登记 jobId→台账 关联，并起兜底定时器。定时器只负责提示与 UI 复位，
@@ -380,12 +465,15 @@ export function DistributionTab() {
     fallbackTimerRef.current[ack.jobId] = setTimeout(() => {
       if (pendingMapRef.current.has(ack.jobId)) {
         setDistributingId((cur) => (cur === row.id ? 0 : cur));
-        message.warning("插件尚未回传发布结果：本页保持打开，结果迟到仍会自动记入台账；关页后请到平台页确认并人工补记");
+        message.warning("插件尚未回传发布结果：本页保持打开，结果迟到仍会自动记入台账；即使关页，结果也已存入插件本地队列，下次打开本页会自动补传");
       }
       delete fallbackTimerRef.current[ack.jobId];
     }, Math.max(180000, row.platformCodes.length * 60000));
     try {
-      await distributionApi.mark({ params: { id: String(row.id) } });
+      await distributionApi.mark({
+        params: { id: String(row.id) },
+        query: { pluginVersion: extensionVersion || undefined },
+      });
       message.success(
         row.autoPublish
           ? "已推给插件：将自动打开发布各平台，请勿关闭这些标签页"
@@ -395,6 +483,29 @@ export function DistributionTab() {
     } catch (error) {
       message.error((error as Error).message || "分发状态更新失败");
     }
+  };
+
+  const distribute = async (row: DistributionContent) => {
+    if (!extensionVersion) {
+      message.warning("未检测到 AIPDD Enterprise 插件：请先按下方说明安装，并刷新本页");
+      return;
+    }
+    if (!row.platformCodes.length) {
+      message.warning("这条内容还没勾选发布平台，请先编辑勾选");
+      return;
+    }
+    // 契约里 publish 是 requiresConfirmation 动作：真正点发布的后果要用户当场确认，不能由配置静默代劳。
+    if (!row.autoPublish) {
+      await sendDistribution(row);
+      return;
+    }
+    modal.confirm({
+      title: "确认自动发布？",
+      content: `插件将自动在 ${row.platformCodes.length} 个平台填好内容并点发布，发布后即对外公开。`,
+      okText: "确认发布",
+      cancelText: "取消",
+      onOk: () => sendDistribution(row),
+    });
   };
 
   // ---------- 详情与人工补记 ----------
@@ -442,6 +553,45 @@ export function DistributionTab() {
       message.error((error as Error).message || "补记失败");
     } finally {
       setManualSaving(false);
+    }
+  };
+
+  /**
+   * D8：让插件回各平台创作中心读阅读/点赞/评论并幂等回写。
+   * 只对已带回链接的结果行发起（插件靠链接定位作品）；插件未装或读不到时静默返回空。
+   */
+  const refreshMetrics = async (contentId: number, logs: DistributionLog[]) => {
+    if (!extensionVersion) {
+      message.warning("未检测到 AIPDD Enterprise 插件：请先安装并刷新本页");
+      return;
+    }
+    const items = logs
+      .filter((log) => log.publishedUrl.trim())
+      .map((log) => ({
+        platformCode: log.platformCode,
+        publishedUrl: log.publishedUrl.trim(),
+        publishedItemId: log.publishedItemId || "",
+      }));
+    if (!items.length) {
+      message.warning("还没有带发布链接的结果，无法读取效果");
+      return;
+    }
+    setMetricsLoading(true);
+    try {
+      const metrics = await requestMetrics({ contentId, items });
+      if (!metrics.length) {
+        message.warning("插件未读到效果数据：请确认已在本浏览器登录各平台创作中心后重试");
+        return;
+      }
+      await reportExtensionMetrics(contentId, metrics);
+      message.success(`已刷新 ${metrics.length} 个平台的效果`);
+      const fresh = await distributionApi.detail({ params: { id: String(contentId) } });
+      setDetail(fresh);
+      void reload();
+    } catch (error) {
+      message.error((error as Error).message || "效果回写失败");
+    } finally {
+      setMetricsLoading(false);
     }
   };
 
@@ -498,6 +648,23 @@ export function DistributionTab() {
       render: (value: string, row: DistributionContent) => (
         <Tag color={row.status === "DISTRIBUTED" ? "blue" : "default"}>{value}</Tag>
       ),
+    },
+    {
+      title: "效果（阅读/赞/评）",
+      dataIndex: "totalViews",
+      width: 150,
+      render: (_: unknown, row: DistributionContent) =>
+        row.lastMetricsAt ? (
+          <Space size={4}>
+            <span>{fmtCount(row.totalViews)}</span>
+            <span className="muted">/</span>
+            <span>{fmtCount(row.totalLikes)}</span>
+            <span className="muted">/</span>
+            <span>{fmtCount(row.totalComments)}</span>
+          </Space>
+        ) : (
+          <span className="muted">-</span>
+        ),
     },
     {
       title: "最后分发",
@@ -601,7 +768,7 @@ export function DistributionTab() {
                     {
                       title: "下载并解压",
                       content:
-                        "点上方「下载」按钮获取 zip 安装包，解压到一个固定文件夹（不要删除解压结果）。",
+                        "点上方「下载」按钮获取 zip 安装包，解压到任意固定文件夹；Windows 的「全部解压缩」会得到与压缩包同名的文件夹，里面直接就是 manifest.json。",
                     },
                     {
                       title: "打开 Chrome 扩展管理",
@@ -611,17 +778,12 @@ export function DistributionTab() {
                     {
                       title: "加载已解压的扩展程序",
                       content:
-                        "点「加载已解压的扩展程序」，选择第 1 步解压出来的 aipdd-enterprise 文件夹。",
+                        "点「加载已解压的扩展程序」，选择第 1 步解压出的那个文件夹（不用再往里钻一层），再把插件固定到工具栏。",
                     },
                     {
                       title: "登录各平台创作中心",
                       content:
                         "在同一个浏览器里登录要发的平台创作中心（微博、小红书/抖音/快手创作者中心、视频号、知识星球、知乎、今日头条、百家号、B站创作中心、公众号、简书、豆瓣；插件用这些已登录会话完成发布）。",
-                    },
-                    {
-                      title: "信任本系统站点",
-                      content:
-                        "点浏览器工具栏的 AIPDD Enterprise 插件图标，在弹窗中点「信任此站点」——插件出于安全只接受你信任过的站点发来的分发指令。",
                     },
                     {
                       title: "回到本页分发",
@@ -631,7 +793,7 @@ export function DistributionTab() {
                     {
                       title: "查看与补记结果",
                       content:
-                        "发布结果自动回写台账（本页开着才收得到）；填充失败会保留平台标签页供人工接手，可在「结果」里人工补记。",
+                        "发布结果自动回写台账；关页或刷新也不丢——结果先存在插件本地队列，下次打开本页自动补传。填充失败会保留平台标签页供人工接手，也可在「结果」里人工补记。",
                     },
                   ]}
                 />
@@ -974,12 +1136,13 @@ export function DistributionTab() {
               size="small"
               dataSource={detail.logs}
               pagination={false}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "平台", dataIndex: "platformName", width: 90 },
                 {
                   title: "结果",
                   dataIndex: "statusLabel",
-                  width: 120,
+                  width: 110,
                   render: (value: string, row: DistributionLog) => (
                     <Tag color={LOG_STATUS_COLOR[row.status] || "default"}>{value}</Tag>
                   ),
@@ -987,9 +1150,27 @@ export function DistributionTab() {
                 {
                   title: "来源",
                   dataIndex: "source",
-                  width: 80,
+                  width: 70,
                   render: (value: string) =>
                     value === "MANUAL" ? "人工" : "插件",
+                },
+                {
+                  title: "阅读/播放",
+                  dataIndex: "views",
+                  width: 90,
+                  render: (value: number) => (value ? fmtCount(value) : "-"),
+                },
+                {
+                  title: "点赞",
+                  dataIndex: "likes",
+                  width: 80,
+                  render: (value: number) => (value ? fmtCount(value) : "-"),
+                },
+                {
+                  title: "评论",
+                  dataIndex: "comments",
+                  width: 80,
+                  render: (value: number) => (value ? fmtCount(value) : "-"),
                 },
                 {
                   title: "说明",
@@ -1005,6 +1186,32 @@ export function DistributionTab() {
                 },
               ]}
             />
+            {detail.logs.some((log) => log.metricsCapturedAt) ? (
+              <span className="muted text-12">
+                效果数据由插件从平台创作中心读取（阅读=阅读/播放量，不同平台口径略有差异），
+                最近一次回写：
+                {fmtTime(
+                  detail.logs
+                    .map((log) => log.metricsCapturedAt)
+                    .filter((value): value is string => Boolean(value))
+                    .sort()
+                    .pop() ?? "",
+                )}
+              </span>
+            ) : (
+              <span className="muted text-12">
+                尚无效果数据：发布成功后可点下方「刷新效果」，插件会回各平台创作中心读取阅读/点赞/评论。
+              </span>
+            )}
+            <Space wrap>
+              <Button
+                icon={<ReloadOutlined aria-hidden />}
+                loading={metricsLoading}
+                onClick={() => void refreshMetrics(detail.content.id, detail.logs)}
+              >
+                刷新效果（回创作中心读取）
+              </Button>
+            </Space>
             <Panel title="人工补记（插件没回传 / 线下发布时）">
               <Space wrap>
                 <Select

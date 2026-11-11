@@ -52,6 +52,19 @@ const RUN_STATUS: Record<string, { color: string; label: string }> = {
   FAILED: { color: "red", label: "失败" },
 };
 
+/** 内容审核 / 渠道发布状态（docs §8.4 营销内容生成→审核→发布）。 */
+const REVIEW_STATUS: Record<string, { color: string; label: string }> = {
+  NONE: { color: "default", label: "未进入审核" },
+  PENDING: { color: "gold", label: "待审核" },
+  APPROVED: { color: "green", label: "审核通过" },
+  REJECTED: { color: "red", label: "审核驳回" },
+};
+const PUBLISH_STATUS: Record<string, { color: string; label: string }> = {
+  NONE: { color: "default", label: "未发布" },
+  PENDING: { color: "gold", label: "待发布" },
+  PUBLISHED: { color: "green", label: "已发布" },
+};
+
 /** 内容资产类型：技能产出与 SEO 模块写入的 kind 统一显示中文，未知值原样兜底。 */
 const ARTIFACT_KIND_LABELS: Record<string, string> = {
   COPY: "文案",
@@ -90,6 +103,12 @@ export function MktSkillsTab() {
   const [loopOpen, setLoopOpen] = useState(false);
   const [loopForm] = Form.useForm();
   const [skillForm] = Form.useForm();
+  /** 内容资产筛选：全部 / 待审核 / 待发布 / 已发布（审核发布共用一张资产表）。 */
+  const [artifactFilter, setArtifactFilter] = useState("all");
+  const [reviewTarget, setReviewTarget] = useState<Artifact | null>(null);
+  const [reviewForm] = Form.useForm();
+  const [publishTarget, setPublishTarget] = useState<Artifact | null>(null);
+  const [publishForm] = Form.useForm();
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -118,14 +137,24 @@ export function MktSkillsTab() {
   const loadArtifacts = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await mktApi.artifacts({ query: { page: 1, pageSize: 50 } });
+      const filter =
+        artifactFilter === "review"
+          ? { reviewStatus: "PENDING" }
+          : artifactFilter === "publish"
+            ? { publishStatus: "PENDING" }
+            : artifactFilter === "published"
+              ? { publishStatus: "PUBLISHED" }
+              : {};
+      const data = await mktApi.artifacts({
+        query: { page: 1, pageSize: 50, ...filter },
+      });
       setArtifacts(data?.list || []);
     } catch (err) {
       setError(mktError(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [artifactFilter]);
 
   const loadCapabilities = useCallback(async () => {
     setLoading(true);
@@ -247,6 +276,40 @@ export function MktSkillsTab() {
     try {
       setEvalResult(await mktApi.runEval({ body: { runId: row.id } }));
     } catch (err) {
+      message.error(mktError(err));
+    }
+  };
+
+  const submitReview = async (decision: "approve" | "reject") => {
+    if (!reviewTarget) return;
+    try {
+      const values = await reviewForm.validateFields();
+      await mktApi.reviewArtifact({
+        body: { id: reviewTarget.id, decision, note: values.note || "" },
+      });
+      message.success(decision === "approve" ? "审核通过，已派发渠道发布任务" : "已驳回，内容退回草稿");
+      setReviewTarget(null);
+      reviewForm.resetFields();
+      await loadArtifacts();
+    } catch (err) {
+      if (err && typeof err === "object" && "errorFields" in err) return;
+      message.error(mktError(err));
+    }
+  };
+
+  const submitPublish = async () => {
+    if (!publishTarget) return;
+    try {
+      const values = await publishForm.validateFields();
+      await mktApi.publishArtifact({
+        body: { id: publishTarget.id, channel: values.channel, note: values.note || "" },
+      });
+      message.success("发布回执已记录");
+      setPublishTarget(null);
+      publishForm.resetFields();
+      await loadArtifacts();
+    } catch (err) {
+      if (err && typeof err === "object" && "errorFields" in err) return;
       message.error(mktError(err));
     }
   };
@@ -410,8 +473,57 @@ export function MktSkillsTab() {
     { title: "标题", dataIndex: "title" },
     { title: "类型", dataIndex: "kind", width: 100, render: (v: string) => ARTIFACT_KIND_LABELS[v] || v },
     { title: "状态", dataIndex: "status", width: 90, render: (v: string) => ({ DRAFT: "草稿", READY: "可用", ARCHIVED: "归档" } as Record<string, string>)[v] || v },
+    {
+      title: "内容审核",
+      dataIndex: "reviewStatus",
+      width: 110,
+      render: (v: string) => (
+        <Tag color={REVIEW_STATUS[v]?.color}>{REVIEW_STATUS[v]?.label || v}</Tag>
+      ),
+    },
+    {
+      title: "渠道发布",
+      dataIndex: "publishStatus",
+      width: 110,
+      render: (v: string) => (
+        <Tag color={PUBLISH_STATUS[v]?.color}>{PUBLISH_STATUS[v]?.label || v}</Tag>
+      ),
+    },
     { title: "内容", dataIndex: "body", render: (v: string) => (v ? `${v.slice(0, 120)}${v.length > 120 ? "…" : ""}` : "—") },
     { title: "更新时间", dataIndex: "updatedAt", width: 170 },
+    {
+      title: "操作",
+      key: "actions",
+      width: 150,
+      render: (_: unknown, row) => (
+        <>
+          {row.reviewStatus === "PENDING" ? (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                setReviewTarget(row);
+                reviewForm.resetFields();
+              }}
+            >
+              审核
+            </Button>
+          ) : null}
+          {row.reviewStatus === "APPROVED" && row.publishStatus === "PENDING" ? (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                setPublishTarget(row);
+                publishForm.setFieldsValue({ channel: row.publishChannel || "", note: "" });
+              }}
+            >
+              回填发布
+            </Button>
+          ) : null}
+        </>
+      ),
+    },
   ];
 
   const capabilityColumns: ColumnsType<Capability> = [
@@ -532,16 +644,32 @@ export function MktSkillsTab() {
       ) : null}
 
       {mode === "artifacts" ? (
-        <Table<Artifact>
-          rowKey="id"
-          size="middle"
-          loading={loading}
-          columns={artifactColumns}
-          dataSource={artifacts}
-          scroll={{ x: "max-content" }}
-          pagination={false}
-          locale={{ emptyText: "暂无内容资产" }}
-        />
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <PillTabs
+              items={[
+                { key: "all", label: "全部" },
+                { key: "review", label: "待审核" },
+                { key: "publish", label: "待发布" },
+                { key: "published", label: "已发布" },
+              ]}
+              value={artifactFilter}
+              onChange={setArtifactFilter}
+              size="small"
+              variant="soft"
+            />
+          </div>
+          <Table<Artifact>
+            rowKey="id"
+            size="middle"
+            loading={loading}
+            columns={artifactColumns}
+            dataSource={artifacts}
+            scroll={{ x: "max-content" }}
+            pagination={false}
+            locale={{ emptyText: "暂无内容资产" }}
+          />
+        </>
       ) : null}
 
       {mode === "context" ? (
@@ -727,6 +855,54 @@ export function MktSkillsTab() {
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={Boolean(reviewTarget)}
+        title={`内容审核 · ${reviewTarget?.title || ""}`}
+        onCancel={() => setReviewTarget(null)}
+        footer={[
+          <Button key="cancel" onClick={() => setReviewTarget(null)}>
+            取消
+          </Button>,
+          <Button key="reject" danger onClick={() => void submitReview("reject")}>
+            驳回
+          </Button>,
+          <Button key="approve" type="primary" onClick={() => void submitReview("approve")}>
+            审核通过
+          </Button>,
+        ]}
+        destroyOnHidden
+      >
+        <p className="muted text-12" style={{ marginTop: 0 }}>
+          通过后会自动派发「渠道发布」待办；驳回则退回草稿继续修改。
+        </p>
+        <Form form={reviewForm} layout="vertical">
+          <Form.Item name="note" label="审核意见">
+            <Input.TextArea rows={3} placeholder="驳回时请写明修改原因" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={Boolean(publishTarget)}
+        title={`回填发布 · ${publishTarget?.title || ""}`}
+        onCancel={() => setPublishTarget(null)}
+        onOk={() => void submitPublish()}
+        destroyOnHidden
+      >
+        <Form form={publishForm} layout="vertical">
+          <Form.Item
+            name="channel"
+            label="发布渠道"
+            rules={[{ required: true, message: "请填写发布渠道" }]}
+          >
+            <Input placeholder="如 公众号 / 小红书 / 官网" />
+          </Form.Item>
+          <Form.Item name="note" label="执行回执">
+            <Input.TextArea rows={3} placeholder="如 链接、发布账号、发布时间" />
           </Form.Item>
         </Form>
       </Modal>

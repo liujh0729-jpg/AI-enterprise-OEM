@@ -499,9 +499,9 @@ export function BiChatTab() {
             <Notice variant="error">
               {modelsError}{" "}
               {channelId === 0 ? (
-                <Link href="/developer/keys">去「API Key 管理」</Link>
+                <Link href="/developer/keys">立即配置 API Key</Link>
               ) : (
-                <Link href="/model-settings">去「模型设置」</Link>
+                <Link href="/model-settings">立即配置模型</Link>
               )}
             </Notice>
           ) : null}
@@ -578,6 +578,7 @@ export function BiDatasetsTab() {
   const [detailTab, setDetailTab] = useState("fields");
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof biApi.previewDataset>> | null>(null);
   const [rowFilter, setRowFilter] = useState("");
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
   const load = async () => {
     try {
@@ -615,6 +616,10 @@ export function BiDatasetsTab() {
       setPreview(null);
       const analyst = data?.permissions.find((item) => item.role === "ANALYST");
       setRowFilter(String(analyst?.rowFilter || ""));
+      const rules = (analyst?.columnRules || {}) as { hidden?: unknown };
+      setHiddenColumns(
+        Array.isArray(rules.hidden) ? rules.hidden.map((item) => String(item)) : [],
+      );
     } catch (error) {
       message.error(err(error));
     }
@@ -787,24 +792,33 @@ export function BiDatasetsTab() {
               },
               {
                 key: "permission",
-                label: "行权限",
+                label: "行列权限",
                 children: (
                   <Space orientation="vertical" style={{ width: "100%" }}>
                     <div className="muted">
-                      按 ANALYST 级别配置行过滤，可用 {"${userId}"} 引用当前用户。留空表示不额外限制；CRM 数据仍套用 CRM 数据范围。
+                      按 ANALYST 级别配置行过滤与隐藏列。行过滤可用 {"${userId}"} 引用当前用户、{"${deptId}"} 引用当前部门（占位符请勿加引号，系统会按字段类型转义）；留空表示不额外限制，CRM 数据仍套用 CRM 数据范围。隐藏列在预览、图表、导出与 AI 问数里一律剔除。
                     </div>
                     <Input.TextArea rows={4} value={rowFilter} onChange={(event) => setRowFilter(event.target.value)} />
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      style={{ width: "100%" }}
+                      placeholder="选择对该角色隐藏的字段"
+                      value={hiddenColumns}
+                      onChange={setHiddenColumns}
+                      options={detail.fields.map((item) => ({ value: item.fieldKey, label: `${item.name}（${item.fieldKey}）` }))}
+                    />
                     <Button
                       type="primary"
                       onClick={async () => {
                         await biApi.saveDatasetPermission({
                           params: { id: String(detail.dataset.id) },
-                          body: { role: "ANALYST", rowFilter, columnRules: {} },
+                          body: { role: "ANALYST", rowFilter, columnRules: { hidden: hiddenColumns } },
                         });
                         message.success("已保存");
                       }}
                     >
-                      保存行权限
+                      保存行列权限
                     </Button>
                   </Space>
                 ),

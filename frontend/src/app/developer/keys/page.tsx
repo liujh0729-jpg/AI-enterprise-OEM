@@ -44,7 +44,7 @@ export default function ApiKeysPage() {
   const [quotaValue, setQuotaValue] = useState<number | null>(null);
   const usageQuery = useApiKeyUsage(usage?.id);
 
-  // 从「高管驾驶舱」的红色绑定按钮带 #aipdd-key 跳进来时，直接滚到绑定板块。
+  // 从「驾驶舱」的红色绑定按钮带 #aipdd-key 跳进来时，直接滚到绑定板块。
   useEffect(() => {
     if (window.location.hash === "#aipdd-key") {
       document

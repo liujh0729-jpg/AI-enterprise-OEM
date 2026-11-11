@@ -9,6 +9,7 @@ export const modelPlazaApi = {
   usage: endpoint(endpoints.Mp_usage),
   usageSummary: endpoint(endpoints.Mp_usageSummary),
   connection: endpoint(endpoints.Mp_connection),
+  platformStatus: endpoint(endpoints.Mp_platformStatus),
 };
 
 export const modelPlazaAdminApi = {
@@ -23,5 +24,9 @@ export const modelPlazaAdminApi = {
   pull: endpoint(endpoints.AdminMp_pullModels),
   importModels: endpoint(endpoints.AdminMp_importModels),
   seed: endpoint(endpoints.AdminMp_seed),
+  channelPolicy: endpoint(endpoints.AdminMp_channelPolicy),
+  saveChannelPolicy: endpoint(endpoints.AdminMp_saveChannelPolicy),
+  platformDefaults: endpoint(endpoints.AdminMp_platformDefaults),
+  savePlatformDefaults: endpoint(endpoints.AdminMp_savePlatformDefaults),
   usage: endpoint(endpoints.AdminMp_usageList),
 };

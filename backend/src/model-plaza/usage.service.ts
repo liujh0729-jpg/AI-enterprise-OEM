@@ -3,7 +3,13 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { pageOf, pageParam } from '../common/api';
 import type { PointsService } from '../points/points.service';
-import { PLAZA_USAGE_CODE, toAmount } from './model-plaza.pricing';
+import type { CardDeduct, CardService } from '../points/card.service';
+import { multiplierNote } from '../points/card.pricing';
+import {
+  PLAZA_USAGE_CODE,
+  ledgerPoints,
+  toAmount,
+} from './model-plaza.pricing';
 
 const DAY_MS = 86_400_000;
 const SUMMARY_ROW_CAP = 50_000;
@@ -29,6 +35,9 @@ export type PlazaUsageLogInput = {
   billingQuantity?: number;
   billingUnit?: string;
   pointsCost?: number;
+  /** 本次从哪张时长卡扣的额度（null/0＝没用到卡）。 */
+  userCardId?: number | null;
+  cardDeduct?: number;
   rmbCost?: number;
   elapsedMs?: number;
   isStream?: boolean;
@@ -46,6 +55,27 @@ export type PlazaChargeMeta = {
   completionTokens: number;
 };
 
+/** 卡结算需要的本次用量事实：与广场计价同源，不另起一套采集口径。 */
+export type PlazaCardUsage = {
+  billingUnit: string;
+  quantity?: number;
+  tier?: Record<string, string | number | undefined>;
+  /** 仅「调用前预估」用：真实扣费时一律以 meta 里的实际用量为准。 */
+  promptTokens?: number;
+  completionTokens?: number;
+};
+
+export type PlazaChargeResult = {
+  /** 真实扣掉的积分（卡全覆盖时为 0）。 */
+  points: number;
+  /** 本次扣的是哪张卡（null＝没用到卡）。 */
+  cardId: number | null;
+  /** 从卡里实际扣掉的量（单位同 billingUnit，已含规格倍率）。 */
+  cardDeduct: number;
+  /** 倍率命中说明，写进用量日志供明细回显。 */
+  cardNote: string;
+};
+
 function dayStart(daysAgo = 0) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -60,18 +90,53 @@ function dateKey(value: Date) {
 }
 
 /**
+ * 卡扣完后还差多少积分（D4=A：卡能扣多少扣多少，差额转积分）。
+ * 按「剩余量 / 需求量」比例摊，卡至少承担自己那份对应积分，不会把整笔推给积分。
+ */
+function pointsOwedByCard(
+  total: number,
+  units: number,
+  deduct: number,
+): number {
+  const amount = Number(total.toFixed(4));
+  if (!(amount > 0)) return 0;
+  if (!(units > 0) || !(deduct > 0)) return amount;
+  if (deduct >= units) return 0;
+  return ledgerPoints((amount * (units - deduct)) / units);
+}
+
+/**
  * 广场用量事实源：每次调用（站内试用 / 对外 API）都写一行 `model_usage_logs`，
  * 成功且应扣费时同步写一条 `usage_events`（code=model_plaza, billed=1, billTxId），
  * 让既有「AI 用量」页与积分账本口径一致。
  */
 export class ModelUsageService {
+  /**
+   * 时长卡结算（扣费顺序卡 → 积分的唯一收口点）。
+   * 由 services.ts 构造完成后回填：卡服务依赖积分设置与支付客户端，构造顺序在本服务之后。
+   */
+  cards: CardService | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly points: PointsService,
   ) {}
 
-  /** 调用前闸门：欠费或零余额直接拒，避免烧掉上游额度却收不回积分。 */
-  async assertCanCall(userId: string) {
+  /**
+   * 调用前闸门：欠费或零余额先拒，避免烧掉上游额度却收不回积分。
+   * 卡感知（4.6）：持有该模型可用卡时直接放行——卡是用户已经兑换/付费到的额度，
+   * 欠费状态只约束积分侧。传不进模型上下文时退化成「有任何可用卡即放行」。
+   */
+  async assertCanCall(
+    userId: string,
+    model?: { provider: string; modelKey: string },
+  ) {
+    if (this.cards) {
+      const usable = model
+        ? await this.cards.hasUsableFor(userId, model.provider, model.modelKey)
+        : (await this.cards.usableCards(userId)).length > 0;
+      if (usable) return;
+    }
     const summary = await this.points.summary(userId);
     if (summary.status === 'ARREARS') {
       throw new BusinessException(ErrorCode.POINTS_ARREARS);
@@ -82,28 +147,84 @@ export class ModelUsageService {
   }
 
   /**
-   * 按实际用量扣分并记用量。余额不足转欠费（与 AiEvalService.chargeByUsage 同口径），
-   * 不抛错——调用已经发生，欠费记录比丢账更可追溯。
+   * 本次调用「卡能承担多少」的只读预估：外部网关的积分闸门据此只对差额判余额，
+   * 报错文案也能分别说清「卡额度不足」与「积分不足」。
+   */
+  async quoteCard(
+    userId: string,
+    meta: { provider: string; modelKey: string },
+    usage: PlazaCardUsage | undefined,
+    points: number,
+  ): Promise<{ points: number; hasCard: boolean }> {
+    if (!this.cards || !usage || !(points > 0)) {
+      return { points, hasCard: false };
+    }
+    const quote = await this.cards
+      .quote({
+        userId,
+        provider: meta.provider,
+        modelKey: meta.modelKey,
+        billingUnit: usage.billingUnit,
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        quantity: usage.quantity,
+        tier: usage.tier,
+      })
+      .catch(() => null);
+    if (!quote) return { points, hasCard: false };
+    return {
+      points: pointsOwedByCard(points, quote.units, quote.remaining),
+      hasCard: true,
+    };
+  }
+
+  /**
+   * 按实际用量扣分并记用量。先扣卡（能扣多少扣多少），差额才走积分；
+   * 余额不足转欠费（与 AiEvalService.chargeByUsage 同口径），不抛错——
+   * 调用已经发生，欠费记录比丢账更可追溯。
    */
   async charge(
     userId: string,
     points: number,
     meta: PlazaChargeMeta,
-  ): Promise<number> {
+    usage?: PlazaCardUsage,
+  ): Promise<PlazaChargeResult> {
     const amount = Number(points.toFixed(4));
+    // 免费调用不消耗卡额度：卡是「量」的凭证，白送的调用白扣额度等于偷用户的额度。
     if (!(amount > 0)) {
       await this.writeUsageEvent(userId, 0, 0, meta, 0);
-      return 0;
+      return { points: 0, cardId: null, cardDeduct: 0, cardNote: '' };
+    }
+    const deduction = await this.deductCard(userId, meta, usage);
+    const owed = deduction
+      ? pointsOwedByCard(amount, deduction.units, deduction.deduct)
+      : amount;
+    if (deduction && !(owed > 0)) {
+      // 卡全覆盖：走既有的「amount<=0 只写 billed=0 用量事件」分支，天然不留假积分流水。
+      await this.writeUsageEvent(userId, 0, 0, meta, 0);
+      return {
+        points: 0,
+        cardId: deduction.cardId,
+        cardDeduct: deduction.deduct,
+        cardNote: multiplierNote(deduction.units, deduction.deduct, deduction),
+      };
     }
     try {
-      const debit = await this.points.debit(userId, 'SPEND', amount, {
+      const debit = await this.points.debit(userId, 'SPEND', owed, {
         scene: PLAZA_USAGE_CODE,
         refType: 'model',
         refId: meta.refId,
         remark: `模型广场 ${meta.modelKey}（${meta.source}）用量计费`,
       });
-      await this.writeUsageEvent(userId, amount, debit.txId, meta, 1);
-      return amount;
+      await this.writeUsageEvent(userId, owed, debit.txId, meta, 1);
+      return {
+        points: owed,
+        cardId: deduction?.cardId ?? null,
+        cardDeduct: deduction?.deduct ?? 0,
+        cardNote: deduction
+          ? multiplierNote(deduction.units, deduction.deduct, deduction)
+          : '',
+      };
     } catch (error) {
       if (
         error instanceof BusinessException &&
@@ -116,12 +237,39 @@ export class ModelUsageService {
           })
           .catch(() => undefined);
         await this.writeUsageEvent(userId, 0, 0, meta, 0, '余额不足，转欠费');
-        return 0;
+        return {
+          points: 0,
+          cardId: deduction?.cardId ?? null,
+          cardDeduct: deduction?.deduct ?? 0,
+          cardNote: deduction
+            ? multiplierNote(deduction.units, deduction.deduct, deduction)
+            : '',
+        };
       }
       throw error;
     }
   }
 
+  /** 扣卡：只认卡上快照的量纲，绑不上模型或折算不出量就返回 null（整笔走积分）。 */
+  private async deductCard(
+    userId: string,
+    meta: PlazaChargeMeta,
+    usage?: PlazaCardUsage,
+  ): Promise<CardDeduct | null> {
+    if (!this.cards || !usage) return null;
+    return this.cards.deduct({
+      userId,
+      provider: meta.provider,
+      modelKey: meta.modelKey,
+      billingUnit: usage.billingUnit,
+      promptTokens: meta.promptTokens,
+      completionTokens: meta.completionTokens,
+      quantity: usage.quantity,
+      tier: usage.tier,
+    });
+  }
+
+  /** 用量事件（「AI 用量」页与账本的同源口径）：billed=0 表示本次没产生积分流水。 */
   private async writeUsageEvent(
     userId: string,
     amount: number,
@@ -185,6 +333,8 @@ export class ModelUsageService {
         billingQuantity: Number((input.billingQuantity ?? 0).toFixed(6)),
         billingUnit: (input.billingUnit || '').slice(0, 16),
         pointsCost: Number((input.pointsCost ?? 0).toFixed(4)),
+        userCardId: input.userCardId ?? null,
+        cardDeduct: Number((input.cardDeduct ?? 0).toFixed(4)),
         rmbCost: Number((input.rmbCost ?? 0).toFixed(6)),
         elapsedMs: Math.max(0, Math.floor(input.elapsedMs ?? 0)),
         isStream: Boolean(input.isStream),

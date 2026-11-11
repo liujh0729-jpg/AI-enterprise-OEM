@@ -186,6 +186,11 @@ export class AcquisitionController {
     return this.plugin.report(body);
   }
 
+  /** 统一回执落库（登录态）：把插件终态回执挂到浏览器任务队列，业务结果仍以 report 为准。 */
+  async pluginReceipt(user: CurrentUser, body: Row) {
+    return this.plugin.recordReceipt(user, body);
+  }
+
   // ---------- 设置与元信息 ----------
 
   async settings(user: CurrentUser) {

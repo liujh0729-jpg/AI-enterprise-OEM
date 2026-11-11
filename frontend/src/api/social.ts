@@ -28,7 +28,35 @@ export interface FriendRequestRow {
   id: number;
   from: PersonBrief;
   message: string;
+  /** LOCAL | AIWORKIN：请求来源站 */
+  source: string;
+  /** NONE | PENDING | SYNCED | FAILED | SKIPPED */
+  syncState: SyncState;
   createdAt: string;
+}
+export type SyncState = "NONE" | "PENDING" | "SYNCED" | "FAILED" | "SKIPPED" | "DEAD";
+export interface SyncOutcome {
+  state: SyncState;
+  peerHasKey: boolean;
+  reason: string;
+}
+export interface RecommendationReason {
+  kind: string;
+  label: string;
+}
+export interface RecommendationRow {
+  person: PersonBrief & { title?: string; city?: string };
+  /** 亲密度综合分，用于排序与展示 */
+  score: number;
+  matchBand: "HIGH" | "MEDIUM";
+  reasons: RecommendationReason[];
+  actions: string[];
+  organization: string;
+}
+export interface RecommendationResult {
+  items: RecommendationRow[];
+  computedAt: string;
+  stale: boolean;
 }
 export interface PostRow {
   id: number;
@@ -36,6 +64,8 @@ export interface PostRow {
   body: string;
   visibility: string;
   createdAt: string;
+  /** 综合排序命中的亲密度理由（好友、同城、同组织等） */
+  reasons?: RecommendationReason[];
 }
 export interface MyPostRow {
   id: number;
@@ -123,10 +153,15 @@ export interface MessageRow {
   toUserId: string;
   subject: string;
   body: string;
-  linkCards: ResumeLinkCard[];
+  /** LOCAL | AIWORKIN */
+  source: string;
+  syncState: SyncState;
+  /** 上游私信 ID（仅 AIWORKIN 来源有值） */
+  upstreamMessageId: string;
+  linkCards: MessageCard[];
   createdAt: string;
 }
-/** 私信携带的卡片（后端 link_cards 列）：现阶段只有简历投递，点开即 HTML 简历页。 */
+/** 私信携带的卡片（后端 link_cards 列）：简历投递或普通链接。 */
 export interface ResumeLinkCard {
   kind: "RESUME";
   userId: string;
@@ -134,6 +169,12 @@ export interface ResumeLinkCard {
   headline: string;
   updatedAt: string;
 }
+export interface LinkOnlyCard {
+  kind: "LINK";
+  title: string;
+  url: string;
+}
+export type MessageCard = ResumeLinkCard | LinkOnlyCard;
 export interface ResumeItemRow {
   id: number;
   kind: string;
@@ -164,42 +205,66 @@ export interface ResumeView extends ResumeData {
   canManage: boolean;
   updatedAt: string;
 }
-// 供求广场（M6）
-export interface ListingRow {
+// AIworkin 社交同步（本地为主，个人 Key 可选双向）
+export interface SyncPreferences {
+  discoverable: boolean;
+  recommendEnabled: boolean;
+  businessReasonVisible: boolean;
+  friendRequestOutbound: boolean;
+  friendRelationOutbound: boolean;
+  friendRelationInbound: boolean;
+  mailOutboundDefault: boolean;
+  mailInbound: boolean;
+  channel: "AUTO" | "MCP" | "LEGACY" | string;
+}
+export interface SocialIdentityView {
+  /** UNBOUND | KEY_INACTIVE | PLACEHOLDER_ID | SNS_GRANT_MISSING | READY | REVOKED */
+  state: string;
+  upstreamUserId: string;
+  upstreamUsername: string;
+  mailAddress: string;
+  verified: boolean;
+  verifiedAt: string | null;
+}
+export interface SyncOverview {
+  identity: SocialIdentityView;
+  quota: {
+    writesUsedThisHour: number;
+    writesLimitPerHour: number;
+    writesUsedToday: number;
+    writesLimitPerDay: number;
+  };
+  counts: { pending: number; failed: number; dead: number };
+  lastPullAt: string | null;
+  lastError: string;
+  lastErrorAt: string | null;
+  preferences: SyncPreferences;
+  keyBound: boolean;
+}
+export interface SyncJobRow {
   id: number;
-  author: PersonBrief;
-  type: string;
-  title: string;
-  description: string;
-  tags: string[];
-  moneyMode: string | null;
-  amountMin: number | null;
-  amountMax: number | null;
-  currency: string;
-  province: string;
-  city: string;
-  contactNote: string;
+  action: string;
+  direction: string;
+  localType: string;
+  localId: string;
   status: string;
-  publishedUpstream: boolean;
-  aiworkinListingNo: string;
-  subcategoryId: string;
-  category1: string;
-  category2: string;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError: string;
+  remoteId: string;
   createdAt: string;
-  updatedAt: string;
+  completedAt: string | null;
 }
-export interface ListingCategoryOption {
-  id: string;
-  key: string;
-  name: string;
-  credentialTypes: string[];
-  manualOnly: boolean;
-}
-export interface ListingCategoryModule {
-  domain: string;
-  moduleLabel: string;
-  parentName: string;
-  options: ListingCategoryOption[];
+export interface BackfillProgress {
+  total: number;
+  syncable: number;
+  estimatedDays: number;
+  pending: number;
+  succeeded: number;
+  failed: number;
+  dead: number;
+  started?: boolean;
+  queued?: number;
 }
 
 /** 信封 data 结构由调用处 TS 类型断言，这里只做宽松校验（开源本地接口无生成契约）。 */
@@ -227,24 +292,37 @@ export const socialApi = {
   saveProfile: (body: Partial<ProfileData["profile"]>, o?: HttpOptions) =>
     call<ProfileData>(`${BASE}/profile`, withBody("PUT", body) as HttpOptions, o),
   // 好友 / 拉黑
-  requestFriend: (toUserId: string, message: string, o?: HttpOptions) =>
-    call<{ accepted: boolean; requestId: number }>(
+  requestFriend: (
+    toUserId: string,
+    message: string,
+    opts: { syncUpstream?: boolean } = {},
+    o?: HttpOptions,
+  ) =>
+    call<{ accepted: boolean; requestId: number; sync: SyncOutcome }>(
       `${BASE}/friends/requests`,
-      withBody("POST", { toUserId, message }) as HttpOptions,
+      withBody("POST", { toUserId, message, syncUpstream: opts.syncUpstream }) as HttpOptions,
       o,
     ),
   incomingRequests: (o?: HttpOptions) =>
     call<FriendRequestRow[]>(`${BASE}/friends/requests`, o),
-  acceptFriend: (id: number, o?: HttpOptions) =>
-    call<{ accepted: boolean; friendId?: string }>(
+  acceptFriend: (
+    id: number,
+    opts: { syncUpstream?: boolean } = {},
+    o?: HttpOptions,
+  ) =>
+    call<{ accepted: boolean; friendId?: string; sync: SyncOutcome }>(
       `${BASE}/friends/requests/${id}/accept`,
-      withBody("POST", {}) as HttpOptions,
+      withBody("POST", { syncUpstream: opts.syncUpstream }) as HttpOptions,
       o,
     ),
-  rejectFriend: (id: number, o?: HttpOptions) =>
-    call<{ rejected: boolean }>(
+  rejectFriend: (
+    id: number,
+    opts: { syncUpstream?: boolean } = {},
+    o?: HttpOptions,
+  ) =>
+    call<{ rejected: boolean; sync: SyncOutcome }>(
       `${BASE}/friends/requests/${id}/reject`,
-      withBody("POST", {}) as HttpOptions,
+      withBody("POST", { syncUpstream: opts.syncUpstream }) as HttpOptions,
       o,
     ),
   listFriends: (o?: HttpOptions) => call<PersonBrief[]>(`${BASE}/friends`, o),
@@ -414,8 +492,11 @@ export const socialApi = {
   listThreads: (o?: HttpOptions) => call<ThreadRow[]>(`${BASE}/mail/threads`, o),
   threadMessages: (threadId: number, o?: HttpOptions) =>
     call<MessageRow[]>(`${BASE}/mail/threads/${threadId}/messages`, o),
-  sendMail: (body: { toUserId: string; subject?: string; body: string }, o?: HttpOptions) =>
-    call<{ id: number; threadId: number }>(
+  sendMail: (
+    body: { toUserId: string; subject?: string; body: string; syncUpstream?: boolean },
+    o?: HttpOptions,
+  ) =>
+    call<{ id: number; threadId: number; sync: SyncOutcome }>(
       `${BASE}/mail`,
       withBody("POST", body) as HttpOptions,
       o,
@@ -427,6 +508,48 @@ export const socialApi = {
       withBody("POST", body) as HttpOptions,
       o,
     ),
+  // 亲密度推荐
+  recommendations: (limit = 12, o?: HttpOptions) =>
+    call<RecommendationResult>(`${BASE}/recommendations?limit=${limit}`, o),
+  dismissRecommendation: (userId: string, o?: HttpOptions) =>
+    call<{ dismissed: boolean }>(
+      `${BASE}/recommendations/${encodeURIComponent(userId)}/dismiss`,
+      withBody("POST", {}) as HttpOptions,
+      o,
+    ),
+  // AIworkin 同步
+  syncOverview: (o?: HttpOptions) => call<SyncOverview>(`${BASE}/sync/overview`, o),
+  syncPreferences: (o?: HttpOptions) => call<SyncPreferences>(`${BASE}/sync/preferences`, o),
+  saveSyncPreferences: (body: Partial<SyncPreferences>, o?: HttpOptions) =>
+    call<SyncPreferences>(`${BASE}/sync/preferences`, withBody("PUT", body) as HttpOptions, o),
+  syncJobs: (status?: string, o?: HttpOptions) => {
+    const q = new URLSearchParams();
+    if (status) q.set("status", status);
+    const s = q.toString();
+    return call<SyncJobRow[]>(`${BASE}/sync/jobs${s ? `?${s}` : ""}`, o);
+  },
+  retrySyncJob: (id: number, o?: HttpOptions) =>
+    call<{ retried: boolean }>(
+      `${BASE}/sync/jobs/${id}/retry`,
+      withBody("POST", {}) as HttpOptions,
+      o,
+    ),
+  syncPull: (o?: HttpOptions) =>
+    call<{ queued: string[] }>(`${BASE}/sync/pull`, withBody("POST", {}) as HttpOptions, o),
+  syncVerify: (o?: HttpOptions) =>
+    call<{ state: string; verified: boolean; upstreamUsername: string; mailAddress: string }>(
+      `${BASE}/sync/verify`,
+      withBody("POST", {}) as HttpOptions,
+      o,
+    ),
+  backfillFriends: (confirm: boolean, o?: HttpOptions) =>
+    call<BackfillProgress>(
+      `${BASE}/sync/backfill/friends`,
+      withBody("POST", { confirm }) as HttpOptions,
+      o,
+    ),
+  backfillProgress: (o?: HttpOptions) =>
+    call<BackfillProgress>(`${BASE}/sync/backfill/friends/progress`, o),
   // 简历
   getResume: (o?: HttpOptions) => call<ResumeData>(`${BASE}/resume`, o),
   viewResume: (userId: string, o?: HttpOptions) =>
@@ -455,68 +578,6 @@ export const socialApi = {
     call<{ deleted: boolean }>(
       `${BASE}/resume/items/${id}`,
       { method: "DELETE" } as HttpOptions,
-      o,
-    ),
-  // 供求广场（M6）
-  listingCategories: (o?: HttpOptions) =>
-    call<ListingCategoryModule[]>(`${BASE}/listings/categories`, o),
-  createListing: (
-    body: {
-      type: "DEMAND" | "SERVICE";
-      title: string;
-      description: string;
-      tags?: string[];
-      moneyMode?: string;
-      amountMin?: number;
-      amountMax?: number;
-      province?: string;
-      city?: string;
-      contactNote?: string;
-      subcategoryId?: string;
-    },
-    o?: HttpOptions,
-  ) => call<ListingRow>(`${BASE}/listings`, withBody("POST", body) as HttpOptions, o),
-  listListings: (
-    params?: { type?: string; keyword?: string; take?: number },
-    o?: HttpOptions,
-  ) => {
-    const q = new URLSearchParams();
-    if (params?.type) q.set("type", params.type);
-    if (params?.keyword) q.set("keyword", params.keyword);
-    if (params?.take) q.set("take", String(params.take));
-    const s = q.toString();
-    return call<ListingRow[]>(`${BASE}/listings${s ? `?${s}` : ""}`, o);
-  },
-  myListings: (o?: HttpOptions) => call<ListingRow[]>(`${BASE}/listings/mine`, o),
-  getListing: (id: number, o?: HttpOptions) => call<ListingRow>(`${BASE}/listings/${id}`, o),
-  deleteListing: (id: number, o?: HttpOptions) =>
-    call<{ deleted: boolean }>(
-      `${BASE}/listings/${id}`,
-      { method: "DELETE" } as HttpOptions,
-      o,
-    ),
-  publishListingUpstream: (
-    id: number,
-    body: {
-      deadline?: string;
-      contactName?: string;
-      contactPhone?: string;
-      contactWechat?: string;
-      contactEmail?: string;
-      priceDescription?: string;
-      serviceAreaMode?: string;
-    },
-    o?: HttpOptions,
-  ) =>
-    call<ListingRow>(
-      `${BASE}/listings/${id}/publish-upstream`,
-      withBody("POST", body) as HttpOptions,
-      o,
-    ),
-  refreshListingStatus: (id: number, o?: HttpOptions) =>
-    call<ListingRow>(
-      `${BASE}/listings/${id}/refresh-status`,
-      withBody("POST", {}) as HttpOptions,
       o,
     ),
 };

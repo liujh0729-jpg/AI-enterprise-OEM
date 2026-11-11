@@ -34,6 +34,12 @@ const ENGAGEMENT_STATUS_LABELS: Record<string, string> = {
   CANCELED: '已取消',
 };
 const RATE_TYPES = ['STAFF', 'ASSIGNMENT', 'PARTY'];
+const RECON_ISSUE_LABELS: Record<string, string> = {
+  MISSING_PAYABLE: '已入库但未挂应付',
+  DUPLICATE_PAYABLE: '同一采购单挂多笔应付',
+  OVER_PAYABLE: '应付金额超过采购额',
+  PAID_NOT_RECEIVED: '已付款但未入库',
+};
 
 const num = (v: unknown, fallback = 0): number => {
   const n = Number(v);
@@ -440,7 +446,7 @@ export class ProjectCostService {
     if (row.sourceType !== 'MANUAL')
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
-        '系统归集的成本项不能直接删除；请取消对应外部合作',
+        `系统归集的成本项不能直接删除；请处理来源单据（${COST_SOURCE_LABELS[row.sourceType] || row.sourceType}）`,
       );
     await this.prisma.pjCostItem.delete({ where: { id: row.id } });
     this.emit(org, 'project.cost.updated', {
@@ -524,6 +530,236 @@ export class ProjectCostService {
     };
   }
 
+  /**
+   * 成本三口径 + 收入利润（设计方案 §5.3 第二/四个闭环）：
+   * 已发生＝成本台账（含采购入库自动归集的 ERP_PO 成本项）＋已结算的外部合作；
+   * 已支付＝归属本项目的采购单已付款 + 已结算外部合作；已确认＝已入库采购 + 已验收外部合作；
+   * 已承诺＝已审批但尚未入库的采购单 + 履约中的外部合作。
+   * 收入取本项目关联合同额（项目合同优先，其次按客户名找该客户最大的在用合同），减已发生成本即毛利。
+   */
+  private async costCommitments(
+    org: HrmOrg,
+    project: { id: number; customerName: string; contractId: number },
+  ) {
+    const projectOrders = await this.prisma.erpPurchaseOrder.findMany({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        projectId: project.id,
+        status: { not: 'CANCELED' },
+      },
+      select: { id: true, amount: true, status: true },
+    });
+    const orderIds = projectOrders.map((row) => row.id);
+    const [receipts, payables, engagements] = await Promise.all([
+      orderIds.length
+        ? this.prisma.erpReceipt.findMany({
+            where: {
+              orgType: org.orgType,
+              orgUserId: org.orgUserId,
+              purchaseOrderId: { in: orderIds },
+              status: 'RECEIVED',
+            },
+            select: { purchaseOrderId: true },
+          })
+        : Promise.resolve([]),
+      orderIds.length
+        ? this.prisma.erpPayable.findMany({
+            where: {
+              orgType: org.orgType,
+              orgUserId: org.orgUserId,
+              sourceType: 'PURCHASE_ORDER',
+              sourceId: { in: orderIds },
+            },
+            select: { paidAmount: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.pjEngagement.findMany({
+        where: {
+          orgType: org.orgType,
+          orgUserId: org.orgUserId,
+          projectId: project.id,
+        },
+        select: { amount: true, status: true },
+      }),
+    ]);
+    const receivedOrders = new Set(receipts.map((row) => row.purchaseOrderId));
+    const confirmedOrders = projectOrders.filter((row) =>
+      receivedOrders.has(row.id),
+    );
+    const pendingOrders = projectOrders.filter(
+      (row) =>
+        !receivedOrders.has(row.id) &&
+        ['APPROVED', 'RECEIVING'].includes(row.status),
+    );
+    const settledExternal = engagements.filter((row) => row.status === 'SETTLED');
+    const openExternal = engagements.filter(
+      (row) => row.status === 'DRAFT' || row.status === 'ACTIVE' || row.status === 'ACCEPTING',
+    );
+    const sum = (rows: Array<{ amount: unknown }>): number =>
+      rows.reduce((total: number, row) => total + num(row.amount), 0);
+    let paidOnOrders = 0;
+    for (const row of payables) paidOnOrders += num(row.paidAmount);
+    return {
+      revenueAmount: ds(await this.projectRevenue(org, project)),
+      committedAmount: ds(round(sum(pendingOrders) + sum(openExternal))),
+      confirmedAmount: ds(
+        round(sum(confirmedOrders) + sum(settledExternal)),
+      ),
+      paidAmount: ds(round(paidOnOrders + sum(settledExternal))),
+      purchaseAmount: ds(round(sum(projectOrders))),
+    };
+  }
+
+  /** 项目收入：项目直接挂的合同优先；否则按客户名找该客户金额最大的在用合同。 */
+  private async projectRevenue(
+    org: HrmOrg,
+    project: { id: number; customerName: string; contractId: number },
+  ) {
+    if (project.contractId > 0) {
+      const own = await this.prisma.crmContract.findFirst({
+        where: {
+          orgType: org.orgType,
+          orgUserId: org.orgUserId,
+          id: project.contractId,
+          deletedAt: null,
+          voidReason: '',
+        },
+        select: { amount: true },
+      });
+      if (own) return num(own.amount);
+    }
+    if (!project.customerName) return 0;
+    const customer = await this.prisma.crmCustomer.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        name: project.customerName,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!customer) return 0;
+    const contract = await this.prisma.crmContract.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        customerId: customer.id,
+        deletedAt: null,
+        voidReason: '',
+      },
+      orderBy: { amount: 'desc' },
+      select: { amount: true },
+    });
+    return num(contract?.amount);
+  }
+
+  /**
+   * 采购单 ↔ 应付对账：按「采购单」来源找应付，标出缺应付（采购已入库却无付款义务）、
+   * 应付超采购额（重复挂账/金额录错）、以及已付但采购未入库（先款后货）。
+   */
+  async purchaseReconciliation(
+    user: CurrentUser,
+    query: { onlyIssues?: boolean | string },
+  ) {
+    const org = await this.org(user);
+    const [orders, payables] = await Promise.all([
+      this.prisma.erpPurchaseOrder.findMany({
+        where: {
+          orgType: org.orgType,
+          orgUserId: org.orgUserId,
+          status: { notIn: ['DRAFT', 'CANCELED'] },
+        },
+        select: {
+          id: true,
+          orderNo: true,
+          vendorId: true,
+          projectId: true,
+          amount: true,
+          taxAmount: true,
+          status: true,
+        },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.erpPayable.findMany({
+        where: {
+          orgType: org.orgType,
+          orgUserId: org.orgUserId,
+          sourceType: 'PURCHASE_ORDER',
+          status: { not: 'CANCELED' },
+        },
+        select: { sourceId: true, amount: true, paidAmount: true },
+      }),
+    ]);
+    const receipts = orders.length
+      ? await this.prisma.erpReceipt.findMany({
+          where: {
+            orgType: org.orgType,
+            orgUserId: org.orgUserId,
+            purchaseOrderId: { in: orders.map((row) => row.id) },
+            status: 'RECEIVED',
+          },
+          select: { purchaseOrderId: true },
+        })
+      : [];
+    const received = new Set(receipts.map((row) => row.purchaseOrderId));
+    const payableOf = new Map<
+      number,
+      { amount: number; paid: number; count: number }
+    >();
+    for (const row of payables) {
+      const bucket = payableOf.get(row.sourceId) || { amount: 0, paid: 0, count: 0 };
+      bucket.amount += num(row.amount);
+      bucket.paid += num(row.paidAmount);
+      bucket.count += 1;
+      payableOf.set(row.sourceId, bucket);
+    }
+    const vendors = await this.prisma.erpVendor.findMany({
+      where: { orgType: org.orgType, orgUserId: org.orgUserId },
+      select: { id: true, name: true },
+    });
+    const vendorName = new Map(vendors.map((row) => [row.id, row.name]));
+    const rows = orders.map((order) => {
+      const payable = payableOf.get(order.id);
+      const orderAmount = num(order.amount);
+      // 付款义务按含税总额，与入库自动生成的应付口径一致：否则只要有税就误报「应付超采购额」。
+      const orderTotal = round(orderAmount + num(order.taxAmount));
+      const issue = !payable
+        ? received.has(order.id)
+          ? 'MISSING_PAYABLE'
+          : ''
+        : payable.count > 1
+          ? 'DUPLICATE_PAYABLE'
+          : payable.amount > orderTotal
+            ? 'OVER_PAYABLE'
+            : payable.paid > 0 && !received.has(order.id)
+              ? 'PAID_NOT_RECEIVED'
+              : '';
+      return {
+        purchaseOrderId: order.id,
+        orderNo: order.orderNo,
+        vendorName: vendorName.get(order.vendorId) || '',
+        projectId: order.projectId,
+        orderAmount: ds(order.amount),
+        orderTotal: ds(orderTotal),
+        orderStatus: order.status,
+        received: received.has(order.id),
+        payableCount: payable?.count || 0,
+        payableAmount: ds(payable?.amount || 0),
+        payablePaid: ds(payable?.paid || 0),
+        issue,
+        issueLabel: RECON_ISSUE_LABELS[issue] || '',
+      };
+    });
+    const onlyIssues = query.onlyIssues === true || query.onlyIssues === '1';
+    const list = (onlyIssues ? rows.filter((row) => row.issue) : rows).slice(0, 500);
+    return {
+      list,
+      total: list.length,
+      issueCount: rows.filter((row) => row.issue).length,
+    };
+  }
+
   async projectCost(user: CurrentUser, rawId: string) {
     const org = await this.org(user);
     const project = await this.requireProject(org, Number(rawId));
@@ -565,7 +801,14 @@ export class ProjectCostService {
       COST_KINDS.reduce((sum, kind) => sum + totals[kind].amount, 0),
     );
     const budgetAmount = num(project.budgetAmount);
+    const money = await this.costCommitments(org, project);
+    const revenueAmount = num(money.revenueAmount);
     return {
+      ...money,
+      profitAmount: ds(round(revenueAmount - costTotal)),
+      profitRatePct: revenueAmount
+        ? Math.round(((revenueAmount - costTotal) / revenueAmount) * 100)
+        : 0,
       projectId: project.id,
       currency: project.currency,
       budgetAmount: ds(project.budgetAmount),
@@ -854,6 +1097,13 @@ export class ProjectCostService {
         },
       });
     }
+    // 外部合作验收即产生对外付款义务：按「外部合作」来源自动生成应付单，验收后金额与付款同步回写。
+    if (next === 'SETTLED') {
+      await this.syncEngagementPayable(org, saved);
+    }
+    if (next === 'CANCELED') {
+      await this.cancelEngagementPayable(org, row.id);
+    }
     this.emit(org, `engagement.${next.toLowerCase()}`, {
       engagementId: saved.id,
       projectId: saved.projectId,
@@ -865,6 +1115,78 @@ export class ProjectCostService {
     return this.engagementView(saved, project.name, {
       name: party.name,
       kind: party.kind,
+    });
+  }
+
+  /** 外部合作验收 → 自动生成/回写应付单（来源固定 ENGAGEMENT，重复验收天然幂等）。 */
+  private async syncEngagementPayable(
+    org: HrmOrg,
+    row: { id: number; partyId: number; amount: unknown; currency: string },
+  ) {
+    const party = await this.prisma.bizParty.findFirst({
+      where: { id: row.partyId, orgType: org.orgType, orgUserId: org.orgUserId },
+      select: { name: true },
+    });
+    // 应付按供应商登记：外部主体与供应商各自独立维护，按同名供应商匹配，无匹配则留空待财务补。
+    const vendor = party?.name
+      ? await this.prisma.erpVendor.findFirst({
+          where: {
+            orgType: org.orgType,
+            orgUserId: org.orgUserId,
+            name: party.name,
+          },
+          select: { id: true },
+        })
+      : null;
+    const existing = await this.prisma.erpPayable.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        sourceType: 'ENGAGEMENT',
+        sourceId: row.id,
+      },
+    });
+    if (existing) {
+      if (existing.status === 'CANCELED') return;
+      await this.prisma.erpPayable.update({
+        where: { id: existing.id },
+        data: { amount: num(row.amount) },
+      });
+      return;
+    }
+    const stamp = today().replace(/-/g, '');
+    const count = await this.prisma.erpPayable.count({
+      where: { orgType: org.orgType, orgUserId: org.orgUserId },
+    });
+    await this.prisma.erpPayable.create({
+      data: {
+        ...orgKey(org),
+        code: `YF-${stamp}-${String(count + 1).padStart(4, '0')}`,
+        vendorId: vendor?.id || 0,
+        sourceType: 'ENGAGEMENT',
+        sourceId: row.id,
+        amount: num(row.amount),
+        dueDate: today(),
+        note: `外部合作验收：${party?.name || ''}`.slice(0, 500),
+      },
+    });
+  }
+
+  private async cancelEngagementPayable(org: HrmOrg, engagementId: number) {
+    const row = await this.prisma.erpPayable.findFirst({
+      where: {
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+        sourceType: 'ENGAGEMENT',
+        sourceId: engagementId,
+      },
+      select: { id: true, paidAmount: true },
+    });
+    // 已有付款的应付不能静默取消，交由财务处理，避免账实不符。
+    if (!row || num(row.paidAmount) > 0) return;
+    await this.prisma.erpPayable.update({
+      where: { id: row.id },
+      data: { status: 'CANCELED' },
     });
   }
 

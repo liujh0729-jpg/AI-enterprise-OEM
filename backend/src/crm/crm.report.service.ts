@@ -3,6 +3,7 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma';
 import { toJsonInput } from '../common/json-input';
 import { CrmScopeService, CrmContext } from './crm.scope';
 import { CrmSettingsService } from './crm.settings.service';
@@ -712,6 +713,7 @@ export class CrmReportService {
     const task = await this.prisma.crmExportTask.create({
       data: {
         ownerUserId: ctx.ownerUserId,
+        createdBy: ctx.actorId,
         module,
         query: toJsonInput({ columns }),
         status: 'DONE',
@@ -734,8 +736,15 @@ export class CrmReportService {
 
   async exportTasks(user: CurrentUser) {
     const ctx = await this.scope.requireMember(user);
+    // 导出文件同样受数据范围约束：非组织级范围只看得到自己创建的导出。
+    const scope = await this.scope.scopeWhereAsync(ctx, 'CORE', 'createdBy');
+    const where: Prisma.CrmExportTaskWhereInput = {
+      ownerUserId: scope.ownerUserId,
+      expiresAt: { gt: new Date() },
+    };
+    if (scope.createdBy !== undefined) where.createdBy = scope.createdBy;
     const rows = await this.prisma.crmExportTask.findMany({
-      where: { ownerUserId: ctx.ownerUserId, expiresAt: { gt: new Date() } },
+      where,
       orderBy: { id: 'desc' },
       take: 100,
     });
@@ -753,9 +762,14 @@ export class CrmReportService {
   async download(user: CurrentUser, rawId: string) {
     const ctx = await this.scope.requireMember(user);
     const id = Number(rawId);
-    const task = await this.prisma.crmExportTask.findFirst({
-      where: { id, ownerUserId: ctx.ownerUserId },
-    });
+    // 下载要按调用者数据范围复核：授权范围不含创建人时按「不存在」处理，不泄露存在性。
+    const scope = await this.scope.scopeWhereAsync(ctx, 'CORE', 'createdBy');
+    const where: Prisma.CrmExportTaskWhereInput = {
+      id,
+      ownerUserId: scope.ownerUserId,
+    };
+    if (scope.createdBy !== undefined) where.createdBy = scope.createdBy;
+    const task = await this.prisma.crmExportTask.findFirst({ where });
     if (!task)
       throw new BusinessException(
         ErrorCode.NOT_FOUND,

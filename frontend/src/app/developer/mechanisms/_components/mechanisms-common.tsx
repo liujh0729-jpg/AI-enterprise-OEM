@@ -165,4 +165,6 @@ export const RULE_ACTION_LABELS: Record<string, string> = {
   notify: "发通知",
   insight: "记洞察",
   task: "建任务",
+  run_workflow: "跑工作流",
+  assign_task: "派任务",
 };

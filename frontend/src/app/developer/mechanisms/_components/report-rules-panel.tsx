@@ -481,7 +481,7 @@ export function ReportRulesPanel() {
                       />
                     </Form.Item>
                     <Form.Item name={[field.name, "target"]} style={{ margin: 0, flex: 1 }}>
-                      <Input placeholder="目标（Webhook 名称 / 接收人 / 标题）" />
+                      <Input placeholder="目标（Webhook / 接收人 / 工作流编号或业务标识 / 承办人，组织队列填 ORG:账号）" />
                     </Form.Item>
                     <Button size="small" danger icon={<DeleteOutlined aria-hidden />} onClick={() => remove(field.name)} />
                   </div>

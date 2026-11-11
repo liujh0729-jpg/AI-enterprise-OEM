@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, ConfigProvider } from "antd";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { identityApi } from "@/api/identity";
 import { Notice, PageHero } from "@/components/ui/panel";
@@ -51,6 +51,11 @@ export default function StaffPage() {
   const router = useRouter();
   const { me } = useSession();
   const [view, setView] = useState<StaffView>("manage");
+  // 深链直达：/staff?tab=functions 定位到职能管理
+  const wantedTab = useSearchParams().get("tab") || "";
+  useEffect(() => {
+    if (TABS.some((item) => item.key === wantedTab)) setView(wantedTab as StaffView);
+  }, [wantedTab]);
   /** 服务商视角＝本机构管理职员；仅「服务商身份」可进入。 */
   const isProviderIdentity =
     (me?.currentIdentity || "") === "SERVICE_PROVIDER";
@@ -90,7 +95,7 @@ export default function StaffPage() {
 
   useEffect(() => {
     if (isJoinIdentity || isProviderIdentity || isEnterpriseIdentity || !me) return;
-    // 企业/个体工商户身份没有本视角，也不该看到服务商的管理功能（不发起请求、直接回高管驾驶舱）
+    // 企业/个体工商户身份没有本视角，也不该看到服务商的管理功能（不发起请求、直接回驾驶舱）
     router.replace("/dashboard");
   }, [me, isJoinIdentity, isProviderIdentity, isEnterpriseIdentity, router]);
 
@@ -158,7 +163,7 @@ export default function StaffPage() {
     );
   }
 
-  // 其他身份回到高管驾驶舱
+  // 其他身份回到驾驶舱
   if (me && !isProviderIdentity) {
     return null;
   }

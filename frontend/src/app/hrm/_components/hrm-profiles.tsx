@@ -17,6 +17,7 @@ import { hrmApi, type HrmProfile } from "@/api/hrm";
 import { aiApi, type AiHrmAttrition } from "@/api/ai";
 import { AiLevelTag, AiList, AiResultModal } from "@/components/ai-result";
 import { Panel } from "@/components/ui/panel";
+import { HrmHandoverPanel } from "./hrm-handover-panel";
 import {
   EMPLOYMENT_LABELS,
   EMPLOYMENT_OPTIONS,
@@ -62,6 +63,8 @@ export function HrmProfilesTab({ reloadKey }: { reloadKey: number }) {
   const [attritionOpen, setAttritionOpen] = useState(false);
   const [attritionLoading, setAttritionLoading] = useState(false);
   const [attritionName, setAttritionName] = useState("");
+  const [handoverUserId, setHandoverUserId] = useState<string | null>(null);
+  const [handoverName, setHandoverName] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -172,6 +175,10 @@ export function HrmProfilesTab({ reloadKey }: { reloadKey: number }) {
         },
       });
       message.success(next === "LEFT" ? "已标记离职" : "已恢复在职");
+      if (next === "LEFT") {
+        setHandoverName(row.employeeNo || row.memberUserId);
+        setHandoverUserId(row.memberUserId);
+      }
       await load();
     } catch (err) {
       message.error(hrmError(err));
@@ -301,7 +308,7 @@ export function HrmProfilesTab({ reloadKey }: { reloadKey: number }) {
           },
           {
             title: "操作",
-            width: 230,
+            width: 320,
             render: (_: unknown, row: HrmProfile) => (
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openEdit(row)}>
@@ -309,6 +316,16 @@ export function HrmProfilesTab({ reloadKey }: { reloadKey: number }) {
                 </Button>
                 <Button type="link" size="small" onClick={() => void runAttrition(row)}>
                   AI 离职风险
+                </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => {
+                    setHandoverName(row.employeeNo || row.memberUserId);
+                    setHandoverUserId(row.memberUserId);
+                  }}
+                >
+                  离职交接
                 </Button>
                 {row.status === "LEFT" ? (
                   <Button type="link" size="small" onClick={() => void changeStatus(row, "ACTIVE")}>
@@ -324,6 +341,14 @@ export function HrmProfilesTab({ reloadKey }: { reloadKey: number }) {
           },
         ]}
       />
+
+      <div style={{ marginTop: 12 }}>
+        <HrmHandoverPanel
+          memberUserId={handoverUserId}
+          memberName={handoverName}
+          onClosed={() => void load()}
+        />
+      </div>
 
       <Modal
         title={editing ? "编辑员工档案" : "新增员工档案"}

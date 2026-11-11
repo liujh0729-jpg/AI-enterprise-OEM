@@ -280,6 +280,11 @@ export const assistantAnswerSchema = z.object({
   model: z.string(),
   source: z.string(),
   context: z.array(z.object({ label: z.string(), value: z.string() })),
+  /** 命中的场景助手（docs §11.2）；未登记页面为空串。 */
+  scenarioKey: z.string(),
+  scenarioTitle: z.string(),
+  capabilities: z.array(z.string()),
+  boundaries: z.array(z.string()),
 });
 
 export const assistantHistoryRowSchema = z.object({
@@ -298,6 +303,30 @@ export const assistantRegistryRowSchema = z.object({
   title: z.string(),
   domain: z.string(),
   entityType: z.string(),
+  scenarioKey: z.string(),
+  scenarioTitle: z.string(),
+  capabilities: z.array(z.string()),
+  boundaries: z.array(z.string()),
+  /** 是否支持从会议记录/邮件提取行动项 */
+  extract: z.boolean(),
+});
+
+/** 会议/邮件行动项提取：只处理用户粘贴/选定的文本，产出待确认任务。 */
+export const assistantExtractActionsBodySchema = z.object({
+  sourceType: z.enum(["MEETING", "MAIL"]).default("MEETING"),
+  sourceRef: z.string().max(64).default(""),
+  text: z.string().trim().min(1).max(20000),
+  assigneeUserId: z.string().max(64).default(""),
+  model: z.string().max(128).default(""),
+  channelId: z.number().int().min(0).default(0),
+});
+
+export const assistantExtractResultSchema = z.object({
+  source: z.string(),
+  total: z.number(),
+  items: z.array(
+    z.object({ id: z.number(), title: z.string(), dueAt: z.string() }),
+  ),
 });
 
 // ---------------------------------------------------------------------------
@@ -431,6 +460,12 @@ export const promoCodeSchema = z.object({
   endsAt: z.string(),
   status: z.string(),
   statusLabel: z.string(),
+  /** POINTS 兑积分 | CARD 兑时长卡 */
+  assetType: z.string().default("POINTS"),
+  /** assetType=CARD 时绑定的卡规格 code */
+  cardCode: z.string().default(""),
+  /** 卡名快照，管理表格直接显示「兑的是哪张卡」 */
+  cardName: z.string().default(""),
   createdAt: z.string(),
 });
 export type PromoCode = z.infer<typeof promoCodeSchema>;
@@ -447,6 +482,8 @@ export const savePromoCodeBodySchema = z.object({
   startsAt: z.string().max(32).default(""),
   endsAt: z.string().max(32).default(""),
   status: z.enum(["ACTIVE", "DISABLED"]).default("ACTIVE"),
+  assetType: z.enum(["POINTS", "CARD"]).default("POINTS"),
+  cardCode: z.string().trim().max(32).default(""),
 });
 
 export const redeemPromoBodySchema = z.object({
@@ -458,7 +495,240 @@ export const redeemPromoResultSchema = z.object({
   balance: z.number(),
   promoCode: z.string(),
   promoName: z.string(),
+  /** POINTS 兑积分（存量码默认）| CARD 兑时长卡；旧客户端忽略此字段仍读得到积分文案。 */
+  assetType: z.string().default("POINTS"),
+  /** assetType=CARD 时的发卡结果；积分码为 null。 */
+  card: z
+    .object({
+      cardId: z.number(),
+      name: z.string(),
+      modelKey: z.string(),
+      modelName: z.string(),
+      unit: z.string(),
+      quota: z.number(),
+      quotaLabel: z.string(),
+      validDays: z.number().int(),
+      expiresAt: z.string(),
+    })
+    .nullable(),
 });
+
+// ---------------------------------------------------------------------------
+// 时长卡（日卡 / 30 天卡）：卡规格目录、用户卡、兑换订单与消耗进度
+// ---------------------------------------------------------------------------
+
+/** 卡的量纲只能来自模型目录的 billingUnit；`call` 无「量」可表达，不允许建卡。 */
+export const CARD_BILLING_UNITS = ["token", "image", "second"] as const;
+export const CARD_BILLING_UNIT_LABELS: Record<string, string> = {
+  token: "tokens",
+  image: "张",
+  second: "秒",
+};
+export const CARD_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: "生效中",
+  EXHAUSTED: "已用尽",
+  EXPIRED: "已过期",
+  REVOKED: "已撤销",
+};
+export const CARD_SOURCE_LABELS: Record<string, string> = {
+  REDEEM: "兑换码",
+  POINTS: "积分兑换",
+  CASH: "现金购买",
+  ADMIN: "平台发放",
+};
+export const CARD_ORDER_KIND_LABELS: Record<string, string> = {
+  CARD_CASH: "日卡购买",
+  CARD_CODE: "日卡兑换",
+  CARD_POINTS: "积分兑换",
+};
+export const CARD_ORDER_STATUS_LABELS: Record<string, string> = {
+  CREATED: "待支付",
+  PAID: "已支付",
+  ISSUED: "已发卡",
+  CLOSED: "已关闭",
+  FAILED: "失败",
+  REFUNDED: "已退款",
+};
+
+/** 规格倍率行：match 写法与模型目录分档一致（如 { video_resolution: "720p" }）。 */
+export const cardSpecMultiplierSchema = z.object({
+  match: z.record(z.string(), z.string()),
+  multiplier: z.number().min(0.001).max(1000),
+});
+export type CardSpecMultiplier = z.infer<typeof cardSpecMultiplierSchema>;
+
+export const cardTemplateSchema = z.object({
+  id: z.number(),
+  code: z.string(),
+  name: z.string(),
+  catalogId: z.number(),
+  provider: z.string(),
+  modelKey: z.string(),
+  modelName: z.string(),
+  billingUnit: z.string(),
+  billingUnitLabel: z.string(),
+  quotaTotal: z.number(),
+  /** 面向用户的额度读法：token 折算成「X 万 tokens」，其余按单位原样。 */
+  quotaLabel: z.string(),
+  validDays: z.number().int(),
+  specMultipliers: z.array(cardSpecMultiplierSchema),
+  pointsPrice: z.number(),
+  cashCents: z.number(),
+  /** 同一用户在该规格下最多持有几张（三入口合计）；0=不限 */
+  perUserLimit: z.number().int(),
+  status: z.string(),
+  statusLabel: z.string(),
+  sortOrder: z.number().int(),
+  remark: z.string(),
+  createdAt: z.string(),
+});
+export type CardTemplate = z.infer<typeof cardTemplateSchema>;
+
+export const saveCardTemplateBodySchema = z.object({
+  id: z.number().int().min(0).default(0),
+  code: z.string().trim().min(2).max(32),
+  name: z.string().trim().min(1).max(80),
+  catalogId: z.number().int().positive(),
+  quotaTotal: z.number().positive(),
+  validDays: z.number().int().min(1).max(3650).default(1),
+  specMultipliers: z.array(cardSpecMultiplierSchema).max(20).default([]),
+  pointsPrice: z.number().min(0).default(0),
+  cashCents: z.number().int().min(0).default(0),
+  /** 同一用户最多持有几张（0=不限）；兑换码/积分/现金三入口合计计数 */
+  perUserLimit: z.number().int().min(0).max(100).default(0),
+  status: z.enum(["ACTIVE", "DISABLED"]).default("ACTIVE"),
+  sortOrder: z.number().int().min(0).default(0),
+  remark: z.string().max(200).default(""),
+});
+export type SaveCardTemplateBody = z.infer<typeof saveCardTemplateBodySchema>;
+
+export const myCardSchema = z.object({
+  id: z.number(),
+  templateCode: z.string(),
+  name: z.string(),
+  provider: z.string(),
+  modelKey: z.string(),
+  modelName: z.string(),
+  billingUnit: z.string(),
+  billingUnitLabel: z.string(),
+  quotaTotal: z.number(),
+  quotaUsed: z.number(),
+  quotaRemaining: z.number(),
+  /** 已用百分比（0-100，一位小数），进度条直接用。 */
+  usedPercent: z.number(),
+  quotaLabel: z.string(),
+  usedLabel: z.string(),
+  status: z.string(),
+  statusLabel: z.string(),
+  source: z.string(),
+  sourceLabel: z.string(),
+  activatedAt: z.string(),
+  expiresAt: z.string(),
+  /** 距到期剩余（秒）；已过期/撤销为 0。 */
+  secondsLeft: z.number(),
+  createdAt: z.string(),
+});
+export type MyCard = z.infer<typeof myCardSchema>;
+
+export const cardOrderSchema = z.object({
+  orderNo: z.string(),
+  kind: z.string(),
+  kindLabel: z.string(),
+  templateCode: z.string(),
+  name: z.string(),
+  billingUnit: z.string(),
+  billingUnitLabel: z.string(),
+  quotaTotal: z.number(),
+  quotaLabel: z.string(),
+  amountCents: z.number(),
+  pointsAmount: z.number(),
+  status: z.string(),
+  statusLabel: z.string(),
+  promoCode: z.string(),
+  paidAt: z.string(),
+  issuedAt: z.string(),
+  failReason: z.string(),
+  createdAt: z.string(),
+  /** 关联卡的实时进度；未发卡（待支付/失败）为 null。 */
+  card: myCardSchema.nullable(),
+});
+export type CardOrder = z.infer<typeof cardOrderSchema>;
+
+/** 卡的逐次扣量明细：与 AI 用量同源（model_usage_logs.user_card_id）。 */
+export const cardUsageSchema = z.object({
+  id: z.number(),
+  modelKey: z.string(),
+  displayName: z.string(),
+  source: z.string(),
+  billingUnit: z.string(),
+  cardDeduct: z.number(),
+  deductLabel: z.string(),
+  pointsCost: z.number(),
+  elapsedMs: z.number(),
+  message: z.string(),
+  createdAt: z.string(),
+});
+export type CardUsageRow = z.infer<typeof cardUsageSchema>;
+
+export const exchangeCardByPointsBodySchema = z.object({
+  templateCode: z.string().trim().min(2).max(32),
+});
+export const exchangeCardByPointsResultSchema = z.object({
+  orderNo: z.string(),
+  pointsAmount: z.number(),
+  balance: z.number(),
+  card: myCardSchema,
+});
+
+export const createCardCashOrderBodySchema = z.object({
+  templateCode: z.string().trim().min(2).max(32),
+  channel: z.enum(["NATIVE", "H5"]).default("NATIVE"),
+});
+export const createCardCashOrderResultSchema = z.object({
+  orderNo: z.string(),
+  amountCents: z.number(),
+  channel: z.string(),
+  codeUrl: z.string(),
+  h5Url: z.string(),
+});
+
+export const cardOrderQueryResultSchema = z.object({
+  orderNo: z.string(),
+  status: z.string(),
+  statusLabel: z.string(),
+  amountCents: z.number(),
+  issuedAt: z.string(),
+  card: myCardSchema.nullable(),
+});
+
+export const revokeCardBodySchema = z.object({
+  /** 敏感操作：沿用既有「管理员密码确认」口径。 */
+  password: z.string().min(1).max(200),
+  /** 是否按剩余比例补偿积分。 */
+  compensate: z.boolean().default(false),
+});
+export const revokeCardResultSchema = z.object({
+  card: myCardSchema,
+  compensatedPoints: z.number(),
+  balance: z.number(),
+});
+
+/** 零余额也能用的可用卡（临期优先），模型广场据此决定试用按钮是否灰掉。 */
+export const usableCardSchema = z.object({
+  cardId: z.number(),
+  provider: z.string(),
+  modelKey: z.string(),
+  modelName: z.string(),
+  name: z.string(),
+  billingUnit: z.string(),
+  billingUnitLabel: z.string(),
+  quotaRemaining: z.number(),
+  quotaLabel: z.string(),
+  expiresAt: z.string(),
+  secondsLeft: z.number(),
+});
+export type UsableCard = z.infer<typeof usableCardSchema>;
+
 
 // ---------------------------------------------------------------------------
 // B3#22② 售后状态机
@@ -728,7 +998,7 @@ export type OnboardingTemplate = z.infer<typeof onboardingTemplateSchema>;
 export const saveOnboardingTemplateBodySchema = z.object({
   id: z.number().int().min(0).default(0),
   name: z.string().trim().min(1).max(80),
-  kind: z.enum(["HIRE", "ADMIN"]).default("HIRE"),
+  kind: z.enum(["HIRE", "ADMIN", "OFFBOARD"]).default("HIRE"),
   description: z.string().max(500).default(""),
   active: z.boolean().default(true),
   items: z
@@ -767,6 +1037,8 @@ export const onboardingRunSchema = z.object({
   staffUserId: z.string(),
   memberUserId: z.string(),
   offerId: z.number(),
+  /** 入职后应开通的岗位（Offer 岗位快照），全部事项完成后按职能目录授权。 */
+  positionName: z.string(),
   status: z.string(),
   statusLabel: z.string(),
   done: z.number(),
@@ -782,6 +1054,8 @@ export const startOnboardingBodySchema = z.object({
   staffUserId: z.string().trim().min(1).max(64),
   memberUserId: z.string().max(64).default(""),
   offerId: z.number().int().min(0).default(0),
+  /** 入职后应开通的岗位名称（需在本组织职能目录里才授权）。 */
+  positionName: z.string().max(64).default(""),
 });
 
 export const completeOnboardingTaskBodySchema = z.object({
@@ -1089,6 +1363,14 @@ export const enterpriseGapEndpoints = {
     body: z.undefined(),
     response: envelope(z.array(assistantRegistryRowSchema)),
   },
+  Assistant_extractActions: {
+    method: "post" as const,
+    path: "/enterprise/assistant/extract-actions",
+    params: z.object({}),
+    query: emptyQuery,
+    body: assistantExtractActionsBodySchema,
+    response: envelope(assistantExtractResultSchema),
+  },
 
   // B2#16 会话语音转写
   Transcribe_transcripts: {
@@ -1228,6 +1510,105 @@ export const enterpriseGapEndpoints = {
     query: emptyQuery,
     body: redeemPromoBodySchema,
     response: envelope(redeemPromoResultSchema),
+  },
+
+  // 时长卡（日卡 / 30 天卡）：规格目录、我的卡、兑换订单与扣量明细
+  Card_templates: {
+    method: "get" as const,
+    path: "/enterprise/points/cards",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(cardTemplateSchema)),
+  },
+  Card_myCards: {
+    method: "get" as const,
+    path: "/enterprise/points/my-cards",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(myCardSchema)),
+  },
+  /** 当前仍可扣的卡（临期优先），模型广场据此放行零余额用户。 */
+  Card_usableCards: {
+    method: "get" as const,
+    path: "/enterprise/points/usable-cards",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(usableCardSchema)),
+  },
+  Card_orders: {
+    method: "get" as const,
+    path: "/enterprise/points/card-orders",
+    params: z.object({}),
+    query: pageQuerySchema.extend({ kind: z.string().optional() }),
+    body: z.undefined(),
+    response: envelope(pageSchema(cardOrderSchema)),
+  },
+  Card_orderUsage: {
+    method: "get" as const,
+    path: "/enterprise/points/card-orders/:orderNo/usage",
+    params: z.object({ orderNo: z.string().min(1) }),
+    query: pageQuerySchema,
+    body: z.undefined(),
+    response: envelope(pageSchema(cardUsageSchema)),
+  },
+  Card_exchangeByPoints: {
+    method: "post" as const,
+    path: "/enterprise/points/card-orders/points",
+    params: z.object({}),
+    query: emptyQuery,
+    body: exchangeCardByPointsBodySchema,
+    response: envelope(exchangeCardByPointsResultSchema),
+  },
+  Card_createCashOrder: {
+    method: "post" as const,
+    path: "/enterprise/points/card-orders/cash",
+    params: z.object({}),
+    query: emptyQuery,
+    body: createCardCashOrderBodySchema,
+    response: envelope(createCardCashOrderResultSchema),
+  },
+  Card_queryOrder: {
+    method: "get" as const,
+    path: "/enterprise/points/card-orders/:orderNo/query",
+    params: z.object({ orderNo: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(cardOrderQueryResultSchema),
+  },
+  AdminCard_templates: {
+    method: "get" as const,
+    path: "/enterprise/admin/points/cards",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.array(cardTemplateSchema)),
+  },
+  AdminCard_saveTemplate: {
+    method: "post" as const,
+    path: "/enterprise/admin/points/cards",
+    params: z.object({}),
+    query: emptyQuery,
+    body: saveCardTemplateBodySchema,
+    response: envelope(cardTemplateSchema),
+  },
+  AdminCard_removeTemplate: {
+    method: "delete" as const,
+    path: "/enterprise/admin/points/cards/:code",
+    params: z.object({ code: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ removed: z.boolean() })),
+  },
+  AdminCard_revokeCard: {
+    method: "post" as const,
+    path: "/enterprise/admin/points/cards/:cardId/revoke",
+    params: z.object({ cardId: z.string().min(1) }),
+    query: emptyQuery,
+    body: revokeCardBodySchema,
+    response: envelope(revokeCardResultSchema),
   },
 
   // B3#22② 售后状态机

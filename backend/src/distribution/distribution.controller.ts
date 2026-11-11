@@ -45,8 +45,10 @@ export class DistributionController {
     return ok(await this.distribution.remove(user, parseId(id, '内容 ID')));
   }
 
-  async mark(user: CurrentUser, id: string) {
-    return ok(await this.distribution.mark(user, parseId(id, '内容 ID')));
+  async mark(user: CurrentUser, id: string, pluginVersion?: string) {
+    return ok(
+      await this.distribution.mark(user, parseId(id, '内容 ID'), pluginVersion),
+    );
   }
 
   async reportLogs(
@@ -56,6 +58,16 @@ export class DistributionController {
   ) {
     return ok(
       await this.distribution.reportLogs(user, parseId(id, '内容 ID'), body),
+    );
+  }
+
+  async reportMetrics(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(
+      await this.distribution.reportMetrics(user, parseId(id, '内容 ID'), body),
     );
   }
 }

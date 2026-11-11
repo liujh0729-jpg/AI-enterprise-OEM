@@ -142,11 +142,14 @@ export function OkrDecompositionTab({
   initialBriefId,
   onBriefsLoaded,
   onCommitted,
+  onGoBriefs,
 }: {
   ctx: OkrContextData;
   initialBriefId?: number;
   onBriefsLoaded?: (rows: OkrBriefView[]) => void;
   onCommitted?: () => Promise<void>;
+  /** 无目标书时的下一步入口：切到「目标书」页签创建。 */
+  onGoBriefs?: () => void;
 }) {
   const { message, modal } = App.useApp();
   const [briefs, setBriefs] = useState<OkrBriefView[]>([]);
@@ -468,7 +471,14 @@ export function OkrDecompositionTab({
         }
       >
         {!brief ? (
-          <div className="muted">请先在「目标书」页签创建目标书。</div>
+          <div className="muted">
+            请先在「目标书」页签创建目标书。{" "}
+            {onGoBriefs ? (
+              <Button type="link" size="small" onClick={onGoBriefs}>
+                去创建目标书
+              </Button>
+            ) : null}
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 6 }}>
             <div>{brief.businessGoal || "（未填写总体业务目标）"}</div>

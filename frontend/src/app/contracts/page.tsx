@@ -7,6 +7,7 @@ import {
   UnorderedListOutlined,
 } from "@ant-design/icons";
 import { App, Button, Form, Input, Modal, Space, Table } from "antd";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
@@ -293,8 +294,12 @@ export default function ContractsPage() {
       modal.info({
         title: "暂无业务人员",
         okText: "知道了",
-        content:
-          "该服务商还没有可指派的职员：请先在「职员 / 代理人管理」中发起添加，对方确认后即出现在这里，再为该签约指定对接人。",
+        content: (
+          <>
+            该服务商还没有可指派的职员：请先在「职员 / 代理人管理」中发起添加，对方确认后即出现在这里，再为该签约指定对接人。{" "}
+            <Link href="/staff">去添加职员</Link>
+          </>
+        ),
       });
       return;
     }

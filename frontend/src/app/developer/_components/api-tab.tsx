@@ -141,7 +141,7 @@ const CODE_BLOCK: CSSProperties = {
   overflowX: "auto",
 };
 
-/** 开放集成 → API-MCP-Skill → API：接入信息、接口清单、业务错误码与接口边界。 */
+/** 模型服务 → API-MCP-Skill → API：接入信息、接口清单、业务错误码与接口边界。 */
 export function ApiTab({ onOpenMcp }: { onOpenMcp: () => void }) {
   // 示例里的 base 跟域名走：后台站点域名优先，没配按当前访问地址推导。
   const apiBase = useSiteBase() || SITE_BASE_PLACEHOLDER;

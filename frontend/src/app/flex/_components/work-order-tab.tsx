@@ -21,7 +21,8 @@ import {
   RegionScopeFields,
   regionFormValues,
 } from "@/components/location-fields";
-import { EmptyState, Panel } from "@/components/ui/panel";
+import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import Link from "next/link";
 import { canWorkOn } from "@/lib/can-work-on";
 import {
   WORK_TYPE_OPTIONS,
@@ -143,7 +144,10 @@ export function WorkOrderTab({
   const openCreate = () => {
     if (!hasContract) {
       board.message.warning(
-        "暂无生效签约，请先在「代理人资源库」选择该代理人合作并待代理人确认",
+        <>
+          暂无生效签约，请先在「代理人资源库」选择该代理人合作并待代理人确认{" "}
+          <Link href="/flex?tab=agents">立即去签约</Link>
+        </>,
       );
       return;
     }
@@ -170,6 +174,12 @@ export function WorkOrderTab({
           ) : null
         }
       >
+        {isEnterprise && !hasContract ? (
+          <Notice variant="warn">
+            发布用工需求前需先与代理人在「代理人资源库」完成签约。{" "}
+            <Link href="/flex?tab=agents">立即去签约</Link>
+          </Notice>
+        ) : null}
         {switcher}
         <div style={{ marginBottom: 12 }}>
           <RegionScopeFilter

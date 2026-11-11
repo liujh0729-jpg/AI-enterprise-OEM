@@ -30,6 +30,7 @@ import {
 } from "@/components/location-fields";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { ServicePackagesPanel } from "@/components/service-packages";
 import { AddAgentModal } from "@/components/add-agent-modal";
 import { useFlexResources } from "@/query/workspaces";
 import { useSession } from "@/lib/session";
@@ -500,7 +501,8 @@ export function ResourceTab({
   };
 
   return (
-    <Panel
+    <>
+      <Panel
       title={isAgent ? "灵活用工代理人资源库" : "灵活用工资源库（服务商机构）"}
       titleBadge={
         <span className="text-12 muted">
@@ -784,6 +786,9 @@ export function ResourceTab({
       </Modal>
 
       {passwordModal}
-    </Panel>
+      </Panel>
+
+      {!isAgent ? <ServicePackagesPanel serviceType="FLEX_WORK" /> : null}
+    </>
   );
 }

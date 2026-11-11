@@ -35,8 +35,6 @@ export interface PointsSettings {
   transferFeePercent: number;
   /** 欠费宽限天数：宽限内资产只读不可新增，永不自动删除。 */
   arrearsGraceDays: number;
-  /** 单账号单日消费熔断上限（0 = 不限）。 */
-  spendDailyCap: number;
   /** 微信支付五项是否配齐（配齐才允许充值下单）。 */
   wechatConfigured: boolean;
   wechatNotifyUrl: string;
@@ -139,7 +137,6 @@ export class PointsSettingsService {
       transferDailyPoints: this.num(cache, 'transfer_daily_points', 1000),
       transferFeePercent: this.num(cache, 'transfer_fee_percent', 0),
       arrearsGraceDays: this.num(cache, 'arrears_grace_days', 7),
-      spendDailyCap: this.num(cache, 'spend_daily_cap', 1000),
       wechatConfigured,
       wechatNotifyUrl: text('wx_notify_url'),
       wechatAppId: text('wx_appid'),
@@ -165,7 +162,6 @@ export class PointsSettingsService {
       'transfer_daily_points',
       'transfer_fee_percent',
       'arrears_grace_days',
-      'spend_daily_cap',
     ];
     for (const key of allowed) {
       if (body[key] === undefined) continue;

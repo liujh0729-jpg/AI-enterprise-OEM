@@ -11,6 +11,7 @@ import {
 import { CurrentUser } from '../auth/current-user';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { IdentityService } from '../identity/identity.service';
+import { HrmScopeService } from '../hrm/hrm.scope';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../generated/prisma';
 import { toJsonInput } from '../common/json-input';
@@ -113,6 +114,7 @@ export class ContentAgentScheduleService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly users: UserLookupService,
+    private readonly scope: HrmScopeService,
     private readonly agent: ContentAgentService,
     private readonly experts: ContentAgentExpertService,
   ) {}
@@ -740,6 +742,21 @@ export class ContentAgentScheduleService {
     const owners = await this.users.lookup(due.map((row) => row.userId));
     const names = new Map(owners.map((item) => [item.id, item.username]));
     for (const schedule of due) {
+      // 无人值守执行前复核账号状态：停用/封禁/注销后立即停跑并自动暂停任务，
+      // 不能因为定时器还在跑就继续用旧授权消耗额度、代发消息。
+      const standing = await this.scope.isStanding(schedule.userId);
+      if (!standing) {
+        await this.prisma.contentAgentSchedule.update({
+          where: { id: schedule.id },
+          data: {
+            status: 'paused',
+            scheduledAt: null,
+            lastStatus: 'skipped',
+            lastError: '账号已停用，定时任务已自动暂停',
+          },
+        });
+        continue;
+      }
       const nextAt =
         schedule.scheduleType === 'recurring'
           ? computeNextOccurrence(

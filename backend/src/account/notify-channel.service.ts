@@ -6,7 +6,8 @@ import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { AccountSettingsService } from './account-settings.service';
 
-export type VerifyScene = 'REGISTER' | 'LOGIN' | 'RESET_PASSWORD' | 'REBIND';
+export type VerifyScene =
+  'REGISTER' | 'LOGIN' | 'RESET_PASSWORD' | 'REBIND' | 'SET_PASSWORD';
 export type VerifyChannel = 'EMAIL' | 'SMS';
 
 const CODE_TTL_MS = 5 * 60_000;
@@ -125,6 +126,28 @@ export class NotifyChannelService {
       where: { id: row.id },
       data: { usedAt: new Date() },
     });
+  }
+
+  /** 邮件一次性令牌换目标：令牌本身即凭证（192 位随机数），换出后立即作废。 */
+  async consumeToken(
+    scene: VerifyScene,
+    token: string,
+  ): Promise<{ channel: VerifyChannel; target: string }> {
+    const row = await this.prisma.verifyCode.findFirst({
+      where: { scene, codeHash: this.hash(token), usedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!row || row.expiresAt < new Date()) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '链接已过期，请重新获取',
+      );
+    }
+    await this.prisma.verifyCode.update({
+      where: { id: row.id },
+      data: { usedAt: new Date() },
+    });
+    return { channel: row.channel as VerifyChannel, target: row.target };
   }
 
   private async assertResendAllowed(

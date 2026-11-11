@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { PrismaClient } from '../generated/prisma';
 import { seedSupplyNetwork } from './seed-supply';
 import { seedCreativeCommunity } from './seed-creative-community';
+import { seedServicePackages } from './seed-service-packages';
 
 const prisma = new PrismaClient();
 const seedUsers = JSON.parse(
@@ -795,6 +796,8 @@ async function main() {
   await seedSupplyNetwork(prisma);
   // 创意社区官方模板：按 code 幂等 upsert，重跑不产生重复行、不抹掉热度
   await seedCreativeCommunity(prisma);
+  // 官方服务套餐：财税两条参考套餐幂等迁入目录（PG db push 路径补种，MySQL 由 0053 迁移插入）
+  await seedServicePackages(prisma);
 }
 
 main()

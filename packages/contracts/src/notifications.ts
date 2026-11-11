@@ -86,6 +86,14 @@ export const notificationsEndpoints = {
       }),
     ),
   },
+  Notifications_get: {
+    method: "get" as const,
+    path: "/enterprise/notifications/:id",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(notificationSchema),
+  },
   Notifications_read: {
     method: "post" as const,
     path: "/enterprise/notifications/:id/read",

@@ -2,6 +2,9 @@
 
 import {
   ACQ_BUSINESS_STATUS_LABELS,
+  ACQ_CONTACT_FIELD_LABELS,
+  ACQ_CONTACT_FIELDS,
+  ACQ_CONTACT_VISIBILITY_LABELS,
   ACQ_EVIDENCE_SOURCE_LABELS,
   ACQ_FOLLOW_UP_STATUS_LABELS,
   ACQ_FOLLOW_UP_TIME_RULES,
@@ -23,6 +26,7 @@ import {
   acqDashboardSchema,
   acqFollowUpSchema,
   acqIntentScoreSchema,
+  acqLeadContactSchema,
   acqLeadDetailSchema,
   acqLeadSchema,
   acqMetaSchema,
@@ -40,6 +44,8 @@ import {
   z,
 } from "@enterprise/contracts";
 import { endpoint } from "@/api/endpoint";
+import type { BrowserReceipt } from "@enterprise/contracts";
+import { sendBrowserTask, onBrowserReceipt } from "@/lib/extension-bridge";
 import {
   isTrustedExtensionMessage,
   pingExtension,
@@ -56,6 +62,7 @@ export type AcqSource = z.infer<typeof acqSourceSchema>;
 export type AcqRun = z.infer<typeof acqRunSchema>;
 export type AcqLead = z.infer<typeof acqLeadSchema>;
 export type AcqLeadDetail = z.infer<typeof acqLeadDetailSchema>;
+export type AcqLeadContact = z.infer<typeof acqLeadContactSchema>;
 export type AcqIntentScore = z.infer<typeof acqIntentScoreSchema>;
 export type AcqOutreach = z.infer<typeof acqOutreachSchema>;
 export type AcqProfile = z.infer<typeof acqProfileSchema>;
@@ -102,6 +109,7 @@ export const acqApi = {
   cancelFollowUp: endpoint(endpoints.Acquisition_cancelFollowUp),
   completeFollowUp: endpoint(endpoints.Acquisition_completeFollowUp),
   pluginToken: endpoint(endpoints.Acquisition_pluginToken),
+  pluginReceipt: endpoint(endpoints.Acquisition_pluginReceipt),
   qcReviews: endpoint(endpoints.Acquisition_qcReviews),
   runQc: endpoint(endpoints.Acquisition_runQc),
   qcDetail: endpoint(endpoints.Acquisition_qcDetail),
@@ -148,6 +156,16 @@ export const stopReasonLabel = (key: string) =>
 export const followUpTimeRuleLabel = (key: string) =>
   ACQ_FOLLOW_UP_TIME_RULES.find((rule) => rule.key === key)?.label ??
   key;
+
+/** 公开联系方式：字段名与可见性都走契约标签，界面禁裸枚举（见 D7=B）。 */
+export const contactFieldLabel = (key: string) =>
+  ACQ_CONTACT_FIELD_LABELS[key] ?? key;
+export const contactVisibilityLabel = (key: string) =>
+  ACQ_CONTACT_VISIBILITY_LABELS[key] ?? key;
+export const contactFieldOptions = ACQ_CONTACT_FIELDS.map((value) => ({
+  value,
+  label: contactFieldLabel(value),
+}));
 
 export const platformOptions = ACQ_PLATFORMS.map((value) => ({
   value,
@@ -239,7 +257,7 @@ export type AcqEvent =
   | { type: "outreach-result"; outreachId: number; status: string; receipt: string; receiptRef: string; stopReason: string; error: string }
   | { type: "acq-unknown"; runId: number; outreachId: number; error: string };
 
-export { pingExtension };
+export { pingExtension, onBrowserReceipt };
 
 function randomJobId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -279,8 +297,17 @@ function sendAcqCommand(
 }
 
 /** 启动采集/触达循环：payload 只需 apiBase + token（任务由服务端 pull 下发）。 */
-export function startAcqTask(type: AcqTaskType, token: string) {
-  return sendAcqCommand(type, { apiBase: acqApiBase(), token }, 15000);
+export async function startAcqTask(type: AcqTaskType, token: string) {
+  const ack = await sendBrowserTask(
+    {
+      capability: "acquisition",
+      action: type,
+      payload: { apiBase: acqApiBase(), token, type },
+    },
+    { timeoutMs: 15000, jobId: randomJobId("acquisition") },
+  );
+  // 应答里的 state 是插件上报的当前进度，沿用统一通道即可，不再固定置空。
+  return { ...ack, state: (ack.state as AcqState | null) ?? null };
 }
 
 /** 令牌续期：只换令牌，不重启任务、不丢已采结果。 */
@@ -294,6 +321,24 @@ export function controlAcq(action: "pause" | "stop") {
 
 export function queryAcqStatus() {
   return sendAcqCommand("acq-status", {}, 5000);
+}
+
+/**
+ * 把收尾阶段、页面已经用旧消息名上报过的采集/触达结果补记到服务端队列（统一回执）。
+ * 失败静默：业务结果本身已由旧通道落库，这里只补「任务终态」，不能让页面因补记失败报错。
+ */
+export async function reportAcqTerminalReceipt(
+  receipt: BrowserReceipt,
+): Promise<void> {
+  const data = receipt.data ?? {};
+  const runId = Number(data.runId) || 0;
+  const outreachId = Number(data.outreachId) || 0;
+  if (!runId && !outreachId) return;
+  try {
+    await acqApi.pluginReceipt({ body: { ...receipt } });
+  } catch {
+    // 补记失败不阻断：下次打开页面时进度状态仍以业务表为准。
+  }
 }
 
 /** 订阅插件推送的获客事件（进度、增量结果、结果未知）；返回取消订阅函数。 */

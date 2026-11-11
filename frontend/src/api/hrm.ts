@@ -7,6 +7,7 @@ import { endpoint } from "./endpoint";
  */
 
 export type HrmProfile = NonNullable<EndpointResponse<"Hrm_listProfiles">["data"]>["list"][number];
+export type HrmHandover = NonNullable<EndpointResponse<"Hrm_handoverChecklist">["data"]>;
 export type HrmPolicy = NonNullable<EndpointResponse<"Hrm_listPolicies">["data"]>[number];
 export type HrmBalance = NonNullable<EndpointResponse<"Hrm_listBalances">["data"]>[number];
 export type HrmTimeOff = NonNullable<EndpointResponse<"Hrm_listTimeOff">["data"]>["list"][number];
@@ -28,6 +29,8 @@ export const hrmApi = {
   listProfiles: endpoint(endpoints.Hrm_listProfiles),
   upsertProfile: endpoint(endpoints.Hrm_upsertProfile),
   updateProfileStatus: endpoint(endpoints.Hrm_updateProfileStatus),
+  handoverChecklist: endpoint(endpoints.Hrm_handoverChecklist),
+  transferHandover: endpoint(endpoints.Hrm_transferHandover),
   // 假勤
   listPolicies: endpoint(endpoints.Hrm_listPolicies),
   savePolicy: endpoint(endpoints.Hrm_savePolicy),

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { contentChannelPolicySchema } from "./content";
 import { pageQuerySchema, pageSchema } from "./pagination";
 
 const envelope = <T extends z.ZodType>(data: T) =>
@@ -22,7 +23,7 @@ const httpUrl = z
  * - 人民币价是「官方原价」，平台管理员只加一个折扣率（discountRate）；
  *   用户看到官方原价、折后价与折扣标识；
  * - 积分一律按系统设置里的汇率换算（1 元 = rate 积分），用户不可单独设置。
- * AIPDD 系列固定用平台级 Key，用户自带渠道仍留在「内容创作 → 模型设置」，不进广场、不扣积分。
+ * AIPDD 系列固定用平台级 Key，用户自带渠道仍留在「模型服务 → 模型设置」，不进广场、不扣积分。
  */
 
 export const mpBillingUnitSchema = z.enum(["token", "image", "second", "call"]);
@@ -188,6 +189,11 @@ export const mpTrialResultSchema = z.object({
   rmbCost: z.number(),
   elapsedMs: z.number().int().nonnegative(),
   balance: z.number(),
+  /** 本次是否走了时长卡（0 ＝ 没用到卡）；pointsCost 只剩卡没覆盖的差额。 */
+  cardId: z.number().int().nonnegative(),
+  cardDeduct: z.number(),
+  /** 卡扣量说明（规格倍率命中来源、部分扣卡），无则空串。 */
+  cardNote: z.string(),
 });
 export type MpTrialResult = z.infer<typeof mpTrialResultSchema>;
 
@@ -449,6 +455,110 @@ const usageFilter = {
   to: z.string().trim().max(32).default(""),
 };
 
+/** 平台默认模型可按能力分别继承；与内容创作槽位口径一致（音乐/增强无广场模型，不列入）。 */
+export const mpPlatformCapabilities = [
+  "text",
+  "vision",
+  "image",
+  "video",
+  "asr",
+  "audio",
+  "embedding",
+] as const;
+export type MpPlatformCapability = (typeof mpPlatformCapabilities)[number];
+
+export const mpPlatformCapabilityLabels: Record<MpPlatformCapability, string> = {
+  text: "文本",
+  vision: "视觉",
+  image: "图片",
+  video: "视频",
+  asr: "语音识别",
+  audio: "语音合成",
+  embedding: "向量",
+};
+
+export const mpPlatformLimitsSchema = z.object({
+  /** 单次调用最多扣多少积分；0＝不限 */
+  perCallPoints: z.number().nonnegative(),
+  /** 账号每日平台模型消费上限；0＝不限 */
+  dailyPoints: z.number().nonnegative(),
+  /** 账号每月平台模型消费上限；0＝不限 */
+  monthlyPoints: z.number().nonnegative(),
+});
+export type MpPlatformLimits = z.infer<typeof mpPlatformLimitsSchema>;
+
+export const mpPlatformCandidateSchema = z.object({
+  id: z.number().int().positive(),
+  modelKey: z.string(),
+  displayName: z.string(),
+  available: z.boolean(),
+  unavailableReason: z.string(),
+  billingUnit: mpBillingUnitSchema,
+  priceNote: z.string(),
+});
+export type MpPlatformCandidate = z.infer<typeof mpPlatformCandidateSchema>;
+
+export const mpPlatformSlotSchema = z.object({
+  capability: z.enum(mpPlatformCapabilities),
+  label: z.string(),
+  catalogId: z.number().int().nonnegative(),
+  modelKey: z.string(),
+  displayName: z.string(),
+  available: z.boolean(),
+  unavailableReason: z.string(),
+  priceNote: z.string(),
+  candidates: z.array(mpPlatformCandidateSchema),
+});
+export type MpPlatformSlot = z.infer<typeof mpPlatformSlotSchema>;
+
+export const mpPlatformChangeSchema = z.object({
+  at: z.string(),
+  by: z.string(),
+  summary: z.string(),
+});
+
+export const mpPlatformDefaultsSchema = z.object({
+  enabled: z.boolean(),
+  limits: mpPlatformLimitsSchema,
+  slots: z.array(mpPlatformSlotSchema),
+  history: z.array(mpPlatformChangeSchema),
+  updatedAt: z.string(),
+  rate: z.number(),
+});
+export type MpPlatformDefaults = z.infer<typeof mpPlatformDefaultsSchema>;
+
+export const mpPlatformDefaultsSaveSchema = z.object({
+  enabled: z.boolean().default(false),
+  limits: mpPlatformLimitsSchema
+    .partial()
+    .default({}),
+  models: z
+    .partialRecord(z.enum(mpPlatformCapabilities), z.number().int().nonnegative())
+    .default({}),
+});
+export type MpPlatformDefaultsSave = z.infer<typeof mpPlatformDefaultsSaveSchema>;
+
+/** 用户侧：能否继承、当前继承了哪些模型、今日/本月已用积分与限额。 */
+export const mpPlatformStatusSchema = z.object({
+  enabled: z.boolean(),
+  eligible: z.boolean(),
+  reason: z.string(),
+  balance: z.number(),
+  rate: z.number(),
+  limits: mpPlatformLimitsSchema,
+  usage: z.object({ todayPoints: z.number(), monthPoints: z.number() }),
+  slots: z.array(
+    z.object({
+      capability: z.enum(mpPlatformCapabilities),
+      label: z.string(),
+      modelKey: z.string(),
+      displayName: z.string(),
+      priceNote: z.string(),
+    }),
+  ),
+});
+export type MpPlatformStatus = z.infer<typeof mpPlatformStatusSchema>;
+
 export const modelPlazaEndpoints = {
   Mp_catalog: {
     method: "get" as const,
@@ -497,6 +607,14 @@ export const modelPlazaEndpoints = {
     query: emptyQuery,
     body: z.undefined(),
     response: envelope(mpConnectionSchema),
+  },
+  Mp_platformStatus: {
+    method: "get" as const,
+    path: "/enterprise/model-plaza/platform-status",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(mpPlatformStatusSchema),
   },
 };
 
@@ -619,6 +737,38 @@ export const modelPlazaAdminEndpoints = {
     query: emptyQuery,
     body: z.undefined(),
     response: envelope(z.object({ created: z.number().int().nonnegative(), skipped: z.number().int().nonnegative() })),
+  },
+  AdminMp_channelPolicy: {
+    method: "get" as const,
+    path: "/enterprise/admin/model-plaza/channel-policy",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(contentChannelPolicySchema),
+  },
+  AdminMp_saveChannelPolicy: {
+    method: "put" as const,
+    path: "/enterprise/admin/model-plaza/channel-policy",
+    params: z.object({}),
+    query: emptyQuery,
+    body: contentChannelPolicySchema,
+    response: envelope(contentChannelPolicySchema),
+  },
+  AdminMp_platformDefaults: {
+    method: "get" as const,
+    path: "/enterprise/admin/model-plaza/platform-defaults",
+    params: z.object({}),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(mpPlatformDefaultsSchema),
+  },
+  AdminMp_savePlatformDefaults: {
+    method: "put" as const,
+    path: "/enterprise/admin/model-plaza/platform-defaults",
+    params: z.object({}),
+    query: emptyQuery,
+    body: mpPlatformDefaultsSaveSchema,
+    response: envelope(mpPlatformDefaultsSchema),
   },
   AdminMp_usageList: {
     method: "get" as const,

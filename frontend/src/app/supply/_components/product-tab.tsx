@@ -4,6 +4,7 @@ import { presentMutationError } from "@/query/errors";
 import { supplyApi } from "@/api/supply";
 
 import { InboxOutlined, ShopOutlined, ToolOutlined } from "@ant-design/icons";
+import Link from "next/link";
 import {
   App,
   Button,
@@ -545,6 +546,11 @@ export function ProductTab({
               label: `${item.name}${item.region ? `（${item.region}）` : ""}`,
             }))}
           />
+          {!myStations.length ? (
+            <div className="text-12 muted" style={{ marginTop: 4 }}>
+              <Link href="/supply?tab=stations">去创建服务站</Link>
+            </div>
+          ) : null}
         </Form.Item>
         <Form.List name="attrs">
           {(fields, { add, remove }) => (

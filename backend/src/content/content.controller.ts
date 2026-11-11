@@ -16,7 +16,10 @@ import { ContentAgentLibraryService } from './agent-library.service';
 import { ContentAgentConnectorService } from './agent-connectors.service';
 import { ContentAgentSkillService } from './agent-skills.service';
 import { ContentAgentPluginService } from './agent-plugins.service';
-import { buildAgentToolManifest } from './agent-tool-manifest';
+import {
+  buildAgentToolManifest,
+  type ManifestWorkflow,
+} from './agent-tool-manifest';
 import { ContentJobService } from './content-job.service';
 import { DigitalAssetService } from './digital-asset.service';
 import { AssetShareService } from './asset-share.service';
@@ -56,6 +59,10 @@ export class ContentController {
     private readonly agentConnectors: ContentAgentConnectorService,
     private readonly agentSkills: ContentAgentSkillService,
     private readonly agentPlugins: ContentAgentPluginService,
+    /** 已共享工作流工具目录（wf__）：工作流服务在 orgContext 之后构造，故以惰性回调注入 */
+    private readonly workflowTools: (
+      user: CurrentUser,
+    ) => Promise<ManifestWorkflow[]> = () => Promise.resolve([]),
   ) {}
 
   async getSettings(user: CurrentUser, token?: string) {
@@ -132,18 +139,21 @@ export class ContentController {
    * 权限人话与红线从契约词表派生；某一类读不到时只跳过那一类，不拖垮整张清单。
    */
   async agentTools(user: CurrentUser) {
-    const [connectorTools, skills, plugins, hardwareTools] = await Promise.all([
-      this.agentConnectors.toolSpecs(user).catch(() => []),
-      this.agentSkills.list(user).catch(() => []),
-      this.agentPlugins.list(user).catch(() => []),
-      this.agent.hardwareToolSpecs(user).catch(() => []),
-    ]);
+    const [connectorTools, skills, plugins, hardwareTools, workflows] =
+      await Promise.all([
+        this.agentConnectors.toolSpecs(user).catch(() => []),
+        this.agentSkills.list(user).catch(() => []),
+        this.agentPlugins.list(user).catch(() => []),
+        this.agent.hardwareToolSpecs(user).catch(() => []),
+        this.workflowTools(user).catch(() => []),
+      ]);
     return ok(
       buildAgentToolManifest({
         connectorTools,
         skills,
         plugins,
         hardwareTools,
+        workflows,
       }),
     );
   }

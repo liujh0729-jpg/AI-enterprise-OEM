@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PageHero } from "@/components/ui/panel";
 import { KbBoard, type KbTab } from "./_components/kb-board";
 
@@ -11,6 +12,12 @@ import { KbBoard, type KbTab } from "./_components/kb-board";
  */
 export default function KbPage() {
   const [tab, setTab] = useState<KbTab>("spaces");
+  // 阻断提示直达：/kb?tab=spaces 定位到空间页签
+  const wantedTab = useSearchParams().get("tab") || "";
+  useEffect(() => {
+    const keys: KbTab[] = ["spaces", "sources", "pages", "qa", "graph", "consumers", "memory", "timeline"];
+    if (keys.includes(wantedTab as KbTab)) setTab(wantedTab as KbTab);
+  }, [wantedTab]);
   return (
     <>
       <PageHero

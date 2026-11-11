@@ -1089,7 +1089,7 @@ export class ContentAgentService {
       where: { id: conversation.id },
       data: { updatedAt: new Date() },
     });
-    return { messageId: saved.id, text: result.text };
+    return { messageId: saved.id, text: result.text, usage: result.usage };
   }
 
   /** 落用户消息并补会话标题、专家使用次数。 */

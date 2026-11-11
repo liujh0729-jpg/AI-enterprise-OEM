@@ -237,7 +237,10 @@ export class MechanismExportService extends MechanismBase {
       status: row.status,
       rowCount: row.rowCount,
       progress: row.progress,
-      fileUrl: row.fileKey ? this.storage.urlOf(row.fileKey) : '',
+      // 不再回传桶的公开直链（下载后离职仍可访问）；改为需登录态复权的认证端点。
+      fileUrl: row.fileKey
+        ? `/api/backend/enterprise/export/jobs/${row.id}/download`
+        : '',
       error: row.error,
       createdAt: row.createdAt.toISOString(),
       finishedAt: row.finishedAt ? row.finishedAt.toISOString() : '',
@@ -318,6 +321,48 @@ export class MechanismExportService extends MechanismBase {
       total,
       page: query.page,
       pageSize: query.pageSize,
+    };
+  }
+
+  /**
+   * 认证下载导出文件：每次按当前账号重新解析组织关系并复核在册资格，
+   * 离职/被移出组织后即使拿到旧链接也取不到内容；文件按组织隔离，不泄露存在性。
+   */
+  async download(user: CurrentUser, rawId: string) {
+    const org = await this.org(user);
+    const standing = await this.scope.isStanding(user.userId, {
+      orgType: org.orgType,
+      orgUserId: org.orgUserId,
+    });
+    if (!standing) {
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        '导出文件不存在或已失效',
+      );
+    }
+    const id = Number(rawId);
+    const row =
+      Number.isInteger(id) && id > 0
+        ? await this.prisma.exportJob.findFirst({
+            where: { id, orgType: org.orgType, orgUserId: org.orgUserId },
+          })
+        : null;
+    if (!row?.fileKey) {
+      throw new BusinessException(
+        ErrorCode.NOT_FOUND,
+        '导出文件不存在或已失效',
+      );
+    }
+    const content = await this.storage.read(row.fileKey).catch(() => null);
+    if (!content) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '导出文件已不可用');
+    }
+    return {
+      id: row.id,
+      module: row.module,
+      format: row.format as 'csv' | 'json',
+      fileName: `${row.module}-${row.id}.${row.format}`,
+      content: content.toString('utf8'),
     };
   }
 

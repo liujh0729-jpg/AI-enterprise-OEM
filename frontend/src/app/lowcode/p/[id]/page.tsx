@@ -31,9 +31,15 @@ export default function LowCodeProjectPage() {
   const [error, setError] = useState("");
   const [activeId, setActiveId] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("project");
   const [reloadKey, setReloadKey] = useState(0);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+  /** 空态直达设置页签：页面缺失去「页面」，实体缺失去「实体」。 */
+  const openSettings = useCallback((tab: string) => {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  }, []);
 
   useEffect(() => {
     if (!Number.isInteger(projectId) || projectId <= 0) {
@@ -138,7 +144,7 @@ export default function LowCodeProjectPage() {
         onTabChange={setActiveId}
         extra={
           project.canManage ? (
-            <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>
+            <Button icon={<SettingOutlined />} onClick={() => openSettings("project")}>
               应用设置
             </Button>
           ) : null
@@ -148,7 +154,16 @@ export default function LowCodeProjectPage() {
       {!pages.length ? (
         <Notice variant="info">
           这个应用还没有页面。
-          {project.canManage ? "打开右上角「应用设置」在「页面」里新建。" : "请联系项目管理员添加页面。"}
+          {project.canManage ? (
+            <>
+              打开右上角「应用设置」在「页面」里新建。{" "}
+              <Button type="link" size="small" onClick={() => openSettings("pages")}>
+                去新建页面
+              </Button>
+            </>
+          ) : (
+            "请联系项目管理员添加页面。"
+          )}
         </Notice>
       ) : null}
 
@@ -161,10 +176,20 @@ export default function LowCodeProjectPage() {
           entity={active.entityId ? entityOf(active.entityId) : undefined}
           canManage={project.canManage}
           onSaved={reload}
+          onOpenSettings={openSettings}
         />
       ) : !pages.length ? (
         <div className="panel">
-          <EmptyState text="暂无可用页面" />
+          <EmptyState
+            text="暂无可用页面"
+            action={
+              project.canManage ? (
+                <Button type="primary" onClick={() => openSettings("pages")}>
+                  去新建页面
+                </Button>
+              ) : undefined
+            }
+          />
         </div>
       ) : null}
 
@@ -172,6 +197,7 @@ export default function LowCodeProjectPage() {
         open={settingsOpen}
         projectId={projectId}
         detail={detail}
+        initialTab={settingsTab}
         onClose={() => setSettingsOpen(false)}
         onReload={reload}
       />
@@ -186,6 +212,7 @@ function PageView({
   entity,
   canManage,
   onSaved,
+  onOpenSettings,
 }: {
   projectId: number;
   page: LowCodePageView;
@@ -193,12 +220,13 @@ function PageView({
   entity?: LowCodeEntityView;
   canManage: boolean;
   onSaved: () => void;
+  onOpenSettings: (tab: string) => void;
 }) {
   if (page.type === "APPROVAL_INBOX") {
     return <ApprovalInboxView projectId={projectId} />;
   }
   if (page.type === "DASHBOARD") {
-    return <DashboardView entities={entities} />;
+    return <DashboardView entities={entities} onOpenSettings={onOpenSettings} />;
   }
   if (page.type === "CUSTOM") {
     return (
@@ -215,7 +243,14 @@ function PageView({
     return (
       <Notice variant="warn">
         「{page.name}」绑定的实体不存在。
-        {canManage ? "请到「应用设置 → 页面」重新选择实体。" : ""}
+        {canManage ? (
+          <>
+            请到「应用设置 → 页面」重新选择实体。{" "}
+            <Button type="link" size="small" onClick={() => onOpenSettings("pages")}>
+              去调整页面
+            </Button>
+          </>
+        ) : null}
       </Notice>
     );
   }
@@ -226,7 +261,14 @@ function PageView({
     return <EntityDetailView projectId={projectId} entity={entity} />;
   }
   if (page.type === "KANBAN") {
-    return <EntityKanbanView projectId={projectId} entity={entity} page={page} />;
+    return (
+      <EntityKanbanView
+        projectId={projectId}
+        entity={entity}
+        page={page}
+        onOpenSettings={onOpenSettings}
+      />
+    );
   }
   if (page.type === "LIST") {
     return <EntityListView projectId={projectId} entity={entity} page={page} />;

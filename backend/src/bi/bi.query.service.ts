@@ -5,7 +5,7 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { CrmScopeService } from '../crm/crm.scope';
 import { PrismaService } from '../prisma/prisma.service';
-import { BiScopeService, BiContext } from './bi.scope';
+import { BiScopeService, BiContext, hiddenColumnsOf } from './bi.scope';
 import { BiDatasourceService } from './bi.datasource.service';
 import { biQuery, closeBiPool } from './bi-db.client';
 import { internalDataset, internalScope } from './bi.internal';
@@ -199,20 +199,43 @@ export class BiQueryService {
 
   private async baseOf(ctx: BiContext, dataset: DatasetRow) {
     const base = await this.buildBase(ctx, dataset);
-    if (ctx.role === 'ADMIN') return base;
+    if (ctx.role === 'ADMIN') return { ...base, hidden: undefined };
     const permission = await this.prisma.biDatasetPermission.findUnique({
       where: {
         datasetId_role: { datasetId: dataset.id, role: ctx.role || 'VIEWER' },
       },
     });
     const filter = text(permission?.rowFilter).trim();
-    if (!filter) return base;
-    const resolved = filter
-      .replace(/\$\{(userId|actorId|accountId)\}/g, this.literal(ctx.actorId))
-      .replace(/\$\{deptId\}/g, this.literal(''));
+    const hidden = hiddenColumnsOf(permission?.columnRules);
+    const scoped = filter
+      ? {
+          ...base,
+          sql: `SELECT * FROM (${base.sql}) AS __bi_perm WHERE (${filter
+            .replace(
+              /\$\{(userId|actorId|accountId)\}/g,
+              this.literal(ctx.actorId),
+            )
+            .replace(/\$\{deptId\}/g, this.literal(ctx.department))})`,
+        }
+      : base;
+    return { ...scoped, hidden };
+  }
+
+  /** 列权限：按 actor 的角色的 columnRules.hidden 剔除列，结果集与喂模型内容一致收窄。 */
+  private redact<
+    T extends { columns: QueryColumns; rows: Record<string, unknown>[] },
+  >(result: T, hidden: Set<string> | undefined): T {
+    if (!hidden || !hidden.size) return result;
     return {
-      ...base,
-      sql: `SELECT * FROM (${base.sql}) AS __bi_perm WHERE (${resolved})`,
+      ...result,
+      columns: result.columns.filter((item) => !hidden.has(item.key)),
+      rows: result.rows.map((row) => {
+        const out: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(row)) {
+          if (!hidden.has(key)) out[key] = value;
+        }
+        return out;
+      }),
     };
   }
 
@@ -307,9 +330,12 @@ export class BiQueryService {
     const release = this.acquire(ctx.actorId);
     try {
       const base = await this.baseOf(ctx, dataset);
-      const result = await this.run(
-        base,
-        `SELECT * FROM dataset LIMIT ${Math.min(limit, 100)}`,
+      const result = this.redact(
+        await this.run(
+          base,
+          `SELECT * FROM dataset LIMIT ${Math.min(limit, 100)}`,
+        ),
+        base.hidden,
       );
       await this.log(ctx, dataset, base.sql, result.rowCount, 0, '');
       return { ...result, sql: base.sql };
@@ -330,7 +356,7 @@ export class BiQueryService {
     const started = Date.now();
     try {
       const base = await this.baseOf(ctx, dataset);
-      const result = await this.run(base, guarded);
+      const result = this.redact(await this.run(base, guarded), base.hidden);
       await this.log(
         ctx,
         dataset,

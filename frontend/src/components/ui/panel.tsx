@@ -278,14 +278,18 @@ export function Notice({
 export function EmptyState({
   icon = <InboxOutlined aria-hidden />,
   text,
+  action,
 }: {
   icon?: ReactNode;
   text: string;
+  /** 空态下一步入口：如「立即配置模型」「去签约」。 */
+  action?: ReactNode;
 }) {
   return (
     <div className="empty">
       <div className="empty-ico">{icon}</div>
       <div>{text}</div>
+      {action ? <div style={{ marginTop: 8 }}>{action}</div> : null}
     </div>
   );
 }

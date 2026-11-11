@@ -21,7 +21,38 @@ const LOCK_MS = 10 * 60_000;
 /** 邀请码字母表：去掉易混淆的 0/O/1/I，32 字符 × 6 位约 10 亿组合，碰撞重采样。 */
 const INVITE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 
+const maskEmail = (value?: string | null) => {
+  if (!value) return '';
+  const [name, domain] = value.split('@');
+  if (!domain) return '***';
+  return `${name.slice(0, 2)}***@${domain}`;
+};
+const maskPhone = (value?: string | null) =>
+  value ? `${value.slice(0, 3)}****${value.slice(-4)}` : '';
+
 export type LoginContext = { ip?: string; userAgent?: string };
+/** 注册链路需要的协议能力：TermsService 满足该接口，避免账户域反向依赖 gaps 实现。 */
+export type AccountAgreements = {
+  requireRegisterConsent: (
+    submitted: { code: string; version: string }[],
+  ) => Promise<
+    {
+      id: number;
+      code: string;
+      version: string;
+      title: string;
+    }[]
+  >;
+};
+/** 与 TermsAcceptance 同口径的同意留痕（编码/版本/时间/IP/UA）。 */
+export type AgreementAcceptance = {
+  documentId: number;
+  code: string;
+  version: string;
+  userId: string;
+  ip?: string;
+  userAgent?: string;
+};
 /** 微信授权拉回来的身份资料（openid 维度绑定，unionid 用于跨应用识别同一人）。 */
 export type WechatProfileInput = {
   provider: string;
@@ -48,6 +79,8 @@ export class AccountService {
     private readonly channels: NotifyChannelService,
     /** 积分域可选：注册赠分/邀请奖励尽力而为，未注入则跳过（不影响注册成功）。 */
     private readonly points?: PointsService,
+    /** 注册协议/隐私政策：未注入时跳过强制同意（仅测试桩场景） */
+    private readonly agreements?: AccountAgreements,
   ) {}
 
   // ---------- 查询与转换 ----------
@@ -163,17 +196,26 @@ export class AccountService {
     }));
   }
 
-  async register(input: {
-    mode?: RegisterMode;
-    username?: string;
-    password?: string;
-    email?: string;
-    phone?: string;
-    code?: string;
-    /** 可选邀请码：填写则必须存在，建立邀请关系；未填/不存在时报错不静默忽略。 */
-    inviteCode?: string;
-  }) {
+  async register(
+    input: {
+      mode?: RegisterMode;
+      username?: string;
+      password?: string;
+      email?: string;
+      phone?: string;
+      code?: string;
+      /** 可选邀请码：填写则必须存在，建立邀请关系；未填/不存在时报错不静默忽略。 */
+      inviteCode?: string;
+      /** 前端勾选认可的协议（编码 + 版本），版本过期或缺失一律拒绝注册。 */
+      terms?: { code: string; version: string }[];
+    },
+    ctx: LoginContext = {},
+  ) {
     const mode = input.mode || 'USERNAME';
+    // 同意校验放在最前：未同意不消耗验证码、不占用用户名，用户勾选后可直接重试
+    const consents = this.agreements
+      ? await this.agreements.requireRegisterConsent(input.terms || [])
+      : [];
     const modes = await this.settings.registerModes();
     if (!modes.includes(mode)) {
       throw new BusinessException(
@@ -269,6 +311,7 @@ export class AccountService {
         invitedBy: inviterId,
       },
     });
+    await this.recordAgreements(created.id, consents, ctx);
     await this.syncDirectory(created);
     await this.audit(created.id.toString(), 'ACCOUNT_REGISTER', `mode=${mode}`);
     // 注册赠分 + 邀请奖励：best-effort，失败绝不阻断注册主流程。
@@ -521,6 +564,7 @@ export class AccountService {
   async wechatAuthenticate(
     profile: WechatProfileInput,
     ctx: LoginContext,
+    terms: { code: string; version: string }[] = [],
   ): Promise<
     | { status: 'LOGIN'; session: Awaited<ReturnType<AccountService['login']>> }
     | { status: 'BIND'; profile: WechatProfileInput }
@@ -574,7 +618,11 @@ export class AccountService {
     }
     const wechat = await this.settings.wechat();
     if (wechat?.autoRegister) {
-      const account = await this.createWechatAccount(profile);
+      // 自动注册同样受协议约束：扫码页未勾选同意时不建号，明确告知回注册页勾选
+      const consents = this.agreements
+        ? await this.agreements.requireRegisterConsent(terms)
+        : [];
+      const account = await this.createWechatAccount(profile, consents, ctx);
       await this.audit(
         String(account.id),
         'ACCOUNT_WECHAT_LOGIN',
@@ -631,6 +679,8 @@ export class AccountService {
   /** 微信自动注册：生成 wx_ 前缀用户名，密码留空（只能走微信/验证码登录）。 */
   private async createWechatAccount(
     profile: WechatProfileInput,
+    consents: { id: number; code: string; version: string }[],
+    ctx: LoginContext,
   ): Promise<Account> {
     const tail = profile.openId.slice(-8).replace(/[^A-Za-z0-9]/g, '');
     let username = `wx_${tail || Date.now().toString(36)}`
@@ -659,6 +709,7 @@ export class AccountService {
         '该微信正在绑定中，请重试',
       );
     }
+    await this.recordAgreements(account.id, consents, ctx);
     await this.syncDirectory(account);
     await this.audit(String(account.id), 'ACCOUNT_REGISTER', 'mode=WECHAT');
     if (this.points) {
@@ -721,7 +772,34 @@ export class AccountService {
 
   // ---------- 找回密码 ----------
 
+  /**
+   * 找回 / 设密统一策略校验：与登录方式同一份后台配置。
+   * 密码登录关闭时整条链路关闭；通道需「勾选登录方式 + 凭据已配置」。
+   */
+  private async assertRecoveryChannel(channel: 'EMAIL' | 'SMS') {
+    const recovery = await this.settings.passwordRecoveryAvailability();
+    if (!recovery.enabled) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '管理员未开启密码找回：需同时开启「常规登录」与邮箱/手机验证码登录',
+      );
+    }
+    if (channel === 'EMAIL' && !recovery.EMAIL) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '邮箱找回未启用：请确认管理员已开启邮箱验证码登录并配置 SMTP',
+      );
+    }
+    if (channel === 'SMS' && !recovery.SMS) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '短信找回未启用：请确认管理员已开启手机验证码登录并配置阿里云短信',
+      );
+    }
+  }
+
   async requestPasswordReset(channel: 'EMAIL' | 'SMS', target: string) {
+    await this.assertRecoveryChannel(channel);
     const normalized =
       channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
     const account = await this.prisma.account.findFirst({
@@ -749,6 +827,7 @@ export class AccountService {
     code: string,
     newPassword: string,
   ) {
+    await this.assertRecoveryChannel(channel);
     const normalized =
       channel === 'EMAIL' ? target.trim().toLowerCase() : target.trim();
     this.assertPassword(newPassword);
@@ -764,20 +843,131 @@ export class AccountService {
     });
     if (!account)
       throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
-    await this.prisma.account.update({
-      where: { id: account.id },
-      data: {
-        passwordHash: await bcrypt.hash(newPassword, 10),
-        tokenVersion: { increment: 1 },
-        mustChangePassword: 0,
-      },
-    });
+    await this.writePassword(account.id, newPassword);
     await this.audit(
       String(account.id),
       'ACCOUNT_PASSWORD_RESET',
       `channel=${channel}`,
     );
     return { reset: true };
+  }
+
+  /** 邮件一次性链接找回：令牌换目标，再按同一套策略与密码口径重置。 */
+  async resetPasswordByToken(token: string, newPassword: string) {
+    this.assertPassword(newPassword);
+    const { channel, target } = await this.channels.consumeToken(
+      'RESET_PASSWORD',
+      token,
+    );
+    await this.assertRecoveryChannel(channel);
+    const account = await this.prisma.account.findFirst({
+      where:
+        channel === 'EMAIL'
+          ? { email: target.toLowerCase() }
+          : { phone: target },
+    });
+    if (!account)
+      throw new BusinessException(ErrorCode.UNAUTHORIZED, '账号不存在');
+    await this.writePassword(account.id, newPassword);
+    await this.audit(
+      String(account.id),
+      'ACCOUNT_PASSWORD_RESET',
+      `channel=${channel};via=link`,
+    );
+    return { reset: true };
+  }
+
+  private async writePassword(accountId: number, newPassword: string) {
+    return this.prisma.account.update({
+      where: { id: accountId },
+      data: {
+        passwordHash: await bcrypt.hash(newPassword, 10),
+        tokenVersion: { increment: 1 },
+        mustChangePassword: 0,
+      },
+    });
+  }
+
+  private sessionOf(account: Account) {
+    return {
+      userId: String(account.id),
+      username: account.username,
+      role: account.role === 'PLATFORM_ADMIN' ? 'admin' : 'user',
+      tokenVersion: account.tokenVersion,
+    };
+  }
+
+  // ---------- 登录态：账号安全视图 / 验证码设置密码 ----------
+
+  /** 账号安全页数据：绑定情况（脱敏）+ 可用的验证码设密通道，与后台策略同源。 */
+  async securityView(user: CurrentUser) {
+    const account = await this.ownedAccount(user);
+    const recovery = await this.settings.passwordRecoveryAvailability();
+    return {
+      username: account.username,
+      hasPassword: !!account.passwordHash,
+      email: maskEmail(account.email),
+      phone: maskPhone(account.phone),
+      emailVerified: account.emailVerified === 1,
+      phoneVerified: account.phoneVerified === 1,
+      passwordLoginEnabled: recovery.PASSWORD,
+      codeChannels: {
+        EMAIL: recovery.EMAIL && !!account.email,
+        SMS: recovery.SMS && !!account.phone,
+      },
+    };
+  }
+
+  /** 向当前账号自身绑定的邮箱/手机发「设置密码」验证码（独立 SET_PASSWORD 场景）。 */
+  async sendSetPasswordCode(user: CurrentUser, channel: 'EMAIL' | 'SMS') {
+    const account = await this.ownedAccount(user);
+    await this.assertRecoveryChannel(channel);
+    const target = channel === 'EMAIL' ? account.email : account.phone;
+    if (!target) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        channel === 'EMAIL'
+          ? '当前账号未绑定邮箱，请先在资料中绑定'
+          : '当前账号未绑定手机号，请先在资料中绑定',
+      );
+    }
+    if (channel === 'EMAIL') {
+      await this.channels.sendEmailCode(
+        'SET_PASSWORD',
+        target,
+        '【设置密码】设置登录密码',
+        (code) => `您的设置密码验证码是 ${code}，5 分钟内有效。`,
+      );
+    } else {
+      await this.channels.sendSmsCode('SET_PASSWORD', target);
+    }
+    return {
+      sent: true,
+      target: channel === 'EMAIL' ? maskEmail(target) : maskPhone(target),
+    };
+  }
+
+  /** 已登录且无旧密码：验证本人绑定的邮箱/手机后设置新密码，当前设备换发会话。 */
+  async setPasswordByCode(
+    user: CurrentUser,
+    channel: 'EMAIL' | 'SMS',
+    code: string,
+    newPassword: string,
+  ) {
+    const account = await this.ownedAccount(user);
+    await this.assertRecoveryChannel(channel);
+    const target = channel === 'EMAIL' ? account.email : account.phone;
+    if (!target) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '当前账号未绑定该通道，请先完成绑定',
+      );
+    }
+    this.assertPassword(newPassword);
+    await this.channels.consumeCode('SET_PASSWORD', channel, target, code);
+    const updated = await this.writePassword(account.id, newPassword);
+    await this.audit(user.userId, 'ACCOUNT_PASSWORD_SET', `channel=${channel}`);
+    return { changed: true, session: this.sessionOf(updated) };
   }
 
   // ---------- 登录态自助：改密 / 资料 / 换绑 / 注销 ----------
@@ -1085,6 +1275,51 @@ export class AccountService {
         },
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * 注册同意留痕：编码/版本/时间/IP/UA 写 TermsAcceptance。
+   * 留痕失败只记审计不回滚账号——注册前的版本强校验已成立，这里补的是凭证。
+   */
+  private async recordAgreements(
+    accountId: number,
+    consents: { id: number; code: string; version: string }[],
+    ctx: LoginContext,
+  ) {
+    if (!consents.length) return;
+    const userId = String(accountId);
+    const ip = (ctx.ip || '').slice(0, 64);
+    const userAgent = (ctx.userAgent || '').slice(0, 300);
+    try {
+      await this.prisma.$transaction(
+        consents.map((doc) =>
+          this.prisma.termsAcceptance.upsert({
+            where: {
+              userId_code_version: {
+                userId,
+                code: doc.code,
+                version: doc.version,
+              },
+            },
+            create: {
+              documentId: doc.id,
+              code: doc.code,
+              version: doc.version,
+              userId,
+              ip,
+              userAgent,
+            },
+            update: { ip, userAgent, acceptedAt: new Date() },
+          }),
+        ),
+      );
+    } catch (error) {
+      await this.audit(
+        userId,
+        'ACCOUNT_AGREEMENT_RECORD_FAILED',
+        `codes=${consents.map((doc) => `${doc.code}@${doc.version}`).join(',')} error=${String(error).slice(0, 200)}`,
+      );
+    }
   }
 
   private async audit(userId: string, action: string, detail: string) {

@@ -7,6 +7,7 @@ export const projectApi = {
   projects: endpoint(endpoints.Pj_listProjects),
   project: endpoint(endpoints.Pj_getProject),
   saveProject: endpoint(endpoints.Pj_saveProject),
+  createProjectFromContract: endpoint(endpoints.Pj_createProjectFromContract),
   removeProject: endpoint(endpoints.Pj_removeProject),
 
   saveMember: endpoint(endpoints.Pj_saveMember),
@@ -52,6 +53,7 @@ export const projectApi = {
   saveCostItem: endpoint(endpoints.Pj_saveCostItem),
   removeCostItem: endpoint(endpoints.Pj_removeCostItem),
   projectCost: endpoint(endpoints.Pj_projectCost),
+  purchaseReconciliation: endpoint(endpoints.Pj_purchaseReconciliation),
   engagements: endpoint(endpoints.Pj_listEngagements),
   saveEngagement: endpoint(endpoints.Pj_saveEngagement),
   decideEngagement: endpoint(endpoints.Pj_decideEngagement),

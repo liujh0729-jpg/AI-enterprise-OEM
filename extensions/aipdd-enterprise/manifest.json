@@ -1,23 +1,38 @@
 {
   "manifest_version": 3,
   "name": "AIPDD Enterprise",
-  "version": "1.3.0",
-  "description": "多平台内容分发 + AI 获客助手：从 AIPDD Enterprise 营销工具接收任务，在你的浏览器里已登录的微博 / 小红书 / 抖音 / 知乎 / 今日头条 / 快手 / 视频号 / 知识星球 / 公众号 / 百家号 / B站 / 简书 / 豆瓣创作页自动填充并发布；在平台公开搜索页与评论区采集线索、执行已确认的触达。账号凭据不出本机，不读 Cookie、不绕过验证码。",
-  "permissions": ["tabs", "storage"],
+  "version": "1.4.0",
+  "description": "多平台内容分发 + AI 获客 + 本地 Chrome 控制：从 AIPDD Enterprise 营销工具接收任务，在你的浏览器里已登录的微博 / 小红书 / 抖音 / 知乎 / 今日头条 / 快手 / 视频号 / 知识星球 / 公众号 / 百家号 / B站 / 简书 / 豆瓣创作页自动填充并发布；在平台公开搜索页与评论区采集线索、执行已确认的触达；也可作为本地 Chrome 设备登录本系统，由云端 Agent 逐步决策、插件在本机执行。账号凭据不出本机，不读 Cookie、不绕过验证码。",
+  "permissions": ["tabs", "storage", "alarms", "sidePanel", "scripting"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "AIPDD Enterprise 分发与获客助手"
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
+    "default_title": "AIPDD Enterprise · 右侧侧边栏的浏览器代理与分发助手"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "commands": {
+    "open-side-panel": {
+      "suggested_key": { "default": "Alt+A" },
+      "description": "打开浏览器代理侧边栏"
+    }
   },
   "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["bridge.js"],
-      "run_at": "document_idle"
-    },
     {
       "matches": [
         "https://weibo.com/*",
@@ -51,6 +66,26 @@
         "https://mp.weixin.qq.com/*"
       ],
       "js": ["collector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://weibo.com/*",
+        "https://creator.xiaohongshu.com/*",
+        "https://creator.douyin.com/*",
+        "https://zhuanlan.zhihu.com/*",
+        "https://www.zhihu.com/*",
+        "https://mp.toutiao.com/*",
+        "https://cp.kuaishou.com/*",
+        "https://channels.weixin.qq.com/*",
+        "https://wx.zsxq.com/*",
+        "https://mp.weixin.qq.com/*",
+        "https://baijiahao.baidu.com/*",
+        "https://member.bilibili.com/*",
+        "https://www.jianshu.com/*",
+        "https://www.douban.com/*"
+      ],
+      "js": ["metrics.js"],
       "run_at": "document_idle"
     },
     {

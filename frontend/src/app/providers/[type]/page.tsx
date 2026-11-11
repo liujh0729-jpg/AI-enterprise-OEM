@@ -53,6 +53,7 @@ export default function ProviderListPage() {
         }
         exclusive={board.exclusive}
         locationFilter
+        showPackages={false}
         selfHint="您当前以服务商身份查看：本页展示同类目的其他已备案服务商，您自己的机构无需向自己发起签约。"
       />
     </>

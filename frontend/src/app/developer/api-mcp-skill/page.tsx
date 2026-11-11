@@ -16,7 +16,7 @@ const TABS = [
 const TAB_KEYS = new Set(TABS.map((item) => item.key));
 
 /**
- * 开放集成 → API-MCP-Skill：
+ * 模型服务 → API-MCP-Skill：
  * 平台生成的 Skill 包下载、MCP Server 接入说明与 REST API 文档合并为一个页面的三个页签。
  */
 export default function ApiMcpSkillPage() {

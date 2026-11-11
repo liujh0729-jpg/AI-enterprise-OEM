@@ -36,13 +36,27 @@ export class MktController {
 
   listArtifacts(
     user: CurrentUser,
-    query: PageQuery & { kind?: string; status?: string; q?: string },
+    query: PageQuery & {
+      kind?: string;
+      status?: string;
+      reviewStatus?: string;
+      publishStatus?: string;
+      q?: string;
+    },
   ) {
     return this.service.listArtifacts(user, query);
   }
 
   saveArtifact(user: CurrentUser, body: Row) {
     return this.service.saveArtifact(user, body);
+  }
+
+  reviewArtifact(user: CurrentUser, body: Row) {
+    return this.service.reviewArtifact(user, body);
+  }
+
+  publishArtifact(user: CurrentUser, body: Row) {
+    return this.service.publishArtifact(user, body);
   }
 
   readContext(user: CurrentUser) {

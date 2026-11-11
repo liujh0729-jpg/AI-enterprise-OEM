@@ -173,53 +173,7 @@ export class ContractsService {
     const ep = eps[0];
     const serviceType = String(body.service_type || '');
     const providerUserId = String(body.providerUserId || '');
-    if (!CONTRACT_CATEGORIES.includes(serviceType)) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '服务分类不合法');
-    }
-    // 个人主体可浏览名录与申请加入，但「签约」属办理动作：财税与出海六细项照旧拦下
-    if (
-      isPersonalSubject(ep.subjectType) &&
-      (serviceType === 'TAX_FINANCE' || isOverseasType(serviceType))
-    ) {
-      throw new BusinessException(
-        ErrorCode.ROLE_MISMATCH,
-        `「${CATEGORY_LABELS[serviceType]}」的该项办理不面向「个人」主体：请先在「身份与资质」把主体类型变更为「企业」或「个体工商户」`,
-      );
-    }
-    // 细项（出海 / 营销 / 物流 / 资产）落在承载备案行的 serviceItems 上：
-    // 该行须已通过审核，且已申请到该细项（物流细项的承载行含「物流服务商」与「小微服务商」）
-    const owners = bearingRowsOf(serviceType);
-    const isSubItem = isSubItemType(serviceType);
-    const bearingRows = await this.prisma.providerApplication.findMany({
-      where: { userId: providerUserId, providerType: { in: owners } },
-      orderBy: { id: 'desc' },
-    });
-    const approvedRows = bearingRows.filter(
-      (item) => item.status === 'APPROVED',
-    );
-    if (!approvedRows.length) {
-      throw new BusinessException(
-        ErrorCode.BAD_REQUEST,
-        isSubItem
-          ? `该服务商尚未通过「${CATEGORY_LABELS[owners[0]]}」备案审核`
-          : '该服务商尚未通过该服务分类的备案审核',
-      );
-    }
-    if (isSubItem) {
-      const accepts = approvedRows.some((item) =>
-        item.serviceItems
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .includes(serviceType),
-      );
-      if (!accepts) {
-        throw new BusinessException(
-          ErrorCode.BAD_REQUEST,
-          `该服务商不承接「${CATEGORY_LABELS[serviceType]}」`,
-        );
-      }
-    }
+    await this.assertProviderEligible(ep, serviceType, providerUserId);
     const appoint = Number(body.agent_id || 0)
       ? await this.resolveAppointedAgent(
           providerUserId,
@@ -266,21 +220,7 @@ export class ContractsService {
         `已与该服务商存在「${CATEGORY_LABELS[serviceType]}」签约`,
       );
     }
-    if (isExclusiveCategory(serviceType)) {
-      const occupied = await this.prisma.contract.findFirst({
-        where: {
-          enterpriseId: ep.id,
-          serviceType,
-          status: { in: ['PENDING', 'ACTIVE'] },
-        },
-      });
-      if (occupied) {
-        throw new BusinessException(
-          ErrorCode.CONFLICT,
-          `「${CATEGORY_LABELS[serviceType]}」已签约服务商，解约后才能再次发起`,
-        );
-      }
-    }
+    await this.assertExclusiveFree(ep.id, serviceType);
 
     const providerOrg = await this.users.displayName(providerUserId);
     const stageContacts = await this.contacts.stage(
@@ -314,6 +254,183 @@ export class ContractsService {
       provider_name: providerOrg,
       designated_agent: appoint,
       ...stageContacts,
+    };
+  }
+  /**
+   * 签约资格公共校验：企业发起 create 与平台主持 initiateByPlatform 共用，避免复制漂移。
+   * 含分类合法 + 个人主体门控（财税/出海）+ 服务商备案通过 + 细项承接；
+   * 不含企业侧「重复/独占占用」判定（create 有指定承办人复用分支，各自处理）。
+   */
+  private async assertProviderEligible(
+    ep: { subjectType: string },
+    serviceType: string,
+    providerUserId: string,
+  ) {
+    if (!CONTRACT_CATEGORIES.includes(serviceType)) {
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '服务分类不合法');
+    }
+    // 个人主体可浏览名录与申请加入，但「签约」属办理动作：财税与出海六细项照旧拦下
+    if (
+      isPersonalSubject(ep.subjectType) &&
+      (serviceType === 'TAX_FINANCE' || isOverseasType(serviceType))
+    ) {
+      throw new BusinessException(
+        ErrorCode.ROLE_MISMATCH,
+        `「${CATEGORY_LABELS[serviceType]}」的该项办理不面向「个人」主体：请先在「身份与资质」把主体类型变更为「企业」或「个体工商户」`,
+      );
+    }
+    // 细项（出海 / 营销 / 物流 / 资产 / IT服务）落在承载备案行的 serviceItems 上：
+    // 该行须已通过审核，且已申请到该细项（物流细项的承载行含「物流服务商」与「小微服务商」）
+    const owners = bearingRowsOf(serviceType);
+    const isSubItem = isSubItemType(serviceType);
+    const bearingRows = await this.prisma.providerApplication.findMany({
+      where: { userId: providerUserId, providerType: { in: owners } },
+      orderBy: { id: 'desc' },
+    });
+    const approvedRows = bearingRows.filter(
+      (item) => item.status === 'APPROVED',
+    );
+    if (!approvedRows.length) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        isSubItem
+          ? `该服务商尚未通过「${CATEGORY_LABELS[owners[0]]}」备案审核`
+          : '该服务商尚未通过该服务分类的备案审核',
+      );
+    }
+    if (isSubItem) {
+      const accepts = approvedRows.some((item) =>
+        item.serviceItems
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .includes(serviceType),
+      );
+      if (!accepts) {
+        throw new BusinessException(
+          ErrorCode.BAD_REQUEST,
+          `该服务商不承接「${CATEGORY_LABELS[serviceType]}」`,
+        );
+      }
+    }
+  }
+  /** 独占类目占用校验（财税/出海/营销/资产细项一企业一家）：PENDING/ACTIVE 占用，TERMINATED 不占用，故可换主体。 */
+  private async assertExclusiveFree(enterpriseId: number, serviceType: string) {
+    if (!isExclusiveCategory(serviceType)) return;
+    const occupied = await this.prisma.contract.findFirst({
+      where: {
+        enterpriseId,
+        serviceType,
+        status: { in: ['PENDING', 'ACTIVE'] },
+      },
+    });
+    if (occupied) {
+      throw new BusinessException(
+        ErrorCode.CONFLICT,
+        `「${CATEGORY_LABELS[serviceType]}」已签约服务商，解约后才能再次发起`,
+      );
+    }
+  }
+  /**
+   * 平台主持发起签约（官方服务套餐交付）：要求平台管理员，以采购订单的企业为主体建 PENDING 签约，
+   * 复用 create 的备案/个人主体/独占校验，写 packageOrderId 挂回订单。服务商沿用现有 confirm 生效，
+   * 平台只主持发起 + 跟踪 + 换主体，不替代服务商确认。同企业同服务商同类目已有 PENDING/ACTIVE 则幂等复用。
+   */
+  async initiateByPlatform(
+    operator: CurrentUser,
+    input: {
+      enterpriseId: number;
+      providerUserId: string;
+      serviceType: string;
+      packageOrderId?: number;
+      agentId?: number;
+      note?: string;
+    },
+  ) {
+    this.identity.requireAdmin(operator);
+    const ep = await this.prisma.enterpriseProfile.findUnique({
+      where: { id: input.enterpriseId },
+    });
+    if (!ep) {
+      throw new BusinessException(ErrorCode.NOT_FOUND, '采购企业档案不存在');
+    }
+    const serviceType = String(input.serviceType || '');
+    const providerUserId = String(input.providerUserId || '');
+    if (!providerUserId) {
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '请先为该交付项匹配服务商后再发起签约',
+      );
+    }
+    await this.assertProviderEligible(ep, serviceType, providerUserId);
+    const dup = await this.prisma.contract.findFirst({
+      where: {
+        enterpriseId: ep.id,
+        providerUserId,
+        serviceType,
+        status: { in: ['PENDING', 'ACTIVE'] },
+      },
+    });
+    if (dup) {
+      if (input.packageOrderId && !dup.packageOrderId) {
+        await this.prisma.contract.update({
+          where: { id: dup.id },
+          data: { packageOrderId: input.packageOrderId },
+        });
+      }
+      return {
+        id: dup.id,
+        status: dup.status,
+        reused: true,
+        service_type: serviceType,
+        provider_name: await this.users.displayName(providerUserId),
+      };
+    }
+    await this.assertExclusiveFree(ep.id, serviceType);
+    const appoint = input.agentId
+      ? await this.resolveAppointedAgent(
+          providerUserId,
+          serviceType,
+          Number(input.agentId),
+        )
+      : null;
+    const providerOrg = await this.users.displayName(providerUserId);
+    const stageContacts = await this.contacts.stage(
+      {
+        enterpriseUserId: ep.userId,
+        enterpriseId: ep.id,
+        providerUserId,
+      },
+      {},
+    );
+    const row = await this.prisma.contract.create({
+      data: {
+        contractNo: await allocateNo(this.prisma, 'HT'),
+        providerUserId,
+        providerOrg,
+        enterpriseId: ep.id,
+        enterpriseName: ep.name,
+        serviceType,
+        status: 'PENDING',
+        note: String(input.note || '').slice(0, 500),
+        packageOrderId: input.packageOrderId || 0,
+        designatedAgentId: appoint?.id || 0,
+        designatedAgentName: appoint?.name || '',
+        designatedAgentOrg: appoint?.org || '',
+        ...stageContacts,
+      },
+    });
+    await this.identity.audit(
+      operator.userId,
+      '平台主持发起签约',
+      `${row.contractNo}（${CATEGORY_LABELS[serviceType] || serviceType}）套餐订单#${input.packageOrderId || 0}`,
+    );
+    return {
+      id: row.id,
+      status: row.status,
+      service_type: serviceType,
+      provider_name: providerOrg,
+      designated_agent: appoint,
     };
   }
   /** 服务商确认签约：执行侧联系方式按确认人档案刷新（可带联系方式覆盖）。 */
@@ -518,7 +635,7 @@ export class ContractsService {
     };
   }
   /** 该签约已产生的业务单据数（存在则禁止删除，保留留痕）。 */
-  private async businessRefs(contractId: number) {
+  async businessRefs(contractId: number) {
     const counts = await Promise.all([
       this.prisma.taxDeclaration.count({ where: { contractId } }),
       this.prisma.taxMaterialPack.count({ where: { contractId } }),

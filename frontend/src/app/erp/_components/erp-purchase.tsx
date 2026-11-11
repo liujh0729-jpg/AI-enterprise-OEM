@@ -4,6 +4,7 @@ import { Button, Form, Input, InputNumber, Modal, Select, Table, message } from 
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
 import { erpApi } from "@/api/erp";
+import { projectApi } from "@/api/project";
 import { Notice, Panel, PillTabs, TabStrip } from "@/components/ui/panel";
 import {
   ErpEntityModal,
@@ -27,6 +28,7 @@ export function ErpPurchaseTab() {
   const [vendors, setVendors] = useState<ErpVendor[]>([]);
   const [warehouses, setWarehouses] = useState<ErpWarehouse[]>([]);
   const [variants, setVariants] = useState<ErpVariant[]>([]);
+  const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
   const [orders, setOrders] = useState<ErpPurchaseOrder[]>([]);
   const [orderTotal, setOrderTotal] = useState(0);
   const [orderPage, setOrderPage] = useState(1);
@@ -50,14 +52,16 @@ export function ErpPurchaseTab() {
 
   const loadBase = useCallback(async () => {
     try {
-      const [vendorData, warehouseRows, variantRows] = await Promise.all([
+      const [vendorData, warehouseRows, variantRows, projectData] = await Promise.all([
         erpApi.vendors({ query: { page: 1, pageSize: 200 } }),
         erpApi.warehouses(),
         erpApi.variants({ query: {} }),
+        projectApi.projects({ query: { page: 1, pageSize: 200 } }),
       ]);
       setVendors(vendorData?.list || []);
       setWarehouses(warehouseRows || []);
       setVariants(variantRows || []);
+      setProjects((projectData?.list || []).map((row) => ({ id: row.id, name: row.name })));
     } catch (err) {
       setError(erpError(err));
     }
@@ -139,6 +143,9 @@ export function ErpPurchaseTab() {
       await erpApi.savePurchaseOrder({
         body: {
           vendorId: Number(values.vendorId),
+          projectId: Number(values.projectId || 0),
+          sourceType: values.sourceType || "MANUAL",
+          sourceNo: values.sourceNo || "",
           warehouseId: Number(values.warehouseId),
           items: (values.items || []).map((item: { variantId: number; quantity: number; price: number }) => ({
             variantId: Number(item.variantId),
@@ -203,7 +210,17 @@ export function ErpPurchaseTab() {
 
   const orderColumns: ColumnsType<ErpPurchaseOrder> = [
     { title: "采购单号", dataIndex: "orderNo", width: 170 },
+    {
+      title: "来源单",
+      dataIndex: "sourceNo",
+      width: 160,
+      render: (v: string, row) =>
+        v
+          ? `${row.sourceType === "OA_PURCHASE" ? "OA " : row.sourceType === "STOCK_LOW" ? "补货 " : ""}${v}`
+          : "—",
+    },
     { title: "供应商", dataIndex: "vendorName" },
+    { title: "归属项目", dataIndex: "projectName", width: 150, render: (v: string) => v || "—" },
     { title: "仓库", dataIndex: "warehouseId", width: 80, render: (v: number) => `#${v}` },
     { title: "金额", dataIndex: "amount", width: 120, render: (v: string) => money(v) },
     { title: "税额", dataIndex: "taxAmount", width: 100, render: (v: string) => money(v) },
@@ -403,6 +420,38 @@ export function ErpPurchaseTab() {
             </Form.Item>
             <Form.Item name="expectedAt" label="预计到货" style={{ width: 170 }}>
               <Input type="date" />
+            </Form.Item>
+          </div>
+          <Form.Item
+            name="projectId"
+            label="归属项目"
+            tooltip="选项目后，入库即自动归集项目成本并生成应付；留空则不计入项目"
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="不归集到项目"
+              options={projects.map((row) => ({ value: row.id, label: row.name }))}
+            />
+          </Form.Item>
+          <div style={{ display: "flex", gap: 12 }}>
+            <Form.Item
+              name="sourceType"
+              label="来源"
+              initialValue="MANUAL"
+              tooltip="OA 采购申请已审批通过后转采购时选「OA 采购申请」，并填申请单号，便于逐单追溯"
+              style={{ width: 200 }}
+            >
+              <Select
+                options={[
+                  { value: "MANUAL", label: "直接下单" },
+                  { value: "OA_PURCHASE", label: "OA 采购申请" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="sourceNo" label="来源单号" style={{ flex: 1 }}>
+              <Input placeholder="如 OA 采购申请单号 CG2026…" />
             </Form.Item>
           </div>
           <Form.List name="items" initialValue={[{ quantity: 1, price: 0 }]}>

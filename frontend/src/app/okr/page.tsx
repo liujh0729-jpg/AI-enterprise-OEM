@@ -98,6 +98,7 @@ export default function OkrPage() {
           ctx={ctx}
           initialBriefId={decompositionBriefId || undefined}
           onCommitted={load}
+          onGoBriefs={() => setTab("briefs")}
         />
       ) : null}
       {ctx && tab === "plans" ? <OkrPlansTab ctx={ctx} reload={load} /> : null}

@@ -710,7 +710,7 @@ function ContactDetailDrawer({
                 items={detail.timeline.map((item) => ({
                   key: item.id,
                   color: item.kind === "LOST" ? "red" : undefined,
-                  children: (
+                  content: (
                     <Space orientation="vertical" size={0}>
                       <span>
                         {item.title}

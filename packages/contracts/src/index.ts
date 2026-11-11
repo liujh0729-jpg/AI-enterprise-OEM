@@ -22,6 +22,9 @@ export * from "./acquisition";
 export * from "./collab";
 export * from "./wecom-scrm";
 export * from "./enterprise-gaps";
+export * from "./extension";
+export * from "./browser-task";
+export * from "./chrome-rpa";
 export * from "./ai";
 
 export const apiEnvelope = <T extends z.ZodType>(data: T) =>
@@ -73,6 +76,10 @@ export const registerSchema = loginSchema.extend({
   email: z.string().trim().email(),
   emailCode: z.string().trim().min(1),
   inviteCode: z.string().optional(),
+  /** 勾选认可的协议（编码 + 版本），缺项/版本过期后端拒绝注册。 */
+  terms: z
+    .array(z.object({ code: z.string().min(1), version: z.string().min(1) }))
+    .optional(),
 });
 export const tokenSchema = z.object({
   token: z.string().min(1),
@@ -129,4 +136,11 @@ export * from "./video-templates";
 export * from "./survey";
 export * from "./hardware";
 export * from "./moderation";
+export * from "./task-center";
+export * from "./task-assignment";
+export * from "./ui-preferences";
+export * from "./workflow";
+export * from "./upgrade";
+export * from "./ai-code";
+export * from "./wechat-mp";
 export { ContentEndpoints as contentEndpoints } from "./content";

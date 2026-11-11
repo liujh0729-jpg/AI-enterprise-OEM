@@ -157,7 +157,7 @@ export class ErpController {
 
   listPayables(
     user: CurrentUser,
-    query: PageQuery & { status?: string; q?: string },
+    query: PageQuery & { status?: string; q?: string; approvalStatus?: string },
   ) {
     return this.service.listPayables(user, query);
   }
@@ -168,6 +168,10 @@ export class ErpController {
 
   payPayable(user: CurrentUser, body: Row) {
     return this.service.payPayable(user, body);
+  }
+
+  decidePayable(user: CurrentUser, body: Row) {
+    return this.service.decidePayable(user, body);
   }
 
   listExpenses(user: CurrentUser, query: PageQuery & { status?: string }) {

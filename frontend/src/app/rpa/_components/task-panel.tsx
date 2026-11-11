@@ -3,10 +3,12 @@
 import { RobotOutlined } from "@ant-design/icons";
 import { App, Button, Collapse, Input, Modal, Radio, Select, Space, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { ScheduleFields } from "@/components/schedule-fields";
-import { EmptyState, Panel } from "@/components/ui/panel";
+import { EmptyState, Notice, Panel } from "@/components/ui/panel";
+import { rpaChromeApi, type RcDeviceView } from "@/api/rpa-chrome";
 import { fmtTime } from "@/lib/datetime";
 import {
   EMPTY_SCHEDULE,
@@ -25,6 +27,7 @@ import {
   deviceLabel,
   durationText,
   fileTypeLabel,
+  isChromeDevice,
   isPhoneDevice,
   paramEntries,
   rpaApi,
@@ -59,6 +62,8 @@ type TaskForm = {
   deviceType: string;
   scriptId: number | null;
   accountIds: number[];
+  /** 本地 Chrome 任务绑定的设备（deviceType='chrome' 时必填）。 */
+  chromeClientId: string;
   schedule: ScheduleDraft;
   maxRetries: string;
   timeoutSeconds: string;
@@ -71,6 +76,7 @@ const EMPTY: TaskForm = {
   deviceType: "pc",
   scriptId: null,
   accountIds: [],
+  chromeClientId: "",
   schedule: EMPTY_SCHEDULE,
   maxRetries: "0",
   timeoutSeconds: "3600",
@@ -133,6 +139,7 @@ export function TaskPanel({
       deviceType: task.deviceType,
       scriptId: task.scriptId,
       accountIds: task.accountIds,
+      chromeClientId: task.chromeClientId || "",
       schedule: scheduleDraftFrom(task),
       maxRetries: String(task.maxRetries),
       timeoutSeconds: String(task.timeoutSeconds),
@@ -164,11 +171,13 @@ export function TaskPanel({
 
   const body = (): Record<string, unknown> => {
     const phone = isPhoneDevice(form.deviceType);
+    const chrome = isChromeDevice(form.deviceType);
     return {
       name: form.name.trim(),
       deviceType: form.deviceType,
       scriptId: form.scriptId,
-      accountIds: form.accountIds,
+      accountIds: chrome ? [] : form.accountIds,
+      ...(chrome ? { chromeClientId: form.chromeClientId } : {}),
       params: selected
         ? buildParams(selected.paramsSchema, params, form.freeJson)
         : {},
@@ -188,7 +197,12 @@ export function TaskPanel({
       message.warning("请选择要执行的 RPA 脚本");
       return;
     }
-    if (!form.accountIds.length) {
+    if (isChromeDevice(form.deviceType)) {
+      if (!form.chromeClientId) {
+        message.warning("请选择要执行的本地 Chrome 设备（需在线）");
+        return;
+      }
+    } else if (!form.accountIds.length) {
       message.warning("请至少绑定一个 RPA 账号（本地执行端要靠它登录平台）");
       return;
     }
@@ -304,7 +318,15 @@ export function TaskPanel({
       key: "deviceLabel",
       width: 130,
       render: (value: string, row) => (
-        <Tag color={isPhoneDevice(row.deviceType) ? "geekblue" : "blue"}>
+        <Tag
+          color={
+            isPhoneDevice(row.deviceType)
+              ? "geekblue"
+              : isChromeDevice(row.deviceType)
+                ? "purple"
+                : "blue"
+          }
+        >
           {value}
         </Tag>
       ),
@@ -330,11 +352,13 @@ export function TaskPanel({
       key: "accounts",
       width: 200,
       render: (_, row) =>
-        row.accounts.length
-          ? row.accounts
-              .map((item) => `${item.platform}/${item.username}`)
-              .join("、")
-          : `${row.accountIds.length} 个（账号已删除）`,
+        isChromeDevice(row.deviceType)
+          ? `本地 Chrome 设备 ${row.chromeClientId ? row.chromeClientId.slice(0, 10) : "（未绑定）"}`
+          : row.accounts.length
+            ? row.accounts
+                .map((item) => `${item.platform}/${item.username}`)
+                .join("、")
+            : `${row.accountIds.length} 个（账号已删除）`,
     },
     {
       title: "状态",
@@ -460,12 +484,18 @@ export function TaskPanel({
 
   // 建任务的前置条件缺哪一项就写在面板标题后面：页签底部的说明用户看不到，会以为按钮没反应
   const prereqHints = [
-    scripts.length
-      ? ""
-      : "还没有 RPA 脚本：先到「RPA 脚本」页签新建或用 AI 生成，任务要绑定脚本",
-    accounts.length
-      ? ""
-      : "还没有 RPA 账号：先到「RPA 账号」页签登记，任务要绑定账号才能在本地登录平台执行",
+    scripts.length ? null : (
+      <>
+        还没有 RPA 脚本：先到「RPA 脚本」页签新建或用 AI 生成，任务要绑定脚本{" "}
+        <Link href="/rpa?tab=scripts">去新建脚本</Link>
+      </>
+    ),
+    accounts.length ? null : (
+      <>
+        还没有 RPA 账号：先到「RPA 账号」页签登记，任务要绑定账号才能在本地登录平台执行{" "}
+        <Link href="/rpa?tab=accounts">去登记账号</Link>
+      </>
+    ),
   ].filter(Boolean);
 
   return (
@@ -473,7 +503,14 @@ export function TaskPanel({
       title="RPA 任务"
       titleExtra={
         prereqHints.length ? (
-          <span className="text-12 muted">{prereqHints.join("；")}</span>
+          <span className="text-12 muted">
+            {prereqHints.map((hint, index) => (
+              <span key={index}>
+                {index ? "；" : ""}
+                {hint}
+              </span>
+            ))}
+          </span>
         ) : null
       }
       titleBadge={`${tasks.length} 个`}
@@ -527,7 +564,12 @@ export function TaskPanel({
               value={form.deviceType}
               options={DEVICE_OPTIONS}
               onChange={(value) => {
-                patch({ deviceType: value, scriptId: null, accountIds: [] });
+                patch({
+                  deviceType: value,
+                  scriptId: null,
+                  accountIds: [],
+                  chromeClientId: "",
+                });
                 setParams({});
                 if (!isPhoneDevice(value)) {
                   patch({ phoneFinishAction: "keep" });
@@ -540,13 +582,21 @@ export function TaskPanel({
             style={{ gridColumn: "1 / -1", marginTop: -4, marginBottom: 8 }}
           >
             <Tag
-              color={isPhoneDevice(form.deviceType) ? "geekblue" : "blue"}
+              color={
+                isPhoneDevice(form.deviceType)
+                  ? "geekblue"
+                  : isChromeDevice(form.deviceType)
+                    ? "purple"
+                    : "blue"
+              }
               style={{ fontSize: 13, padding: "2px 10px" }}
             >
               {`本任务为：${deviceLabel(form.deviceType)}`}
             </Tag>
             <span style={{ marginLeft: 8 }}>
-              本地执行端按该设备类型认领；下方只列出该设备类型的脚本与账号
+              {isChromeDevice(form.deviceType)
+                ? "由你在下面指定的那台本地 Chrome（已登录本系统）执行；不需要 RPA 账号"
+                : "本地执行端按该设备类型认领；下方只列出该设备类型的脚本与账号"}
             </span>
           </div>
           <ScriptPicker
@@ -573,11 +623,18 @@ export function TaskPanel({
               setParams(next);
             }}
           />
-          <AccountPicker
-            accounts={accounts}
-            selectedIds={form.accountIds}
-            onChange={(accountIds) => patch({ accountIds })}
-          />
+          {isChromeDevice(form.deviceType) ? (
+            <ChromeDevicePicker
+              value={form.chromeClientId}
+              onChange={(chromeClientId) => patch({ chromeClientId })}
+            />
+          ) : (
+            <AccountPicker
+              accounts={accounts}
+              selectedIds={form.accountIds}
+              onChange={(accountIds) => patch({ accountIds })}
+            />
+          )}
           {!editing && form.accountIds.length > 1 ? (
             <label className="data-table-form-item">
               <span className="data-table-form-label">建任务方式</span>
@@ -729,5 +786,76 @@ export function TaskPanel({
         />
       ) : null}
     </Panel>
+  );
+}
+
+/**
+ * 本地 Chrome 设备绑定：只列在线设备（离线设备领不到任务，不渲染能点但必然失败的选项）。
+ * 在线设备只有 1 台时不渲染下拉，直接把设备名写出来（遵循「单选不出控件」）。
+ */
+function ChromeDevicePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (clientId: string) => void;
+}) {
+  const [devices, setDevices] = useState<RcDeviceView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void rpaChromeApi
+      .devices()
+      .then((result) => {
+        if (!alive) return;
+        if (result.message) setError(result.message);
+        setDevices((result.data?.devices ?? []).filter((item) => item.online));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!loading && devices.length === 1 && value !== devices[0].clientId) {
+      onChange(devices[0].clientId);
+    }
+  }, [loading, devices, value, onChange]);
+
+  return (
+    <label className="data-table-form-item" style={{ gridColumn: "1 / -1" }}>
+      <span className="data-table-form-label">
+        执行设备<b style={{ color: "var(--danger)" }}> *</b>
+      </span>
+      {error ? (
+        <Notice variant="error">{`本地 Chrome 设备读取失败：${error}`}</Notice>
+      ) : loading ? (
+        <span className="text-12 muted">正在读取在线设备…</span>
+      ) : !devices.length ? (
+        <Notice>
+          当前没有在线的本地 Chrome 设备：请打开「AIPDD Enterprise」插件弹窗登录本系统，
+          设备变绿后再回到这里新建任务。
+        </Notice>
+      ) : devices.length === 1 ? (
+        <span>
+          {devices[0].name}
+          <span className="text-12 muted" style={{ marginLeft: 6 }}>
+            · 在线
+          </span>
+        </span>
+      ) : (
+        <Select
+          value={value || undefined}
+          placeholder="选择一台在线设备"
+          options={devices.map((item) => ({ value: item.clientId, label: item.name }))}
+          onChange={(next) => onChange(next)}
+        />
+      )}
+    </label>
   );
 }

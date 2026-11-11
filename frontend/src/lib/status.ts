@@ -150,11 +150,42 @@ export const DOMAIN_STATUS: Record<string, Record<string, StatusSpec>> = {
     ONLINE: { label: "在售", variant: "green" },
     OFFLINE: { label: "已下架", variant: "gray" },
   },
+  /** 工作流状态与运行状态（对齐契约 WORKFLOW_STATUSES / WORKFLOW_RUN_STATUSES）。 */
+  workflow: {
+    DRAFT: { label: "草稿", variant: "gray" },
+    PUBLISHED: { label: "已发布", variant: "green" },
+    ARCHIVED: { label: "已归档", variant: "gray" },
+  },
+  workflowRun: {
+    PENDING: { label: "排队中", variant: "orange" },
+    RUNNING: { label: "运行中", variant: "blue" },
+    WAITING: { label: "等待中", variant: "sky" },
+    DONE: { label: "已完成", variant: "green" },
+    FAILED: { label: "已失败", variant: "red" },
+    CANCELED: { label: "已取消", variant: "gray" },
+    SKIPPED: { label: "已跳过", variant: "gray" },
+    TIMEOUT: { label: "已超时", variant: "red" },
+  },
   /** 供销网络：报价时的缺货情况说明。 */
   supplyStock: {
     SUFFICIENT: { label: "库存充足", variant: "green" },
     PARTIAL: { label: "部分缺货", variant: "orange" },
     SHORTAGE: { label: "缺货", variant: "red" },
+  },
+  /** 统一任务中心：中心状态机（与业务状态正交，对齐后端 TASK_STATUS_LABELS）。 */
+  task: {
+    OPEN: { label: "待处理", variant: "orange" },
+    DOING: { label: "处理中", variant: "sky" },
+    DONE: { label: "已完成", variant: "green" },
+    CANCELED: { label: "已取消", variant: "gray" },
+    EXPIRED: { label: "已失效", variant: "gray" },
+  },
+  /** 统一任务中心：优先级（对齐后端 TASK_PRIORITY_LABELS）。 */
+  taskPriority: {
+    LOW: { label: "低", variant: "gray" },
+    NORMAL: { label: "普通", variant: "blue" },
+    HIGH: { label: "高", variant: "orange" },
+    URGENT: { label: "紧急", variant: "red" },
   },
 };
 

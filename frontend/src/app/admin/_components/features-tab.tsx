@@ -391,17 +391,26 @@ function AiGuardPane() {
 type BlacklistRow = AccessPolicy["blacklist"][number];
 type LimitsDraft = Partial<AccessPolicy["limits"]>;
 
+/** 本地编辑行：带上稳定 key，避免依赖 antd 已废弃的 rowKey 函数 index 参数。 */
+type BlacklistRowDraft = BlacklistRow & { rowKey: string };
+
+let blacklistRowSeq = 1;
+const toBlacklistDraft = (row: BlacklistRow): BlacklistRowDraft => ({
+  ...row,
+  rowKey: `blacklist-${blacklistRowSeq++}`,
+});
+
 function AccessPolicyPane() {
   const { message } = App.useApp();
   const { data, denied, loading, reload } = useAdminData("platform-access-policy", (signal) =>
     governanceApi.accessPolicy({}, { signal }),
   );
-  const [rows, setRows] = useState<BlacklistRow[]>([]);
+  const [rows, setRows] = useState<BlacklistRowDraft[]>([]);
   const [form] = Form.useForm<LimitsDraft>();
 
   useEffect(() => {
     if (!data) return;
-    setRows(data.blacklist.map((row) => ({ ...row })));
+    setRows(data.blacklist.map(toBlacklistDraft));
     form.setFieldsValue({ ...data.limits, allowMethods: [...data.limits.allowMethods] });
   }, [data, form]);
 
@@ -422,7 +431,12 @@ function AccessPolicyPane() {
     }
     try {
       await save.mutateAsync({
-        blacklist: rows.map((row) => ({ ...row, value: row.value.trim() })),
+        blacklist: rows.map(({ type, value, reason, addedBy }) => ({
+          type,
+          value: value.trim(),
+          reason,
+          addedBy,
+        })),
         limits: form.getFieldsValue(),
       });
       message.success("访问策略已保存，运行期技能实时读取");
@@ -441,7 +455,14 @@ function AccessPolicyPane() {
         titleBadge={<span className="text-12 muted">命中即拦截（含开发环境），技能与自动任务一律受限</span>}
         extra={
           <div style={{ display: "flex", gap: 8 }}>
-            <Button onClick={() => setRows((list) => [...list, { type: "domain", value: "", reason: "", addedBy: "" }])}>
+            <Button
+              onClick={() =>
+                setRows((list) => [
+                  ...list,
+                  toBlacklistDraft({ type: "domain", value: "", reason: "", addedBy: "" }),
+                ])
+              }
+            >
               添加条目
             </Button>
             <Button onClick={() => void reload()}>刷新</Button>
@@ -449,8 +470,8 @@ function AccessPolicyPane() {
         }
       >
         <div className="table-wrap">
-          <Table<BlacklistRow>
-            rowKey={(_, index) => String(index)}
+          <Table<BlacklistRowDraft>
+            rowKey="rowKey"
             loading={loading}
             dataSource={rows}
             pagination={false}

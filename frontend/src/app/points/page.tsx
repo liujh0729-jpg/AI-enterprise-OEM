@@ -40,6 +40,7 @@ import {
 } from "@/lib/ai-usage";
 import { useBusinessQuery } from "@/query/business";
 import { useI18n } from "@/lib/i18n/i18n";
+import { CardOrdersPanel } from "./_components/card-orders";
 import { GapsPromoPanel } from "./_components/gaps-promo";
 
 /* ============================================================
@@ -54,6 +55,7 @@ const TX_TYPE_LABEL: Record<string, string> = {
   SPEND: "消费",
   TRANSFER_IN: "收到赠送",
   TRANSFER_OUT: "赠送转出",
+  REFUND: "退款",
   ADMIN_ADJUST: "管理员调整",
 };
 
@@ -68,6 +70,9 @@ const TX_SCENE_LABEL: Record<string, string> = {
   gift: "积分赠送",
   admin: "管理员调整",
   recharge_bonus: "充值赠送",
+  service_package: "购买套餐",
+  service_package_refund: "套餐退款",
+  service_package_rollback: "套餐建单回滚",
 };
 
 const ORDER_STATUS: Record<string, { label: string; cls: string }> = {
@@ -264,6 +269,18 @@ export default function PointsPage() {
               key: "promo",
               label: t("兑换码"),
               children: <GapsPromoPanel />,
+            },
+            {
+              key: "cards",
+              label: t("兑换订单"),
+              children: (
+                <CardOrdersPanel
+                  onChanged={() => {
+                    setTxNonce((value) => value + 1);
+                    void reloadSummary();
+                  }}
+                />
+              ),
             },
           ]}
         />

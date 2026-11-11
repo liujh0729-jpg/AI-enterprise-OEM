@@ -32,6 +32,7 @@ import { partyEndpoints } from "./party";
 import { oaEndpoints } from "./oa";
 import { questionHallEndpoints } from "./question-hall";
 import { distributionEndpoints } from "./distribution";
+import { extensionEndpoints } from "./extension";
 import { helpEndpoints } from "./help";
 import { imEndpoints } from "./im";
 import { skillHubEndpoints } from "./skillhub";
@@ -58,6 +59,13 @@ import { enterpriseGapEndpoints } from "./enterprise-gaps";
 import { aiEndpoints } from "./ai";
 import { modelPlazaEndpoints, modelPlazaAdminEndpoints } from "./model-plaza";
 import { hardwareEndpoints } from "./hardware";
+import { taskCenterEndpoints } from "./task-center";
+import { taskAssignmentEndpoints } from "./task-assignment";
+import { uiPreferencesEndpoints } from "./ui-preferences";
+import { workflowEndpoints } from "./workflow";
+import { upgradeEndpoints } from "./upgrade";
+import { aiCodeEndpoints } from "./ai-code";
+import { wechatMpEndpoints } from "./wechat-mp";
 const jsonValueSchema = z.union([
   z.null(),
   z.string(),
@@ -15599,7 +15607,15 @@ type ModuleEndpoints = typeof adminPageEndpoints &
   typeof aiEndpoints &
   typeof modelPlazaEndpoints &
   typeof modelPlazaAdminEndpoints &
-  typeof hardwareEndpoints;
+  typeof hardwareEndpoints &
+  typeof taskCenterEndpoints &
+  typeof taskAssignmentEndpoints &
+  typeof uiPreferencesEndpoints &
+  typeof extensionEndpoints &
+  typeof workflowEndpoints &
+  typeof upgradeEndpoints &
+  typeof aiCodeEndpoints &
+  typeof wechatMpEndpoints;
 export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...adminPageEndpoints,
   ...automationEndpoints,
@@ -15618,6 +15634,7 @@ export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...oaEndpoints,
   ...questionHallEndpoints,
   ...distributionEndpoints,
+  ...extensionEndpoints,
   ...helpEndpoints,
   ...imEndpoints,
   ...skillHubEndpoints,
@@ -15646,6 +15663,13 @@ export const endpoints: ModuleEndpoints & typeof localEndpoints = {
   ...modelPlazaEndpoints,
   ...modelPlazaAdminEndpoints,
   ...hardwareEndpoints,
+  ...taskCenterEndpoints,
+  ...taskAssignmentEndpoints,
+  ...uiPreferencesEndpoints,
+  ...workflowEndpoints,
+  ...upgradeEndpoints,
+  ...aiCodeEndpoints,
+  ...wechatMpEndpoints,
   ...localEndpoints,
 };
 export type EndpointId = keyof typeof endpoints;

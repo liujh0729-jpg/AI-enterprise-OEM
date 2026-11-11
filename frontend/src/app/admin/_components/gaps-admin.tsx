@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  App,
   Button,
   DatePicker,
   Descriptions,
@@ -13,7 +14,6 @@ import {
   Switch,
   Table,
   Tag,
-  message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
@@ -48,12 +48,15 @@ const USAGE_EVENT_LABELS: Record<string, string> = {
 
 /** 权益配额目录：平台维护套餐与逐功能配额；可查看任意组织的当前套餐并手工指定。 */
 export function GapsEntitlementsTab() {
+  const { message } = App.useApp();
   const [plans, setPlans] = useState<EntitlementPlan[]>([]);
   const [orgPlan, setOrgPlan] = useState<OrgEntitlement | null>(null);
   const [orgUserId, setOrgUserId] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<EntitlementPlan | null>(null);
+  const [formKey, setFormKey] = useState(0);
   const [form] = Form.useForm();
   const [assignForm] = Form.useForm();
 
@@ -76,31 +79,32 @@ export function GapsEntitlementsTab() {
       setOrgPlan(null);
       message.error(gapError(err));
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     void load();
     void loadOrg("");
   }, [load, loadOrg]);
 
+  /** 弹窗表单靠 key + initialValues 重建：destroyOnHidden 下 Form 尚未挂载，不能再提前 reset/setFieldsValue。 */
   const openEditor = (row?: EntitlementPlan) => {
-    form.resetFields();
-    if (row) {
-      form.setFieldsValue({
-        id: row.id,
-        code: row.code,
-        name: row.name,
-        audience: row.audience,
-        description: row.description,
-        priceMonthly: row.priceMonthly,
-        status: row.status,
-        quotas: row.quotas,
-      });
-    } else {
-      form.setFieldsValue({ audience: "ENTERPRISE", status: "ACTIVE", priceMonthly: 0, quotas: [] });
-    }
+    setEditing(row ?? null);
+    setFormKey((key) => key + 1);
     setOpen(true);
   };
+
+  const planInitialValues = editing
+    ? {
+        id: editing.id,
+        code: editing.code,
+        name: editing.name,
+        audience: editing.audience,
+        description: editing.description,
+        priceMonthly: editing.priceMonthly,
+        status: editing.status,
+        quotas: editing.quotas.map((quota) => ({ ...quota })),
+      }
+    : { audience: "ENTERPRISE", status: "ACTIVE", priceMonthly: 0, quotas: [] };
 
   const save = async () => {
     try {
@@ -211,7 +215,15 @@ export function GapsEntitlementsTab() {
             placeholder="组织账号 ID（留空为当前组织）"
             style={{ width: 280 }}
           />
-          <Button onClick={() => void loadOrg(orgUserId.trim())}>查询</Button>
+          <Button
+            onClick={() => {
+              const target = orgUserId.trim();
+              assignForm.setFieldsValue({ orgUserId: target });
+              void loadOrg(target);
+            }}
+          >
+            查询
+          </Button>
         </Space>
         {orgPlan ? (
           <>
@@ -256,7 +268,7 @@ export function GapsEntitlementsTab() {
         ) : null}
         <Form form={assignForm} layout="inline" style={{ marginTop: 14 }} onFinish={() => void assign()}>
           <Form.Item name="orgUserId" label="组织账号" rules={[{ required: true, message: "请填写组织账号" }]}>
-            <Input style={{ width: 220 }} defaultValue={orgUserId} />
+            <Input style={{ width: 220 }} />
           </Form.Item>
           <Form.Item name="planCode" label="套餐" rules={[{ required: true, message: "请选择套餐" }]}>
             <Select
@@ -277,13 +289,13 @@ export function GapsEntitlementsTab() {
 
       <Modal
         open={open}
-        title={form.getFieldValue("id") ? "编辑套餐" : "新建套餐"}
+        title={editing ? "编辑套餐" : "新建套餐"}
         onCancel={() => setOpen(false)}
         onOk={() => void save()}
         width={900}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical">
+        <Form key={formKey} form={form} layout="vertical" initialValues={planInitialValues}>
           <Form.Item name="id" hidden>
             <Input />
           </Form.Item>
@@ -367,6 +379,7 @@ export function GapsEntitlementsTab() {
 
 /** 使用埋点：开关与留存期、事件流水与按事件汇总。 */
 export function GapsUsageTab() {
+  const { message } = App.useApp();
   const [settings, setSettings] = useState<UsageSettings | null>(null);
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [events, setEvents] = useState<UsageEvent[]>([]);
@@ -512,11 +525,14 @@ export function GapsUsageTab() {
 
 /** 条款版本：平台维护服务协议 / 隐私政策等版本与生效时间，变更即要求重新接受。 */
 export function GapsTermsTab() {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<TermsDocument[]>([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<TermsDocument | null>(null);
+  const [formKey, setFormKey] = useState(0);
   const [form] = Form.useForm();
 
   const load = useCallback(async () => {
@@ -538,24 +554,24 @@ export function GapsTermsTab() {
   }, [load]);
 
   const openEditor = (row?: TermsDocument) => {
-    form.resetFields();
-    if (row) {
-      form.setFieldsValue({
-        id: row.id,
-        code: row.code,
-        version: row.version,
-        title: row.title,
-        category: row.category,
-        content: row.content,
-        requireReaccept: row.requireReaccept,
-        effectiveAt: row.effectiveAt ? dayjs(row.effectiveAt) : null,
-        status: row.status,
-      });
-    } else {
-      form.setFieldsValue({ category: "SERVICE", requireReaccept: true, status: "DRAFT" });
-    }
+    setEditing(row ?? null);
+    setFormKey((key) => key + 1);
     setOpen(true);
   };
+
+  const termsInitialValues = editing
+    ? {
+        id: editing.id,
+        code: editing.code,
+        version: editing.version,
+        title: editing.title,
+        category: editing.category,
+        content: editing.content,
+        requireReaccept: editing.requireReaccept,
+        effectiveAt: editing.effectiveAt ? dayjs(editing.effectiveAt) : null,
+        status: editing.status,
+      }
+    : { category: "SERVICE", requireReaccept: true, status: "DRAFT" };
 
   const save = async () => {
     try {
@@ -653,13 +669,13 @@ export function GapsTermsTab() {
 
       <Modal
         open={open}
-        title={form.getFieldValue("id") ? "编辑条款" : "新建条款"}
+        title={editing ? "编辑条款" : "新建条款"}
         onCancel={() => setOpen(false)}
         onOk={() => void save()}
         width={860}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical">
+        <Form key={formKey} form={form} layout="vertical" initialValues={termsInitialValues}>
           <Form.Item name="id" hidden>
             <Input />
           </Form.Item>
@@ -710,6 +726,7 @@ export function GapsTermsTab() {
 
 /** 产品更新日志：后台维护版本条目，帮助中心公开展示已发布条目。 */
 export function GapsChangelogTab() {
+  const { message } = App.useApp();
   const [rows, setRows] = useState<ChangelogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -717,6 +734,8 @@ export function GapsChangelogTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<ChangelogEntry | null>(null);
+  const [formKey, setFormKey] = useState(0);
   const [form] = Form.useForm();
 
   const load = useCallback(async () => {
@@ -740,23 +759,23 @@ export function GapsChangelogTab() {
   }, [load]);
 
   const openEditor = (row?: ChangelogEntry) => {
-    form.resetFields();
-    if (row) {
-      form.setFieldsValue({
-        id: row.id,
-        version: row.version,
-        title: row.title,
-        summary: row.summary,
-        body: row.body,
-        category: row.category,
-        releasedAt: row.releasedAt ? dayjs(row.releasedAt) : null,
-        status: row.status,
-      });
-    } else {
-      form.setFieldsValue({ category: "PRODUCT", status: "PUBLISHED" });
-    }
+    setEditing(row ?? null);
+    setFormKey((key) => key + 1);
     setOpen(true);
   };
+
+  const changelogInitialValues = editing
+    ? {
+        id: editing.id,
+        version: editing.version,
+        title: editing.title,
+        summary: editing.summary,
+        body: editing.body,
+        category: editing.category,
+        releasedAt: editing.releasedAt ? dayjs(editing.releasedAt) : null,
+        status: editing.status,
+      }
+    : { category: "PRODUCT", status: "PUBLISHED" };
 
   const save = async () => {
     try {
@@ -857,13 +876,13 @@ export function GapsChangelogTab() {
 
       <Modal
         open={open}
-        title={form.getFieldValue("id") ? "编辑更新日志" : "新建更新日志"}
+        title={editing ? "编辑更新日志" : "新建更新日志"}
         onCancel={() => setOpen(false)}
         onOk={() => void save()}
         width={760}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical">
+        <Form key={formKey} form={form} layout="vertical" initialValues={changelogInitialValues}>
           <Form.Item name="id" hidden>
             <Input />
           </Form.Item>

@@ -26,7 +26,7 @@ export class ModelKeyService {
     if (!token) {
       throw new BusinessException(
         ErrorCode.FORBIDDEN,
-        '请先在「开放集成 → API Key 管理」绑定 AIPDD API Key，再使用模型能力',
+        '请先在「模型服务 → API Key 管理」绑定 AIPDD API Key，再使用模型能力',
       );
     }
     return token;

@@ -18,6 +18,7 @@ import {
   Upload,
 } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   VIDEO_TEMPLATE_REFERENCE_MAX,
   VIDEO_TEMPLATE_TYPES,
@@ -27,7 +28,7 @@ import {
   type VideoTemplateType,
 } from "@enterprise/contracts";
 import { contentApi, uploadContentMedia } from "@/api/content";
-import { EmptyState, Notice } from "@/components/ui/panel";
+import { Notice } from "@/components/ui/panel";
 import { RawImg } from "@/components/ui/raw-img";
 
 type Channel = { value: number; label: string };
@@ -378,7 +379,10 @@ export function PublishTemplateModal({
           </div>
         </div>
         {!channels.length ? (
-          <EmptyState text="没有可用的视频渠道：请到「开放集成 → 模型设置」配置后再发布。" />
+          <Notice variant="warn">
+            没有可用的视频渠道：请到「模型服务 → 模型设置」配置后再发布。
+            <Link href="/model-settings"> 立即配置模型</Link>
+          </Notice>
         ) : null}
       </div>
     </Modal>

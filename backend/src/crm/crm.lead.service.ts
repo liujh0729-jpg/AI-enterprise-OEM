@@ -87,6 +87,8 @@ export class CrmLeadService {
           actorId: ctx.actorId,
           isOwner: ctx.isOwner,
           isAdmin: ctx.isAdmin,
+          roles: [],
+          positions: [],
           department: ctx.department,
         },
         event,
@@ -179,12 +181,18 @@ export class CrmLeadService {
     const view = text(query.view, 'all');
     if (view === 'mine') where.ownerId = ctx.actorId;
     if (view === 'pool') {
+      // 公海是组织内共享池（入池时 ownerId 已清空），按 inPool 取；租户键仍在上面，不跨组织。
       where.inPool = true;
-      delete where.ownerId;
+      where.ownerId = '';
     }
     if (query.stage) where.stage = text(query.stage);
     if (query.poolId) where.poolId = Number(query.poolId);
-    if (query.ownerId) where.ownerId = text(query.ownerId);
+    // 负责人筛选只能与授权范围取交集，不能覆盖它（设计方案 §3.3）。
+    const ownerFilter = text(query.ownerId);
+    if (ownerFilter && !this.scope.ownerInScope(base.ownerId, ownerFilter)) {
+      return { list: [], total: 0, page, pageSize };
+    }
+    if (ownerFilter) where.ownerId = ownerFilter;
     const keyword = text(query.keyword).trim();
     if (keyword) {
       where.OR = [

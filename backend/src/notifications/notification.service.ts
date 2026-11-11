@@ -18,17 +18,32 @@ export type NotifyInput = {
 
 const CATEGORY_SET = new Set(Object.keys(NOTIFICATION_CATEGORY_LABELS));
 
+/** 微信服务号旁路推送：只依赖这个形状，通知模块不反向依赖微信模块。 */
+export type NotificationPushSink = {
+  pushNotification(input: {
+    userId: string;
+    title: string;
+    body: string;
+    link: string;
+    category: string;
+    entityType: string;
+    entityId: string;
+  }): Promise<void>;
+};
+
 /** 全站系统消息：唯一写入口，业务模块只调 notify / notifyMany。 */
 export class NotificationService {
   constructor(
     private readonly prisma: PrismaService,
     /** AIworkin 社交（SNS）通知：只读合并进铃铛，SNS 不可用时降级为本站消息。 */
     private readonly sns?: SnsService,
+    /** 绑定微信服务号的用户额外收一条微信消息；失败不影响站内消息。 */
+    private readonly push?: NotificationPushSink,
   ) {}
 
   async notify(userId: string, input: NotifyInput) {
     if (!userId) return null;
-    return this.prisma.notification.create({
+    const row = await this.prisma.notification.create({
       data: {
         userId,
         category: CATEGORY_SET.has(input.category)
@@ -42,6 +57,20 @@ export class NotificationService {
         entityId: String(input.entityId ?? '').slice(0, 64),
       },
     });
+    if (this.push) {
+      void this.push
+        .pushNotification({
+          userId,
+          title: row.title,
+          body: row.body,
+          link: row.link,
+          category: row.category,
+          entityType: row.entityType,
+          entityId: row.entityId,
+        })
+        .catch(() => undefined);
+    }
+    return row;
   }
 
   /** 批量通知：去重、忽略空账号；单条失败不影响其他收件人。 */
@@ -190,6 +219,15 @@ export class NotificationService {
           data: { readAt: new Date() },
         });
     return this.view(updated);
+  }
+
+  /** 详情只读：H5 点击通知先看内容再决定跳转，不因为打开就标记已读。 */
+  async get(user: CurrentUser, id: number) {
+    const row = await this.prisma.notification.findFirst({
+      where: { id, userId: user.userId },
+    });
+    if (!row) throw new BusinessException(ErrorCode.NOT_FOUND, '消息不存在');
+    return this.view(row);
   }
 
   async readAll(user: CurrentUser, category?: string) {

@@ -45,6 +45,8 @@ export class CrmOrderService {
           actorId: ctx.actorId,
           isOwner: ctx.isOwner,
           isAdmin: ctx.isAdmin,
+          roles: [],
+          positions: [],
           department: ctx.department,
         },
         event,

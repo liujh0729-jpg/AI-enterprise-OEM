@@ -754,6 +754,40 @@ export const serviceDeskEndpoints = {
       z.object({ conversationId: z.number(), crmLeadId: z.number() }),
     ),
   },
+  ServiceDesk_createTask: {
+    method: "post" as const,
+    path: "/enterprise/service-desk/conversations/:id/create-task",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.object({
+      title: z.string().max(200).default(""),
+      assigneeUserId: z.string().max(64).default(""),
+      priority: z.string().max(16).default("NORMAL"),
+      note: z.string().max(500).default(""),
+    }),
+    response: envelope(
+      z.object({ conversationId: z.number(), taskId: z.number() }),
+    ),
+  },
+  ServiceDesk_draftSolution: {
+    method: "post" as const,
+    path: "/enterprise/service-desk/conversations/:id/solution-draft",
+    params: z.object({ id: z.string() }),
+    query: emptyQuery,
+    body: z.object({
+      question: z.string().max(200).default(""),
+      answer: z.string().min(1).max(8000),
+      spaceId: z.number().int().min(0).default(0),
+    }),
+    response: envelope(
+      z.object({
+        conversationId: z.number(),
+        pageId: z.number(),
+        spaceId: z.number(),
+        status: z.string(),
+      }),
+    ),
+  },
   ServiceDesk_aiSuggest: {
     method: "post" as const,
     path: "/enterprise/service-desk/conversations/:id/ai-suggest",

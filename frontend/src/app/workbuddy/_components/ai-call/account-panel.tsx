@@ -2,6 +2,7 @@
 
 import { App, Button, Input, Modal, Select, Space, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import Link from "next/link";
 import { useState } from "react";
 import { usePasswordConfirm } from "@/components/confirm-with-password";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
@@ -298,7 +299,8 @@ export function AccountPanel({
         <div style={{ marginBottom: 12 }}>
           <Notice variant="warn">
             还没有 Workbuddy Enterprise 账号：先到「Workbuddy Enterprise 账号」页签绑定腾讯云密钥，
-            再回来登记 AI 调用账号。
+            再回来登记 AI 调用账号。{" "}
+            <Link href="/workbuddy?tab=accounts">去绑定账号</Link>
           </Notice>
         </div>
       )}

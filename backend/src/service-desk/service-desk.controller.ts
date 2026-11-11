@@ -130,6 +130,20 @@ export class ServiceDeskController {
     return ok(await this.service.send(user, owner, Number(id), body));
   }
 
+  async createTask(user: CurrentUser, id: string, body: Record<string, unknown>) {
+    const owner = await this.service.workOwner(user);
+    return ok(await this.service.createTask(user, owner, Number(id), body));
+  }
+
+  async draftSolution(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    const owner = await this.service.workOwner(user);
+    return ok(await this.service.draftSolution(user, owner, Number(id), body));
+  }
+
   async claim(user: CurrentUser, id: string) {
     return ok(await this.service.claim(user, Number(id)));
   }

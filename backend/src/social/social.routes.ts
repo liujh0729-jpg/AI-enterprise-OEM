@@ -8,11 +8,20 @@ import type { CurrentUser } from '../auth/current-user';
 import type { ApiEnv } from '../http/types';
 import type { Services } from '../http/services';
 import { SocialService } from './social.service';
+import { SocialAffinityService } from './social-affinity.service';
+import { SocialSyncService } from './social-sync.service';
+import { AiworkinSocialService } from './aiworkin-social.service';
 
 export class SocialModule {
   readonly social: SocialService;
+  readonly affinity: SocialAffinityService;
+  readonly sync: SocialSyncService;
+  readonly aiworkin: AiworkinSocialService;
   constructor(services: Services) {
-    this.social = new SocialService(services.prisma);
+    this.aiworkin = services.socialSync.aiworkin;
+    this.sync = services.socialSync.sync;
+    this.affinity = services.socialSync.affinity;
+    this.social = new SocialService(services.prisma, this.sync);
   }
 }
 export function createSocialModule(services: Services): SocialModule {
@@ -24,6 +33,15 @@ const intParam = (raw: string | undefined, name: string): number => {
   if (!Number.isInteger(value) || value <= 0)
     throw new BusinessException(ErrorCode.BAD_REQUEST, `${name}非法`);
   return value;
+};
+
+/** 可选请求体：antd 按钮/空 body 都可能不传 JSON，不能因此 500。 */
+const optionalBody = async (c: Context<ApiEnv>): Promise<unknown> => {
+  try {
+    return await c.req.json();
+  } catch {
+    return {};
+  }
 };
 
 /**
@@ -58,11 +76,9 @@ export function registerSocialRoutes(
         contacts: z.record(z.string(), z.unknown()).optional(),
       })
       .parse(await c.req.json());
-    return json(
-      c,
-      await service.saveProfile(userOf(c).userId, body),
-      '资料已保存',
-    );
+    const result = await service.saveProfile(userOf(c).userId, body);
+    await module.affinity.invalidate(userOf(c).userId);
+    return json(c, result, '资料已保存');
   });
 
   // ---------- 好友 / 拉黑 ----------
@@ -71,6 +87,7 @@ export function registerSocialRoutes(
       .object({
         toUserId: z.string().min(1).max(64),
         message: z.string().max(500).default(''),
+        syncUpstream: z.boolean().optional(),
       })
       .parse(await c.req.json());
     return json(
@@ -79,58 +96,147 @@ export function registerSocialRoutes(
         userOf(c).userId,
         body.toUserId,
         body.message,
+        { syncUpstream: body.syncUpstream },
       ),
     );
   });
   app.get('/enterprise/social/friends/requests', async (c) =>
     json(c, await service.incomingRequests(userOf(c).userId)),
   );
-  app.post('/enterprise/social/friends/requests/:id/accept', async (c) =>
-    json(
-      c,
-      await service.acceptFriend(
-        userOf(c).userId,
-        intParam(c.req.param('id'), '请求'),
-      ),
-      '已添加好友',
-    ),
-  );
-  app.post('/enterprise/social/friends/requests/:id/reject', async (c) =>
-    json(
-      c,
-      await service.rejectFriend(
-        userOf(c).userId,
-        intParam(c.req.param('id'), '请求'),
-      ),
-      '已拒绝',
-    ),
-  );
+  app.post('/enterprise/social/friends/requests/:id/accept', async (c) => {
+    const body = z
+      .object({ syncUpstream: z.boolean().optional() })
+      .parse(await optionalBody(c));
+    const result = await service.acceptFriend(
+      userOf(c).userId,
+      intParam(c.req.param('id'), '请求'),
+      { syncUpstream: body.syncUpstream },
+    );
+    await module.affinity.invalidate(userOf(c).userId);
+    return json(c, result, '已添加好友');
+  });
+  app.post('/enterprise/social/friends/requests/:id/reject', async (c) => {
+    const body = z
+      .object({ syncUpstream: z.boolean().optional() })
+      .parse(await optionalBody(c));
+    const result = await service.rejectFriend(
+      userOf(c).userId,
+      intParam(c.req.param('id'), '请求'),
+      { syncUpstream: body.syncUpstream },
+    );
+    await module.affinity.invalidate(userOf(c).userId);
+    return json(c, result, '已拒绝');
+  });
   app.get('/enterprise/social/friends', async (c) =>
     json(c, await service.listFriends(userOf(c).userId)),
   );
-  app.delete('/enterprise/social/friends/:friendId', async (c) =>
-    json(
-      c,
-      await service.removeFriend(userOf(c).userId, c.req.param('friendId')),
-      '已删除好友',
-    ),
-  );
+  app.delete('/enterprise/social/friends/:friendId', async (c) => {
+    const friendId = c.req.param('friendId');
+    const result = await service.removeFriend(userOf(c).userId, friendId);
+    await Promise.all([
+      module.affinity.invalidate(userOf(c).userId),
+      module.affinity.invalidate(friendId),
+    ]);
+    return json(c, result, '已删除好友');
+  });
   app.post('/enterprise/social/blocks', async (c) => {
     const body = z
       .object({ userId: z.string().min(1).max(64) })
       .parse(await c.req.json());
-    return json(
-      c,
-      await service.block(userOf(c).userId, body.userId),
-      '已拉黑',
-    );
+    const result = await service.block(userOf(c).userId, body.userId);
+    await module.affinity.invalidate(userOf(c).userId);
+    return json(c, result, '已拉黑');
   });
-  app.delete('/enterprise/social/blocks/:userId', async (c) =>
+  app.delete('/enterprise/social/blocks/:userId', async (c) => {
+    const result = await service.unblock(
+      userOf(c).userId,
+      c.req.param('userId'),
+    );
+    await module.affinity.invalidate(userOf(c).userId);
+    return json(c, result, '已取消拉黑');
+  });
+
+  // ---------- 亲密度推荐 ----------
+  app.get('/enterprise/social/recommendations', async (c) =>
     json(
       c,
-      await service.unblock(userOf(c).userId, c.req.param('userId')),
-      '已取消拉黑',
+      await module.affinity.recommend(
+        userOf(c).userId,
+        Number(c.req.query('limit') || 12),
+      ),
     ),
+  );
+  app.post('/enterprise/social/recommendations/:userId/dismiss', async (c) =>
+    json(
+      c,
+      await module.affinity.dismiss(userOf(c).userId, c.req.param('userId')),
+      '已减少此类推荐',
+    ),
+  );
+
+  // ---------- AIworkin 同步 ----------
+  app.get('/enterprise/social/sync/overview', async (c) =>
+    json(c, await module.sync.overview(userOf(c).userId)),
+  );
+  app.get('/enterprise/social/sync/preferences', async (c) =>
+    json(c, await module.sync.preferences(userOf(c).userId)),
+  );
+  app.put('/enterprise/social/sync/preferences', async (c) => {
+    const body = z
+      .object({
+        discoverable: z.boolean().optional(),
+        recommendEnabled: z.boolean().optional(),
+        businessReasonVisible: z.boolean().optional(),
+        friendRequestOutbound: z.boolean().optional(),
+        friendRelationOutbound: z.boolean().optional(),
+        friendRelationInbound: z.boolean().optional(),
+        mailOutboundDefault: z.boolean().optional(),
+        mailInbound: z.boolean().optional(),
+        channel: z.enum(['AUTO', 'MCP', 'LEGACY']).optional(),
+      })
+      .parse(await c.req.json());
+    const result = await module.sync.savePreferences(userOf(c).userId, body);
+    await module.affinity.invalidate(userOf(c).userId);
+    return json(c, result, '同步设置已保存');
+  });
+  app.get('/enterprise/social/sync/jobs', async (c) =>
+    json(
+      c,
+      await module.sync.jobs(
+        userOf(c).userId,
+        c.req.query('status'),
+        Number(c.req.query('limit') || 20),
+      ),
+    ),
+  );
+  app.post('/enterprise/social/sync/jobs/:id/retry', async (c) =>
+    json(
+      c,
+      await module.sync.retry(
+        userOf(c).userId,
+        intParam(c.req.param('id'), '任务'),
+      ),
+      '已重新排队',
+    ),
+  );
+  app.post('/enterprise/social/sync/pull', async (c) =>
+    json(c, await module.sync.pull(userOf(c).userId), '已排队拉取'),
+  );
+  app.post('/enterprise/social/sync/verify', async (c) =>
+    json(c, await module.sync.verify(userOf(c).userId)),
+  );
+  app.post('/enterprise/social/sync/backfill/friends', async (c) => {
+    const body = z
+      .object({ confirm: z.boolean().default(false) })
+      .parse(await optionalBody(c));
+    return json(
+      c,
+      await module.sync.backfillStart(userOf(c).userId, body.confirm),
+      body.confirm ? '已排队回填' : 'ok',
+    );
+  });
+  app.get('/enterprise/social/sync/backfill/friends/progress', async (c) =>
+    json(c, await module.sync.backfillProgress(userOf(c).userId)),
   );
 
   // ---------- 动态 / 信息流 ----------
@@ -157,12 +263,15 @@ export function registerSocialRoutes(
       '已删除',
     ),
   );
-  app.get('/enterprise/social/feed', async (c) =>
-    json(
+  app.get('/enterprise/social/feed', async (c) => {
+    const userId = userOf(c).userId;
+    return json(
       c,
-      await service.feed(userOf(c).userId, Number(c.req.query('limit') || 30)),
-    ),
-  );
+      await service.feed(userId, Number(c.req.query('limit') || 30), (posts) =>
+        module.affinity.rankFeed(userId, posts),
+      ),
+    );
+  });
   app.get('/enterprise/social/posts/mine', async (c) =>
     json(c, await service.myPosts(userOf(c).userId)),
   );
@@ -440,6 +549,7 @@ export function registerSocialRoutes(
         toUserId: z.string().min(1).max(64),
         subject: z.string().max(200).default(''),
         body: z.string().min(1).max(20000),
+        syncUpstream: z.boolean().optional(),
       })
       .parse(await c.req.json());
     return json(
@@ -449,6 +559,7 @@ export function registerSocialRoutes(
         body.toUserId,
         body.subject,
         body.body,
+        { syncUpstream: body.syncUpstream },
       ),
       '已发送',
     );

@@ -78,6 +78,10 @@ import { FeishuBitableClient } from '../feishu/feishu-bitable.client';
 import { FeishuSyncCrypto } from '../feishu/feishu-crypto';
 import { DataTableFeishuService } from '../feishu/data-table-feishu.service';
 import { DataTableFeishuController } from '../feishu/data-table-feishu.controller';
+import { AiworkinSocialService } from '../social/aiworkin-social.service';
+import { SocialAffinityService } from '../social/social-affinity.service';
+import { SocialSyncService } from '../social/social-sync.service';
+import { SocialSyncScheduler } from '../social/social-sync.scheduler';
 import { RpaCrypto } from '../rpa/rpa-crypto';
 import { RpaScriptService } from '../rpa/rpa-script.service';
 import { RpaAccountService } from '../rpa/rpa-account.service';
@@ -85,6 +89,12 @@ import { RpaSettingService } from '../rpa/rpa-setting.service';
 import { RpaTaskService } from '../rpa/rpa-task.service';
 import { RpaLlmService } from '../rpa/rpa-llm.service';
 import { RpaController } from '../rpa/rpa.controller';
+import { RpaChromeController } from '../rpa/rpa-chrome.controller';
+import { RpaChromeDeviceService } from '../rpa/chrome-device.service';
+import { BrowserAgentToolsService } from '../rpa/browser-agent-tools.service';
+import { ChromeAgentService } from '../rpa/chrome-agent.service';
+import { RpaChromeLibraryService } from '../rpa/chrome-library.service';
+import { RpaChromeScheduleService } from '../rpa/chrome-schedule.service';
 import { RpaOpenController } from '../rpa/rpa-open.controller';
 import { WorkbuddyCrypto } from '../workbuddy/workbuddy-crypto';
 import { WorkbuddyAccountService } from '../workbuddy/workbuddy-account.service';
@@ -106,6 +116,8 @@ import { DomesticPdpService } from '../domestic-pdp/domestic-pdp.service';
 import { DomesticPdpController } from '../domestic-pdp/domestic-pdp.controller';
 import { DistributionService } from '../distribution/distribution.service';
 import { DistributionController } from '../distribution/distribution.controller';
+import { ExtensionCatalogService } from '../platform/extension-catalog.service';
+import { BrowserTaskService } from '../platform/browser-task.service';
 import { SurveyService } from '../survey/survey.service';
 import { SurveyController } from '../survey/survey.controller';
 import { PublishReviewService } from '../moderation/publish-review.service';
@@ -121,6 +133,7 @@ import { AgentMemoryService } from '../agent-memory/agent-memory.service';
 import { ContentCrypto } from '../content/content-crypto';
 import { ContentModelCatalogService } from '../content/model-catalog.service';
 import { ContentModelSettingService } from '../content/model-setting.service';
+import { ContentChannelPolicyService } from '../content/channel-policy.service';
 import { AipddAssetClient } from '../content/aipdd-asset.client';
 import { ContentAssetService } from '../content/asset-registry.service';
 import { ContentController } from '../content/content.controller';
@@ -146,6 +159,7 @@ import { ContentAgentMemoryService } from '../content/agent-memory.service';
 import { ContentAgentLibraryService } from '../content/agent-library.service';
 import { ContentAgentSkillService } from '../content/agent-skills.service';
 import { ContentAgentPluginService } from '../content/agent-plugins.service';
+import { runAgentTool } from '../content/agent-tools';
 import { SkillHubClient } from '../skillhub/skillhub.client';
 import { SkillHubService } from '../skillhub/skillhub.service';
 import { SkillHubController } from '../skillhub/skillhub.controller';
@@ -166,6 +180,13 @@ import { MailboxService } from '../mailbox/mailbox.service';
 import { MailboxController } from '../mailbox/mailbox.controller';
 import { NotificationService } from '../notifications/notification.service';
 import { NotificationController } from '../notifications/notification.controller';
+import { WechatMpSettingsService } from '../wechat-mp/wechat-mp.settings';
+import { WechatMpClient } from '../wechat-mp/wechat-mp.client';
+import { WechatMpBindingService } from '../wechat-mp/wechat-mp.binding.service';
+import { WechatMpPushService } from '../wechat-mp/wechat-mp.push.service';
+import { WechatMpInboundService } from '../wechat-mp/wechat-mp.inbound.service';
+import { WechatMpController } from '../wechat-mp/wechat-mp.controller';
+import { WechatMpRetryScheduler } from '../wechat-mp/wechat-mp.scheduler';
 import { SnsService } from '../sns/sns.service';
 import { SnsController } from '../sns/sns.controller';
 import { OrgStaffService } from '../org-staff/org-staff.service';
@@ -225,6 +246,23 @@ import { OaLinkageService } from '../oa/oa.linkage';
 import { OaInboxService } from '../oa/oa.inbox';
 import { OaService } from '../oa/oa.service';
 import { OaController } from '../oa/oa.controller';
+import { TaskCenterService } from '../task-center/task-center.service';
+import {
+  TaskAssignmentController,
+  TaskCenterController,
+} from '../task-center/task-center.controller';
+import { TaskAssignmentService } from '../task-center/task-assignment.service';
+import { registerTaskDocumentBindings } from '../task-center/task-document.binding';
+import { TaskRouterService } from '../task-center/task-router.service';
+import { TaskSourceRegistry } from '../task-center/task-source.registry';
+import { registerTaskSources } from '../task-center/task-sources';
+import { UiPreferencesService } from '../ui-preferences/ui-preferences.service';
+import { UiPreferencesController } from '../ui-preferences/ui-preferences.controller';
+import { WorkflowEngine } from '../workflow/workflow-engine';
+import { WorkflowService } from '../workflow/workflow.service';
+import { WorkflowController } from '../workflow/workflow.controller';
+import { workflowSource } from '../workflow/workflow.source';
+import type { WorkflowRuntime } from '../workflow/workflow.types';
 import { AccountCrypto } from '../account/account-crypto';
 import { AipddKeyService } from '../account/aipdd-key.service';
 import { FeatureToggleService } from '../feature/feature-toggle.service';
@@ -240,6 +278,7 @@ import { ModelCatalogService } from '../model-plaza/catalog.service';
 import { ModelUsageService } from '../model-plaza/usage.service';
 import { ModelRelayService } from '../model-plaza/relay.service';
 import { ModelPlazaController } from '../model-plaza/model-plaza.controller';
+import { PlatformDefaultsService } from '../model-plaza/platform-defaults.service';
 import { HardwareService } from '../hardware/hardware.service';
 import { HardwareController } from '../hardware/hardware.controller';
 import { AiEvalService } from '../ai/ai-eval.service';
@@ -279,8 +318,13 @@ import {
 } from '../feature/governance.controller';
 import { WechatPayClient } from '../points/wechat-pay.client';
 import { RechargeService } from '../points/recharge.service';
+import { CardService } from '../points/card.service';
+import { CardTemplateService } from '../points/card-template.service';
+import { AdminCardController, CardController } from '../points/card.controller';
 import { AwcoinClient } from '../points/awcoin.client';
 import { PointsBillingService } from '../points/points-billing.service';
+import { ServicePackageService } from '../service-package/service-package.service';
+import { ServicePackageFulfillmentService } from '../service-package/service-package-fulfillment.service';
 import { StorageService } from '../storage/storage.service';
 import { StorageMigrationService } from '../storage/storage-migration.service';
 import { MechanismService } from '../mechanisms/mechanism.service';
@@ -288,6 +332,8 @@ import { MechanismController } from '../mechanisms/mechanism.controller';
 import { GrowthLinkageService } from '../growth/growth-linkage.service';
 import { GrowthCockpitService } from '../growth/growth-cockpit.service';
 import { GrowthController } from '../growth/growth.controller';
+import { OperationRiskService } from '../growth/operation-risk.service';
+import { FulfillmentAdvisorService } from '../growth/fulfillment-advisor.service';
 import { ProjectService } from '../project/project.service';
 import { ProjectCostService } from '../project/project-cost.service';
 import { ProjectDemandService } from '../project/project-demand.service';
@@ -378,6 +424,12 @@ import {
   OrgContextController,
   UsageController,
 } from '../gaps/gaps.controller';
+import { UpgradePackageService } from '../upgrade/upgrade-package.service';
+import { UpgradeAnalysisService } from '../upgrade/upgrade-analysis.service';
+import { UpgradeJobService } from '../upgrade/upgrade-job.service';
+import { UpgradeController } from '../upgrade/upgrade.controller';
+import { AiCodeService } from '../ai-code/ai-code.service';
+import { AiCodeController } from '../ai-code/ai-code.controller';
 export function createServices() {
   const prismaService = new PrismaService();
   const healthController = new HealthController(prismaService);
@@ -390,6 +442,9 @@ export function createServices() {
     userLookupService,
     ossService,
   );
+  // HRM 组织口径（数据按 (orgType, orgUserId) 隔离）是多个基础服务的公共依赖，
+  // 且「离职撤权」复核也复用这里，故尽早构造、全站共用同一实例。
+  const hrmScopeService = new HrmScopeService(prismaService, identityService);
   // 企享云账号池需先于能力服务创建：审核通过时按税号写入「企业税号 ↔ 账号」绑定。
   const qxySettingsService = new QxySettingsService(
     prismaService,
@@ -417,6 +472,21 @@ export function createServices() {
   const aiworkinClient = new AiworkinClient();
   const aipddKeyService = new AipddKeyService(prismaService);
   const marketMcpService = new MarketMcpService(aipddKeyService);
+  // 商务社交 AIworkin 赋能：个人 Key 的 SNS 身份、outbox 同步与亲密度推荐。
+  const socialAiworkinService = new AiworkinSocialService(
+    prismaService,
+    aipddKeyService,
+  );
+  const socialSyncService = new SocialSyncService(
+    prismaService,
+    socialAiworkinService,
+    aipddKeyService,
+  );
+  const socialAffinityService = new SocialAffinityService(prismaService);
+  const socialSyncScheduler = new SocialSyncScheduler(
+    prismaService,
+    socialSyncService,
+  );
   const marketListingRecordService = new MarketListingRecordService(
     prismaService,
   );
@@ -661,12 +731,18 @@ export function createServices() {
     identityService,
     rpaCrypto,
   );
+  // 本地 Chrome 插件 RPA：设备通道（根 app 公开路由，只认设备令牌）+ 会话引擎（LLM 决策/动作回放）。
+  const rpaChromeDeviceService = new RpaChromeDeviceService(
+    prismaService,
+    hrmScopeService,
+  );
   const rpaTaskService = new RpaTaskService(
     prismaService,
     identityService,
     rpaScriptService,
     rpaAccountService,
     rpaSettingService,
+    rpaChromeDeviceService,
   );
   const rpaLlmService = new RpaLlmService(
     prismaService,
@@ -685,6 +761,32 @@ export function createServices() {
     rpaAccountService,
     rpaTaskService,
     rpaLlmService,
+  );
+  const chromeAgentService = new ChromeAgentService(
+    prismaService,
+    rpaChromeDeviceService,
+    storageService,
+    rpaTaskService,
+  );
+  // 浏览器代理的本账号私有资产台账：插件（设备通道）与界面端点共用。
+  const rpaChromeLibraryService = new RpaChromeLibraryService(prismaService);
+  // 浏览器代理的 MCP 语义层：外部 MCP 客户端凭设备绿灯（在线）把任务派给本人本机的 Chrome。
+  const browserAgentToolsService = new BrowserAgentToolsService(
+    rpaChromeDeviceService,
+    chromeAgentService,
+    rpaChromeLibraryService,
+  );
+  // 浏览器代理计划任务：到点让本人某台在线设备跑一个目标（离线当轮跳过；停用即自动暂停）。
+  const rpaChromeScheduleService = new RpaChromeScheduleService(
+    prismaService,
+    hrmScopeService,
+    chromeAgentService,
+  );
+  const rpaChromeController = new RpaChromeController(
+    rpaChromeDeviceService,
+    chromeAgentService,
+    rpaChromeLibraryService,
+    rpaChromeScheduleService,
   );
   const workbuddyCrypto = new WorkbuddyCrypto();
   const workbuddyAccountService = new WorkbuddyAccountService(
@@ -762,13 +864,51 @@ export function createServices() {
   // §5.7 安全三件套：平台/组织 AI 主开关 + 用户×组织双维限流，网关与模型设置共用同一闸。
   const aiGuardService = new AiGuardService(prismaService);
   registerAiGuard((userId) => aiGuardService.assertAllowed(userId));
+  const contentChannelPolicyService = new ContentChannelPolicyService(
+    prismaService,
+    identityService,
+  );
   const contentModelSettingService = new ContentModelSettingService(
     prismaService,
     identityService,
     modelKeyService,
     contentCrypto,
     new ContentModelCatalogService(),
+    contentChannelPolicyService,
   );
+  // 平台升级：包台账 / 差异分析 / 任务与备份，执行由独立 runner 进程完成。
+  const platformUpgradePackageService = new UpgradePackageService(
+    prismaService,
+  );
+  const platformUpgradeAnalysisService = new UpgradeAnalysisService(
+    prismaService,
+    platformUpgradePackageService,
+    contentModelSettingService,
+    identityService,
+  );
+  const platformUpgradeJobService = new UpgradeJobService(
+    prismaService,
+    platformUpgradePackageService,
+    identityService,
+  );
+  const upgradeController = new UpgradeController(
+    prismaService,
+    platformUpgradePackageService,
+    platformUpgradeAnalysisService,
+    platformUpgradeJobService,
+    contentModelSettingService,
+    identityService,
+    (user) => identityService.requireAdmin(user),
+  );
+  // AI 编程：模型只写暂存区，落地复用平台升级执行器（CODE_EDIT 任务）。
+  const aiCodeService = new AiCodeService(
+    prismaService,
+    contentModelSettingService,
+    identityService,
+    userLookupService,
+    platformUpgradeJobService,
+  );
+  const aiCodeController = new AiCodeController(aiCodeService);
   // 平台管理员「生成 Skill」：目录随 MCP_OPERATIONS 增长，模型生成 + 包内安全门禁都在服务内收口。
   const skillGeneratorService = new SkillGeneratorService(
     prismaService,
@@ -817,8 +957,19 @@ export function createServices() {
     contentMediaService,
   );
   const domesticPdpController = new DomesticPdpController(domesticPdpService);
+  // 平台统一插件能力目录（§10.7）：单一实例，派发门槛与后台维护共用同一份生效口径。
+  const extensionCatalogService = new ExtensionCatalogService(prismaService);
+  // 平台统一浏览器任务服务（§10.3）：持久队列 + 认领租约 + 结果回执，分发等派发通道复用同一份。
+  const browserTaskService = new BrowserTaskService(
+    prismaService,
+    extensionCatalogService,
+  );
   // 多平台内容分发：台账与结果落库在本系统，实际发布由 AIPDD Enterprise 浏览器插件在本地完成。
-  const distributionService = new DistributionService(prismaService);
+  const distributionService = new DistributionService(
+    prismaService,
+    extensionCatalogService,
+    browserTaskService,
+  );
   const distributionController = new DistributionController(
     distributionService,
   );
@@ -934,6 +1085,23 @@ export function createServices() {
           body: Record<string, unknown>,
         ) => recruitService.updateApplicationStatus(user, body),
       },
+      // 本地 Chrome 插件 RPA：设备清单与会话生命周期，均以登录人身份进真实服务。
+      rpaChrome: {
+        listDevices: (user: CurrentUser) =>
+          rpaChromeDeviceService.listDevices(user),
+        startSession: (user: CurrentUser, body: Record<string, unknown>) =>
+          chromeAgentService.startSession(user, body),
+        session: (user: CurrentUser, id: number) =>
+          chromeAgentService.sessionView(user, id),
+        pauseSession: (user: CurrentUser, id: number) =>
+          chromeAgentService.pauseSession(user, id),
+        resumeSession: (user: CurrentUser, id: number) =>
+          chromeAgentService.resumeSession(user, id),
+        stopSession: (user: CurrentUser, id: number) =>
+          chromeAgentService.stopSession(user, id),
+        retryStep: (user: CurrentUser, stepId: number) =>
+          chromeAgentService.retryStep(user, stepId),
+      },
     },
   };
   const contentAgentEngine = new ContentAgentEngine(
@@ -960,6 +1128,7 @@ export function createServices() {
     prismaService,
     identityService,
     userLookupService,
+    hrmScopeService,
     contentAgentService,
     contentAgentExpertService,
   );
@@ -972,6 +1141,9 @@ export function createServices() {
     prismaService,
     userLookupService,
   );
+  // 工作流服务依赖 orgContextService（在文件后半段构造）；Agent 工具目录要读到
+  // 已共享工作流，故先占位、构造完成后回填，ContentController 惰性取用。
+  const workflowRef: { service?: WorkflowService } = {};
   const contentController = new ContentController(
     contentModelSettingService,
     contentAssetService,
@@ -986,6 +1158,10 @@ export function createServices() {
     contentAgentConnectorService,
     contentAgentSkillService,
     contentAgentPluginService,
+    (user) =>
+      workflowRef.service
+        ? workflowRef.service.toolSpecs(user)
+        : Promise.resolve([]),
   );
   const appDirectoryService = new AppDirectoryService();
   const appDirectoryController = new AppDirectoryController(
@@ -999,9 +1175,40 @@ export function createServices() {
   const mailboxController = new MailboxController(mailboxService);
   const snsService = new SnsService(prismaService, identityService);
   const snsController = new SnsController(snsService);
+  // 微信服务号：配置、绑定、推送、回调与重试调度；推送作为站内通知的旁路。
+  const wechatMpSettingsService = new WechatMpSettingsService(prismaService);
+  const wechatMpClient = new WechatMpClient(wechatMpSettingsService);
+  const wechatMpBindingService = new WechatMpBindingService(
+    prismaService,
+    wechatMpSettingsService,
+    wechatMpClient,
+    userLookupService,
+    identityService,
+  );
+  const wechatMpPushService = new WechatMpPushService(
+    prismaService,
+    wechatMpSettingsService,
+    wechatMpClient,
+    wechatMpBindingService,
+    userLookupService,
+  );
+  const wechatMpInboundService = new WechatMpInboundService(
+    prismaService,
+    wechatMpSettingsService,
+    wechatMpBindingService,
+  );
+  const wechatMpController = new WechatMpController(
+    wechatMpSettingsService,
+    wechatMpBindingService,
+    wechatMpPushService,
+    wechatMpClient,
+    identityService,
+  );
+  const wechatMpScheduler = new WechatMpRetryScheduler(wechatMpPushService);
   const notificationService = new NotificationService(
     prismaService,
     snsService,
+    wechatMpPushService,
   );
   const notificationController = new NotificationController(
     notificationService,
@@ -1044,6 +1251,7 @@ export function createServices() {
   const lowcodeAccessService = new LowCodeAccessService(
     prismaService,
     identityService,
+    hrmScopeService,
   );
   const lowcodeService = new LowCodeService(
     prismaService,
@@ -1088,7 +1296,12 @@ export function createServices() {
     lowcodeAiService,
     lowcodeAssetsService,
   );
-  const crmScopeService = new CrmScopeService(prismaService, userLookupService);
+  const tenantScopeService = new TenantScopeService(prismaService);
+  const crmScopeService = new CrmScopeService(
+    prismaService,
+    userLookupService,
+    tenantScopeService,
+  );
   const crmSettingsService = new CrmSettingsService(
     prismaService,
     crmScopeService,
@@ -1158,7 +1371,6 @@ export function createServices() {
     crmAiService,
   );
   // HRM 组织口径：企点客户导入要判断 SCRM 同步源，与 SCRM 共用同一套组织归属。
-  const hrmScopeService = new HrmScopeService(prismaService, identityService);
   const tencentQidianService = new TencentQidianService(
     prismaService,
     identityService,
@@ -1172,7 +1384,11 @@ export function createServices() {
   // 企点分群导出产物也进数字资产（与大数据/潜客同一登记通道）。
   tencentQidianService.deliverableSink = (userId, input) =>
     contentDigitalAssetService.registerDeliverable(userId, input);
-  const biScopeService = new BiScopeService(prismaService, userLookupService);
+  const biScopeService = new BiScopeService(
+    prismaService,
+    userLookupService,
+    tenantScopeService,
+  );
   const biDatasourceService = new BiDatasourceService(
     prismaService,
     biScopeService,
@@ -1221,7 +1437,6 @@ export function createServices() {
     biDashboardService,
     biSettingsService,
   );
-  const tenantScopeService = new TenantScopeService(prismaService);
   const partyService = new PartyService(prismaService, tenantScopeService);
   const partyController = new PartyController(partyService);
   const okrScopeService = new OkrScopeService(
@@ -1257,7 +1472,11 @@ export function createServices() {
     okrBriefService,
     okrDecompositionService,
   );
-  const oaScopeService = new OaScopeService(prismaService, userLookupService);
+  const oaScopeService = new OaScopeService(
+    prismaService,
+    userLookupService,
+    tenantScopeService,
+  );
   const oaTemplateService = new OaTemplateService(prismaService);
   const oaFlowService = new OaFlowService((ctx) => oaScopeService.members(ctx));
   const oaLinkageService = new OaLinkageService(
@@ -1287,6 +1506,53 @@ export function createServices() {
     contentMediaService,
   );
   const oaController = new OaController(oaService);
+  // 统一任务中心：Pull 源聚合各板块待办，Push 通道供各模块派发 @ 到某账号。
+  const riskServiceRef: { current?: OperationRiskService } = {};
+  const taskSourceRegistry = registerTaskSources(
+    new TaskSourceRegistry(),
+    prismaService,
+    {
+      identity: identityService,
+      marketing: marketingService,
+      logistics: logisticsService,
+      tax: taxService,
+      risks: () => riskServiceRef.current,
+      chrome: () => chromeAgentService,
+    },
+  );
+  const taskCenterService = new TaskCenterService(
+    prismaService,
+    taskSourceRegistry,
+    notificationService,
+  );
+  // 浏览器代理（docs §8.4）：敏感动作待确认 / 需登录时，向操作人派确认与登录待办。
+  chromeAgentService.useTaskCenter(taskCenterService);
+  // 派单原语：规则 > 板块默认承办人 > 机构队列；改派时任务与业务单据同事务。
+  const taskDocumentRegistry = registerTaskDocumentBindings();
+  const taskRouterService = new TaskRouterService(
+    prismaService,
+    taskCenterService,
+    taskDocumentRegistry,
+    identityService,
+    notificationService,
+  );
+  const taskCenterController = new TaskCenterController(
+    taskCenterService,
+    taskRouterService,
+  );
+  const taskAssignmentService = new TaskAssignmentService(
+    prismaService,
+    identityService,
+  );
+  const taskAssignmentController = new TaskAssignmentController(
+    taskAssignmentService,
+  );
+  supplyService.useTaskDispatch(taskRouterService);
+  // 账号级界面偏好（跨设备）：本轮承载驾驶舱「快捷导航」。
+  const uiPreferencesService = new UiPreferencesService(prismaService);
+  const uiPreferencesController = new UiPreferencesController(
+    uiPreferencesService,
+  );
   // 积分与计费域（设计方案 P2/P3/P5）：账户/流水/设置/定价/充值/AWcoin/日批出账。
   // 构造在此集中一处，供 account 注册赠分、bi/oa/service-desk 扣费、数字资产与营销产物登记取用。
   const accountCrypto = new AccountCrypto();
@@ -1301,7 +1567,6 @@ export function createServices() {
     prismaService,
     userLookupService,
     pointsService,
-    pointsSettingsService,
     contentJobService,
     aiworkinClient,
   );
@@ -1312,6 +1577,23 @@ export function createServices() {
     videoTemplateService,
   );
   const pricingService = new PricingService(prismaService);
+  // 官方服务套餐：目录 + 积分直购 + 平台整合交付（主持企业与多家服务商签约兑现）。
+  // 交付服务复用 contracts 主持发起/撤销与 points 退款；目录服务购买后 best-effort 自动发起。
+  const servicePackageFulfillment = new ServicePackageFulfillmentService(
+    prismaService,
+    identityService,
+    pointsService,
+    contractsService,
+    userLookupService,
+  );
+  const servicePackageService = new ServicePackageService(
+    prismaService,
+    identityService,
+    pointsService,
+    pointsSettingsService,
+    userLookupService,
+    servicePackageFulfillment,
+  );
   // L0 平台治理底座（§5.9/§5.10/§5.12）：功能开关、访问策略、审查台账、按用量计费规则。
   const featureToggleService = new FeatureToggleService(prismaService);
   const accessPolicyService = new AccessPolicyService(prismaService);
@@ -1440,6 +1722,28 @@ export function createServices() {
           .map((snippet) => `- ${snippet.title}：${snippet.text}`)
           .join('\n'),
       );
+  // 客服闭环（P4-5）：会话派交付任务进任务中心；解决稿写成待审知识页（绝不直发）。
+  serviceDeskService.tasks = taskCenterService;
+  serviceDeskService.kbDraft = async (input) => {
+    const actor = new CurrentUser(input.actorId, '', '');
+    const space = input.spaceId
+      ? await kbSpaceService.loadReadable(input.spaceId, actor)
+      : await kbSpaceService.resolveActiveSpace(actor);
+    const page = await kbPageService.writePage(
+      {
+        spaceId: space.id,
+        slug: input.slug,
+        type: 'SUMMARY',
+        title: input.title,
+        body: input.body,
+        frontmatter: { source: 'service-desk', ownerUserId: input.ownerUserId },
+        status: 'PENDING_REVIEW',
+        sourceIds: [],
+      },
+      actor,
+    );
+    return { pageId: page.id, spaceId: space.id };
+  };
   // 点状 AI（P2-B）：通用能力（摘要/抽取/分类/评分/RAG 问答）与各模块点共用一套出口。
   const aiAbilitiesService = new AiAbilitiesService(
     prismaService,
@@ -1479,6 +1783,11 @@ export function createServices() {
     modelUpstreamService,
   );
   const modelRelayService = new ModelRelayService();
+  const platformDefaultsService = new PlatformDefaultsService(
+    prismaService,
+    pointsService,
+    pointsSettingsService,
+  );
   const modelPlazaController = new ModelPlazaController(
     prismaService,
     modelCatalogService,
@@ -1487,6 +1796,8 @@ export function createServices() {
     modelRelayService,
     pointsService,
     pointsSettingsService,
+    contentChannelPolicyService,
+    platformDefaultsService,
     requireAdmin,
   );
   // 智能硬件控制器（服务实例已在 Agent 工具装配前创建）。
@@ -1548,7 +1859,25 @@ export function createServices() {
     prismaService,
     hrmScopeService,
   );
-  const growthController = new GrowthController(growthCockpitService);
+  // 经营异常（P4-6）：五类异常扫描 → 责任任务派发；关闭前复核与驾驶舱共用同一扫描口径。
+  const operationRiskService = new OperationRiskService(
+    prismaService,
+    hrmScopeService,
+    mechanismService,
+    taskCenterService,
+  );
+  riskServiceRef.current = operationRiskService;
+  // 合同履约助手（P4-8）：四态事实 → 卡点与下一步动作；派履约任务走任务中心同一入口。
+  const fulfillmentAdvisorService = new FulfillmentAdvisorService(
+    prismaService,
+    growthCockpitService,
+    taskCenterService,
+  );
+  const growthController = new GrowthController(
+    growthCockpitService,
+    operationRiskService,
+    fulfillmentAdvisorService,
+  );
   // AI 获客（营销工具）：雷达/触达/档案/剧本/跟进/质检/看板，插件与调度器同域装配。
   const acquisitionSettingsService = new AcquisitionSettingsService(
     prismaService,
@@ -1565,6 +1894,9 @@ export function createServices() {
   const acquisitionPluginService = new AcquisitionPluginBridgeService(
     prismaService,
     acquisitionSettingsService,
+    hrmScopeService,
+    extensionCatalogService,
+    browserTaskService,
   );
   const acquisitionOutreachService = new AcquisitionOutreachService(
     prismaService,
@@ -1796,6 +2128,8 @@ export function createServices() {
     mechanismService,
     aiEvalService,
     accountCrypto,
+    // 生成完成→内容审核→渠道发布（docs §8.4）：任务走统一任务中心派发与收口。
+    taskCenterService,
   );
   const mktController = new MktController(mktService);
   // SEO 工作台（营销工具）：三层数据源（自有抓取 / DataForSEO 用户自带 Key / 系统 LLM）。
@@ -1845,6 +2179,8 @@ export function createServices() {
   const hrmProfileService = new HrmProfileService(
     prismaService,
     hrmScopeService,
+    taskCenterService,
+    notificationService,
   );
   const hrmAttendanceService = new HrmAttendanceService(
     prismaService,
@@ -1891,6 +2227,8 @@ export function createServices() {
   const pageAssistantService = new PageAssistantService(
     prismaService,
     gapScopeService,
+    // 会议/邮件助手：把提取到的行动项作为「待确认」任务派进任务中心（docs §11.2）。
+    taskCenterService,
   );
   const transcriptionService = new TranscriptionService(
     prismaService,
@@ -1902,10 +2240,28 @@ export function createServices() {
     crmScopeService,
   );
   const timeAuditService = new TimeAuditService(prismaService, gapScopeService);
+  // 时长卡（日卡 / 30 天卡）：规格目录只软停用，发卡/扣额/兑换订单集中在 CardService。
+  // 支付客户端提前到这里构造——现金购卡与充值共用同一个微信商户客户端。
+  const wechatPayClient = new WechatPayClient();
+  const cardTemplateService = new CardTemplateService(
+    prismaService,
+    gapScopeService,
+  );
+  const cardService = new CardService(
+    prismaService,
+    pointsService,
+    pointsSettingsService,
+    wechatPayClient,
+    gapScopeService,
+  );
+  // 扣费顺序「卡 → 积分」的唯一收口点：站内试用、对外 /v1、Agent 内部调用共用这里。
+  // modelUsageService 比卡服务先构造（广场域不依赖积分设置之外的东西），故回填字段而非加构造参数。
+  modelUsageService.cards = cardService;
   const promoService = new PromoService(
     prismaService,
     gapScopeService,
     pointsService,
+    cardService,
   );
   const afterSalesService = new AfterSalesService(prismaService);
   const reviewService = new ReviewService(prismaService, gapScopeService);
@@ -1935,6 +2291,11 @@ export function createServices() {
   );
   const timeAuditController = new TimeAuditController(timeAuditService);
   const promoController = new PromoController(promoService);
+  const cardController = new CardController(cardService, cardTemplateService);
+  const adminCardController = new AdminCardController(
+    cardService,
+    cardTemplateService,
+  );
   const afterSalesController = new AfterSalesController(afterSalesService);
   const reviewController = new ReviewController(reviewService);
   const taskSyncController = new TaskSyncController(taskSyncService);
@@ -1943,7 +2304,137 @@ export function createServices() {
   const changelogController = new ChangelogController(changelogService);
   const orgContextController = new OrgContextController(orgContextService);
   const usageController = new UsageController(usageService);
-  const wechatPayClient = new WechatPayClient();
+  // 工作流：图编排 + 版本冻结 + 运行台账。节点目录从既有注册表派生（契约 + Agent manifest）；
+  // 作为 Push-only 任务源接入「我的任务」（挂起/唤醒），并以 wf__ 前缀进 Agent/MCP 工具目录。
+  const workflowEngine = new WorkflowEngine(prismaService, taskCenterService);
+  taskSourceRegistry.register(workflowSource(workflowEngine));
+  const workflowService = new WorkflowService(
+    prismaService,
+    orgContextService,
+    workflowEngine,
+    {
+      connectorTools: (user) => contentAgentConnectorService.toolSpecs(user),
+      hardwareTools: (user) => contentAgentService.hardwareToolSpecs(user),
+      skills: (user) => contentAgentSkillService.list(user),
+      plugins: (user) => contentAgentPluginService.list(user),
+    },
+    hrmScopeService,
+  );
+  workflowRef.service = workflowService;
+  // 领域事件桥：本主体的领域事件命中已发布工作流的 trigger.event 节点即起运行。
+  // 幂等锚＝事件台账 id，重复投递只起一次；外部 Webhook 触发不开放（决策 D2=C）。
+  mechanismService.on('*', async (org, event, payload, meta) => {
+    await workflowService.runOnEvent({
+      orgType: org.orgType,
+      orgUserId: org.orgUserId,
+      event,
+      payload,
+      eventLogId: meta?.eventLogId ?? 0,
+    });
+  });
+  // 任务事件桥：created / closed / overdue 命中已发布工作流的 trigger.task（幂等锚＝任务 + 变化类型）。
+  taskCenterService.useTaskEventPort((input) =>
+    workflowService.runOnTaskEvent(input),
+  );
+  // 规则动作（§4.3）：run_workflow 复用统一触发入口、以事件主体负责人身份运行；
+  // assign_task 只经 TaskCenterService 写入，source=rule 让「我的任务」能反查规则与事件。
+  mechanismService.useWorkflowInvoker((input) =>
+    workflowService.invokeByUser(input.ownerUserId, {
+      ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+      ...(input.businessKey ? { businessKey: input.businessKey } : {}),
+      trigger: 'EVENT',
+      input: input.input,
+      sourceType: 'rule',
+      sourceId: input.dedupeKey,
+      dedupeKey: input.dedupeKey,
+    }),
+  );
+  mechanismService.useTaskAssigner(async (input) => {
+    const orgTarget = input.target.startsWith('ORG:');
+    const assignee = (orgTarget ? input.target.slice(4) : input.target).trim();
+    if (!assignee) throw new Error('assign_task 未指定承办人');
+    const payload = input.payload;
+    const str = (value: unknown) => (typeof value === 'string' ? value : '');
+    await taskCenterService.assign({
+      source: 'rule',
+      sourceId: input.sourceId,
+      title: str(payload.title) || `规则 ${input.ruleId} 自动任务`,
+      description:
+        str(payload.description) || JSON.stringify(payload).slice(0, 20000),
+      link: str(payload.link) || '/tasks',
+      category: str(payload.category) || 'matter',
+      priority: str(payload.priority) || 'NORMAL',
+      dueAt: str(payload.dueAt) || null,
+      assigneeType: orgTarget ? 'ORG' : 'USER',
+      assigneeUserId: orgTarget ? '' : assignee,
+      orgType: orgTarget ? 'PROVIDER' : '',
+      orgUserId: orgTarget ? assignee : '',
+      assignedBy: `rule:${input.ruleId}`,
+      createdBy: input.org.orgUserId || input.org.actorId,
+    });
+  });
+  const workflowController = new WorkflowController(workflowService);
+  // 工作流运行期能力：动作节点走内部自执行器（app.ts 装配 mcpService 后回填），
+  // 工具节点走 Agent 统一派发，AI 节点走统一网关 / RAG / 站内 Agent。
+  const workflowRunOperation: { current?: WorkflowRuntime['runOperation'] } =
+    {};
+  workflowEngine.setRuntime({
+    runOperation: (user, requestId, operationId, input) =>
+      workflowRunOperation.current
+        ? workflowRunOperation.current(user, requestId, operationId, input)
+        : Promise.resolve({
+            status: 503,
+            code: undefined,
+            message: '执行器尚未就绪',
+            data: undefined,
+          }),
+    callTool: async (user, name, args) => {
+      if (name.startsWith('mcp__')) {
+        return contentAgentConnectorService.callTool(user, name, args);
+      }
+      if (name.startsWith('hw__')) {
+        const result = await hardwareService.mcpCall(user.userId, name, args);
+        const text = result.content.map((item) => item.text).join('\n');
+        return {
+          text:
+            text || (result.isError ? '硬件工具调用失败' : '硬件工具已执行'),
+          ok: !result.isError,
+        };
+      }
+      // 内置 / 业务 / 技能 / 插件：走统一派发，工具内部已把失败转成可读文案。
+      const result = await runAgentTool(name, args, contentAgentTools, {
+        user,
+        token: undefined,
+      });
+      return { text: result.text, ok: true };
+    },
+    chat: async (user, messages) => {
+      const result = await contentMediaService.chat(
+        user,
+        undefined,
+        messages,
+        'text',
+        undefined,
+        { module: 'workflow', operation: 'ai_llm' },
+      );
+      return { text: result.text, usage: result.usage };
+    },
+    retrieve: (user, input) =>
+      kbRetrieveService.retrieve(user, input as RetrieveInput),
+    runAgent: async (user, prompt) => {
+      const conversation = await contentAgentService.createConversation(user, {
+        title: '工作流 AI 节点',
+      });
+      const result = await contentAgentService.runSilent(
+        user,
+        undefined,
+        conversation.id,
+        prompt,
+        {},
+      );
+      return { text: result.text, usage: result.usage };
+    },
+  });
   const rechargeService = new RechargeService(
     prismaService,
     pointsSettingsService,
@@ -1956,6 +2447,7 @@ export function createServices() {
     pointsSettingsService,
     pointsService,
     rechargeService,
+    cardService,
   );
   // 实时扣费：BI 每查一次、OA 每提交一单、AI 客服每开一个新会话，均按价目计费；
   // chargeSafely 余额不足只转欠费状态，不回滚已完成的业务。
@@ -2006,11 +2498,20 @@ export function createServices() {
   );
   return {
     prisma: prismaService,
+    // 平台统一插件能力目录：派发门槛（分发/获客）与后台维护复用同一实例。
+    extensionCatalog: extensionCatalogService,
     // M6 供求广场：社交板复用企业板块同一上游通道（DemandService + AiworkinClient）。
     aiworkinClient,
     demandService,
     users: userLookupService,
     identity: identityService,
+    // 商务社交：本地为主，个人 Key 可选同步 AIworkin；调度器由 main.ts 启停。
+    socialSync: {
+      aiworkin: socialAiworkinService,
+      sync: socialSyncService,
+      affinity: socialAffinityService,
+      scheduler: socialSyncScheduler,
+    },
     external: externalService,
     collection: geoCollectionService,
     rpaTaskService,
@@ -2020,6 +2521,16 @@ export function createServices() {
     skillGenerator: skillGeneratorService,
     mailbox: mailboxService,
     notification: notificationService,
+    // 微信服务号：公开回调/OAuth 由 app.ts 取用，调度器由 main.ts 启停。
+    wechatMp: {
+      settings: wechatMpSettingsService,
+      client: wechatMpClient,
+      binding: wechatMpBindingService,
+      push: wechatMpPushService,
+      inbound: wechatMpInboundService,
+      controller: wechatMpController,
+      scheduler: wechatMpScheduler,
+    },
     orgStaff: orgStaffService,
     serviceDesk: serviceDeskService,
     // AI 获客域（营销工具）：控制器由契约 moduleHandlers（Acquisition_）注册，
@@ -2060,6 +2571,14 @@ export function createServices() {
     publishReview: publishReviewService,
     okrMetrics: okrMetricsService,
     oa: oaService,
+    // 统一任务中心（§我的任务）：控制器由契约 moduleHandlers（MyTask_）注册。
+    taskCenter: taskCenterService,
+    taskSources: taskSourceRegistry,
+    taskRouter: taskRouterService,
+    taskAssignment: taskAssignmentService,
+    uiPreferences: uiPreferencesService,
+    workflow: workflowService,
+    workflowRunOperation,
     tencentQidian: tencentQidianService,
     crm: crmController,
     bi: biController,
@@ -2068,6 +2587,12 @@ export function createServices() {
     storage: {
       service: storageService,
       migration: storageMigrationService,
+    },
+    // 平台升级：控制器由契约 moduleHandlers（AdminUpgrade_）注册，runner 由任务服务拉起。
+    upgrade: {
+      packages: platformUpgradePackageService,
+      analysis: platformUpgradeAnalysisService,
+      jobs: platformUpgradeJobService,
     },
     qxySettings: qxySettingsService,
     capability: capabilityService,
@@ -2106,6 +2631,8 @@ export function createServices() {
       quotationDoc: quotationDocumentService,
       timeAudit: timeAuditService,
       promo: promoService,
+      card: cardService,
+      cardTemplate: cardTemplateService,
       afterSales: afterSalesService,
       review: reviewService,
       taskSync: taskSyncService,
@@ -2154,6 +2681,11 @@ export function createServices() {
       billing: pointsBillingService,
       crypto: accountCrypto,
     },
+    // 官方服务套餐（供 app.ts 组装 ServicePackageModule）：目录购买 + 平台整合交付。
+    servicePackages: {
+      catalog: servicePackageService,
+      fulfillment: servicePackageFulfillment,
+    },
     // 模型广场：平台统一上架的模型目录 + 按量计费 + OpenAI 兼容对外网关。
     modelPlaza: {
       controller: modelPlazaController,
@@ -2164,6 +2696,19 @@ export function createServices() {
     },
     // 智能硬件：设备通道（根 app 公开路由）与机器通道/MCP（business）都从这里取服务实例。
     hardware: hardwareService,
+    // 本地 Chrome 插件 RPA：设备通道在根 app（只认设备令牌），会话引擎给界面与 Agent/MCP 共用。
+    rpaChrome: {
+      device: rpaChromeDeviceService,
+      agent: chromeAgentService,
+      // 本账号私有资产台账（会话/消息/技能/录制/抽取）：设备通道与界面端点共用。
+      library: rpaChromeLibraryService,
+      // 计划任务（浏览器代理定时）：调度器与界面端点共用。
+      schedule: rpaChromeScheduleService,
+      // MCP 语义层（browser_agent_* / browser_extract / browser_skill_*）：绿灯即派任务的唯一入口。
+      tools: browserAgentToolsService,
+      // 模型广场目录：插件侧边栏 Agent 的「模型下拉 + 额度条」从这里取已上架模型与余额。
+      catalog: modelCatalogService,
+    },
     controllers: {
       healthController,
       adminController,
@@ -2197,6 +2742,7 @@ export function createServices() {
       dataTableFeishuController,
       rpaController,
       rpaOpenController,
+      rpaChromeController,
       workbuddyController,
       aiCallController,
       aiCallOpenController,
@@ -2215,6 +2761,7 @@ export function createServices() {
       appDirectoryController,
       mailboxController,
       notificationController,
+      wechatMpController,
       snsController,
       orgStaffController,
       serviceDeskController,
@@ -2226,6 +2773,10 @@ export function createServices() {
       okrController,
       partyController,
       oaController,
+      taskCenterController,
+      taskAssignmentController,
+      uiPreferencesController,
+      workflowController,
       tpController,
       questionHallController,
       imController,
@@ -2254,6 +2805,8 @@ export function createServices() {
       quotationDocumentController,
       timeAuditController,
       promoController,
+      cardController,
+      adminCardController,
       afterSalesController,
       reviewController,
       taskSyncController,
@@ -2262,6 +2815,8 @@ export function createServices() {
       changelogController,
       orgContextController,
       usageController,
+      upgradeController,
+      aiCodeController,
     },
   };
 }

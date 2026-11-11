@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
 import { UserLookupService } from '../directory/user-lookup.service';
 import { PrismaService } from '../prisma/prisma.service';
+import type { TenantScopeService } from '../tenant/tenant-scope.service';
 import { Prisma } from '../../generated/prisma';
 
 /**
@@ -94,6 +95,7 @@ export class CrmScopeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UserLookupService,
+    private readonly tenant?: TenantScopeService,
   ) {}
 
   async context(user: CurrentUser): Promise<CrmContext> {
@@ -146,10 +148,16 @@ export class CrmScopeService {
     };
   }
 
-  /** 当前用户自己是否拥有一个组织（有职员/代理人），是则用自己的账号；否则看其所属组织。 */
+  /**
+   * 当前用户自己的组织归属。优先采用主体切换器选定的组织（与 HRM/OKR 同一口径，
+   * 见 tenant-scope.service）；未选择时才按「自己是主账号的组织 → 所属 ACTIVE 成员组织」。
+   */
   private async ownerOf(
     userId: string,
   ): Promise<{ orgType: string; orgUserId: string }> {
+    const preferred = await this.tenant?.preferred(userId);
+    if (preferred)
+      return { orgType: preferred.orgType, orgUserId: preferred.orgUserId };
     const [orgOwner, providerOwner, enterpriseOwner] = await Promise.all([
       this.prisma.orgStaff.findFirst({
         where: { orgUserId: userId, status: 'ACTIVE' },
@@ -240,6 +248,18 @@ export class CrmScopeService {
     return ownerField === 'createdBy'
       ? { ...base, createdBy: ctx.actorId }
       : { ...base, ownerId: ctx.actorId };
+  }
+
+  /**
+   * 用户输入的负责人筛选是否落在授权范围内。筛选只能与授权范围取交集，
+   * 不能覆盖它（设计方案 §3.3）：不在范围内即视为空集，交由调用方返回空结果。
+   */
+  ownerInScope(scope: CrmScopeWhere['ownerId'], ownerId: string): boolean {
+    if (scope === undefined) return true;
+    if (typeof scope === 'string') return scope === ownerId;
+    const list = scope.in;
+    if (!Array.isArray(list)) return false;
+    return list.some((item) => text(item) === ownerId);
   }
 
   async departmentMembers(ownerUserId: string, department: string) {

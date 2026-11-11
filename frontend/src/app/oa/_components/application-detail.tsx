@@ -563,7 +563,7 @@ export function ApplicationDetail({
                     : record.action === "COMMENT"
                       ? "blue"
                       : "gray",
-              children: (
+              content: (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <strong>{record.actionLabel || record.action}</strong>

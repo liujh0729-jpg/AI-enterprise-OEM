@@ -31,6 +31,7 @@ import {
   Typography,
 } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Notice, Panel } from "@/components/ui/panel";
 import { fmtTime } from "@/lib/datetime";
 import {
@@ -49,6 +50,8 @@ import {
   evidenceSourceLabel,
   outreachChannelLabel,
   outreachStatusLabel,
+  contactFieldLabel,
+  contactVisibilityLabel,
   type AcqLead,
   type AcqLeadDetail,
   type AcqMeta,
@@ -601,6 +604,7 @@ export function AcquisitionLeadsView({
           </Space>
           <span className="text-12 muted">
             {platformLabel(row.platform)} · 证据 {row.evidenceCount} 条
+            {row.contactCount ? ` · 公开联系方式 ${row.contactCount} 项` : ""}
           </span>
         </Space>
       ),
@@ -995,8 +999,58 @@ export function AcquisitionLeadsView({
                   label: "CRM 线索",
                   children: leadDetail.crmLeadId ? `#${leadDetail.crmLeadId}` : "尚未提升",
                 },
+                {
+                  key: "contactCount",
+                  label: "公开联系方式",
+                  children: leadDetail.contactCount
+                    ? `${leadDetail.contactCount} 项（仅达人主页公开可见字段）`
+                    : "尚未补抓到公开联系方式",
+                },
               ]}
             />
+            <Panel title="公开联系方式（仅主页公开可见字段）">
+              <Table
+                rowKey={(row) => `${row.field}:${row.value}:${row.url}`}
+                size="small"
+                dataSource={leadDetail.contacts}
+                pagination={false}
+                locale={{ emptyText: "尚未从该达人的主页补抓到公开联系方式" }}
+                columns={[
+                  {
+                    title: "字段",
+                    dataIndex: "field",
+                    width: 100,
+                    render: (value: string) => contactFieldLabel(value),
+                  },
+                  {
+                    title: "值",
+                    dataIndex: "value",
+                    render: (value: string) => <span className="text-12">{value}</span>,
+                  },
+                  {
+                    title: "可见性",
+                    dataIndex: "visibility",
+                    width: 110,
+                    render: (value: string) => (
+                      <Tag color="blue">{contactVisibilityLabel(value)}</Tag>
+                    ),
+                  },
+                  {
+                    title: "来源 / 采集时间",
+                    render: (_: unknown, row) => (
+                      <Space orientation="vertical" size={0}>
+                        {row.url ? (
+                          <a href={row.url} target="_blank" rel="noreferrer" className="text-12">
+                            {row.url}
+                          </a>
+                        ) : null}
+                        <span className="text-12 muted">{fmtTime(row.capturedAt)}</span>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            </Panel>
             <Panel title="证据">
               <Table
                 rowKey="id"
@@ -1028,6 +1082,23 @@ export function AcquisitionLeadsView({
                     dataIndex: "capturedAt",
                     width: 150,
                     render: (value: string) => fmtTime(value),
+                  },
+                  {
+                    title: "公开联系方式",
+                    dataIndex: "contacts",
+                    width: 160,
+                    render: (contacts: AcqLeadDetail["evidence"][number]["contacts"]) =>
+                      contacts.length ? (
+                        <Space size={4} wrap>
+                          {contacts.map((contact) => (
+                            <Tag key={`${contact.field}:${contact.value}`} color="blue">
+                              {contactFieldLabel(contact.field)}
+                            </Tag>
+                          ))}
+                        </Space>
+                      ) : (
+                        <span className="muted">-</span>
+                      ),
                   },
                 ]}
               />
@@ -1193,7 +1264,8 @@ export function AcquisitionLeadsView({
           />
           {(meta?.tableOptions ?? []).length === 0 ? (
             <Typography.Text type="secondary">
-              还没有可用的多维表格：先到「多维表格」创建一张表再回来。
+              还没有可用的多维表格：先到「多维表格」创建一张表再回来。{" "}
+              <Link href="/data-table">去创建多维表格</Link>
             </Typography.Text>
           ) : null}
         </Space>

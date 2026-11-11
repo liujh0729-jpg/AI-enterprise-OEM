@@ -39,12 +39,49 @@ function makeBusiness(overrides: Partial<AgentBusinessContext> = {}) {
   const statusUpdate = jest
     .fn()
     .mockResolvedValue({ id: 5, status: 'REJECTED' });
+  const chromeDevices = jest.fn().mockResolvedValue({
+    devices: [
+      {
+        clientId: 'c-1',
+        name: '办公电脑 Chrome',
+        online: true,
+        statusLabel: '在线',
+        activeSessionId: 0,
+      },
+    ],
+    settings: {},
+  });
+  const chromeStart = jest
+    .fn()
+    .mockResolvedValue({ id: 31, status: 'RUNNING', goal: '比价' });
+  const chromeSession = jest
+    .fn()
+    .mockResolvedValue({ id: 31, status: 'RUNNING', steps: [] });
+  const chromePause = jest.fn().mockResolvedValue({ id: 31, status: 'PAUSED' });
+  const chromeResume = jest
+    .fn()
+    .mockResolvedValue({ id: 31, status: 'RUNNING' });
+  const chromeStop = jest
+    .fn()
+    .mockResolvedValue({ id: 31, status: 'CANCELLED' });
+  const chromeRetry = jest
+    .fn()
+    .mockResolvedValue({ id: 31, status: 'RUNNING' });
   const business: AgentBusinessContext = {
     crmLeads: { create: crmCreate },
     dataTable: { list: tableList, createRow: rowCreate },
     erp: { listStock: stockList },
     oa: { saveDraft: draftSave, submit: flowSubmit },
     recruit: { updateApplicationStatus: statusUpdate },
+    rpaChrome: {
+      listDevices: chromeDevices,
+      startSession: chromeStart,
+      session: chromeSession,
+      pauseSession: chromePause,
+      resumeSession: chromeResume,
+      stopSession: chromeStop,
+      retryStep: chromeRetry,
+    },
     ...overrides,
   };
   return {
@@ -56,6 +93,13 @@ function makeBusiness(overrides: Partial<AgentBusinessContext> = {}) {
     draftSave,
     flowSubmit,
     statusUpdate,
+    chromeDevices,
+    chromeStart,
+    chromeSession,
+    chromePause,
+    chromeResume,
+    chromeStop,
+    chromeRetry,
   };
 }
 
@@ -180,6 +224,99 @@ describe('agent-business-tools 业务动作工具', () => {
     });
     expect(result.text).toContain('库存查询结果');
   });
+
+  it('chrome_list_devices：设备清单按在线/离线列给人话', async () => {
+    const { business, chromeDevices } = makeBusiness();
+    const result = await runBusinessTool(
+      'chrome_list_devices',
+      {},
+      business,
+      actor,
+    );
+    expect(chromeDevices).toHaveBeenCalledWith(user);
+    expect(result?.text).toContain('c-1');
+    expect(result?.text).toContain('在线');
+  });
+
+  it('chrome_list_devices：没有设备时引导用户先去插件登录', async () => {
+    const { business } = makeBusiness({
+      rpaChrome: stub<AgentBusinessContext['rpaChrome']>({
+        listDevices: jest.fn().mockResolvedValue({ devices: [] }),
+        startSession: jest.fn(),
+        session: jest.fn(),
+        pauseSession: jest.fn(),
+        resumeSession: jest.fn(),
+        stopSession: jest.fn(),
+        retryStep: jest.fn(),
+      }),
+    });
+    const result = await runBusinessTool(
+      'chrome_list_devices',
+      {},
+      business,
+      actor,
+    );
+    expect(result?.text).toContain('插件弹窗');
+  });
+
+  it('chrome_start_session：snake_case 参数映射到会话服务', async () => {
+    const { business, chromeStart } = makeBusiness();
+    const result = await runBusinessTool(
+      'chrome_start_session',
+      {
+        client_id: 'c-1',
+        goal: '比价三件商品',
+        start_url: 'https://example.com',
+        max_steps: 12,
+      },
+      business,
+      actor,
+    );
+    expect(chromeStart).toHaveBeenCalledWith(user, {
+      clientId: 'c-1',
+      goal: '比价三件商品',
+      startUrl: 'https://example.com',
+      taskId: 0,
+      maxSteps: 12,
+    });
+    expect(result?.text).toContain('已在设备 c-1 上发起');
+  });
+
+  it('chrome_start_session：缺 client_id 时不调用服务', async () => {
+    const { business, chromeStart } = makeBusiness();
+    const result = await runBusinessTool(
+      'chrome_start_session',
+      { goal: '比价' },
+      business,
+      actor,
+    );
+    expect(chromeStart).not.toHaveBeenCalled();
+    expect(result?.text).toContain('client_id');
+  });
+
+  it('chrome_stop_session：三态动作走同一分支并回最新视图', async () => {
+    const { business, chromeStop } = makeBusiness();
+    const result = await runBusinessTool(
+      'chrome_stop_session',
+      { session_id: 31 },
+      business,
+      actor,
+    );
+    expect(chromeStop).toHaveBeenCalledWith(user, 31);
+    expect(result?.text).toContain('已停止会话 #31');
+  });
+
+  it('chrome_retry_step：缺 step_id 时不调用服务', async () => {
+    const { business, chromeRetry } = makeBusiness();
+    const result = await runBusinessTool(
+      'chrome_retry_step',
+      {},
+      business,
+      actor,
+    );
+    expect(chromeRetry).not.toHaveBeenCalled();
+    expect(result?.text).toContain('step_id');
+  });
 });
 
 describe('agent-tool-manifest 统一工具清单', () => {
@@ -249,6 +386,12 @@ describe('agent-tool-manifest 统一工具清单', () => {
       (row) => row.name === 'recruit_update_application',
     );
     expect(recruit?.forbiddenReason).toBe('投递状态变更需要本人确认');
+    const chromeStart = rows.find((row) => row.name === 'chrome_start_session');
+    expect(chromeStart?.operationId).toBe('RpaChrome_startSession');
+    expect(chromeStart?.permission).toBe('发起浏览器自动操作');
+    expect(chromeStart?.write).toBe(true);
+    const chromeList = rows.find((row) => row.name === 'chrome_list_devices');
+    expect(chromeList?.write).toBe(false);
   });
 
   it('模型工具面排除红线动作；其余业务工具全部可调用', () => {
@@ -259,6 +402,9 @@ describe('agent-tool-manifest 统一工具清单', () => {
     expect(names).toContain('data_table_add_row');
     expect(names).toContain('erp_check_stock');
     expect(names).toContain('oa_start_flow');
+    expect(names).toContain('chrome_list_devices');
+    expect(names).toContain('chrome_start_session');
+    expect(names).toContain('chrome_stop_session');
     expect(names).toHaveLength(BUSINESS_TOOLS.length - 1);
   });
 

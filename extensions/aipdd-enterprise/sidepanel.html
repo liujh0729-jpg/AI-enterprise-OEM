@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>AIPDD 浏览器代理</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ============ Header：设备/状态 · 模型 · 积分 · 账号 ============ -->
+    <header class="hd">
+      <div class="hd-brand">
+        <span class="logo">AI</span>
+        <div class="hd-id">
+          <div class="hd-device" id="hdDevice">本地 Chrome</div>
+          <div class="hd-state" id="hdState">
+            <span class="dot" id="hdDot"></span>
+            <span id="hdPhase">未连接本系统</span>
+          </div>
+        </div>
+      </div>
+      <div class="hd-actions">
+        <button class="chip" id="modelBtn" type="button" title="选择模型（来自本系统模型广场）">
+          <span id="modelLabel">默认模型</span><span class="caret">▾</span>
+        </button>
+        <button class="chip" id="creditsBtn" type="button" title="积分 / 时长卡额度">
+          <span class="credits-dot"></span><span id="creditsLabel">—</span>
+        </button>
+        <button class="icon-btn" id="accountBtn" type="button" title="账号与设置">⋯</button>
+      </div>
+    </header>
+
+    <!-- ============ Main：会话消息流 ============ -->
+    <main class="main" id="main">
+      <div class="empty" id="empty">
+        <div class="empty-title">浏览器代理</div>
+        <p class="empty-desc">
+          用一句话描述你要的结果，Agent 会在任意页面上逐步操作，并把结果结构化带回。
+        </p>
+        <div class="samples" id="samples"></div>
+      </div>
+      <div class="stream" id="stream"></div>
+    </main>
+
+    <!-- ============ Composer：模式 · 附件 · 增强 · 发送 ============ -->
+    <div class="composer">
+      <div class="cmp-top">
+        <button class="mode" id="modeBtn" type="button" title="运行模式">Act<span class="caret">▾</span></button>
+        <button class="mode" id="runGateBtn" type="button" title="执行方式：确认后执行＝先给方案、等你点确认再动手；自动执行＝分析好方案后直接动手">确认后执行</button>
+        <button class="icon-btn sm" id="attachBtn" type="button" title="添加附件（截图 / 文件）">＋</button>
+        <button class="ghost" id="enhanceBtn" type="button" title="把一句话扩写成更清晰的目标">增强提示</button>
+      </div>
+      <div class="cmp-row">
+        <textarea id="goal" rows="1" placeholder="描述你要的结果…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="send" id="sendBtn" type="button">发送</button>
+      </div>
+      <input type="file" id="fileInput" hidden multiple />
+    </div>
+
+    <!-- ============ Footer：抽屉入口 ============ -->
+    <footer class="ft">
+      <button class="ft-btn" data-drawer="history" type="button">历史<b class="badge" id="badgeHistory" hidden></b></button>
+      <button class="ft-btn" data-drawer="skills" type="button">技能<b class="badge" id="badgeSkills" hidden></b></button>
+      <button class="ft-btn" data-drawer="schedules" type="button">计划<b class="badge" id="badgeSchedules" hidden></b></button>
+      <button class="ft-btn" data-drawer="triggers" type="button">触发器</button>
+      <button class="ft-btn" data-drawer="recordings" type="button">录制<b class="badge" id="badgeRecordings" hidden></b></button>
+      <button class="ft-btn" data-drawer="mcp" type="button">MCP</button>
+      <button class="ft-btn" data-drawer="models" type="button">模型</button>
+    </footer>
+
+    <!-- ============ Drawer：叠在 Main 上的右抽屉 ============ -->
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="drawer" id="drawer" hidden>
+      <header class="dw-hd">
+        <button class="icon-btn" id="dwBack" type="button" title="返回">‹</button>
+        <span id="dwTitle">抽屉</span>
+      </header>
+      <div class="dw-body" id="dwBody"></div>
+    </aside>
+
+    <!-- ============ 浮层：模式 / 模型 / 账号 ============ -->
+    <div class="pop" id="modePop" hidden></div>
+    <div class="pop" id="modelPop" hidden></div>
+    <div class="pop" id="accountPop" hidden></div>
+  </div>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

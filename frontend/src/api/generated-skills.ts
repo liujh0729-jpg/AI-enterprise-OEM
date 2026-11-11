@@ -2,7 +2,7 @@ import { endpoints, z } from "@enterprise/contracts";
 import { endpoint } from "./endpoint";
 import { http } from "./http";
 
-/** 开放集成 → API-MCP-Skill → Skill：平台管理员生成并入库的技能包。 */
+/** 模型服务 → API-MCP-Skill → Skill：平台管理员生成并入库的技能包。 */
 export type GeneratedSkillSummary = NonNullable<
   import("@enterprise/contracts").EndpointResponse<"GeneratedSkill_list">["data"]
 >["rows"][number];

@@ -13,6 +13,7 @@ import {
   Tooltip,
 } from "antd";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { contentApi, streamAgentMessage } from "@/api/content";
 
 /**
@@ -106,7 +107,7 @@ export function AiCopilot({
         const slot = settings?.slots.find((item) => item.mediaType === "text");
         if (!slot?.model) {
           setModelError(
-            "还没有可用的文本模型：请先到「开放集成 → 模型设置」为文本槽位选好渠道和模型",
+            "还没有可用的文本模型：请先到「模型服务 → 模型设置」为文本槽位选好渠道和模型",
           );
           return;
         }
@@ -361,7 +362,8 @@ export function AiCopilot({
 
         {modelError ? (
           <div className="text-12" style={{ color: "var(--danger)", marginTop: 8 }}>
-            {modelError}
+            {modelError}{" "}
+            <Link href="/model-settings">立即配置模型</Link>
           </div>
         ) : null}
 

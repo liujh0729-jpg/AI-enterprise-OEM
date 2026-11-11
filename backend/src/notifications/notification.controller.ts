@@ -25,6 +25,10 @@ export class NotificationController {
     return ok(await this.service.read(user, Number(id)));
   }
 
+  async get(user: CurrentUser, id: string) {
+    return ok(await this.service.get(user, Number(id)));
+  }
+
   async readAll(user: CurrentUser, body: Record<string, unknown>) {
     const category =
       typeof body.category === 'string' && body.category

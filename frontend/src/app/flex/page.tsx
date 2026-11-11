@@ -2,7 +2,8 @@
 
 import { AimOutlined, BankOutlined, DollarOutlined, UserOutlined } from "@ant-design/icons";
 import { Button, ConfigProvider } from "antd";
-import { useCallback, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import {
   ServicePublishTab,
   serviceMarketTab,
@@ -43,7 +44,6 @@ export default function FlexPage() {
   /** 「用工需求」栏目内的子视图：栏目同一时刻只显示一张面板，由切换器在「用工需求 / 用工进件」间切换。 */
   const [demandSub, setDemandSub] = useState("work-orders");
 
-
   const roles = me?.roles || [];
   const isEnterprise = roles.includes("ENTERPRISE_USER");
   const isAdmin = roles.includes("PLATFORM_ADMIN");
@@ -59,6 +59,12 @@ export default function FlexPage() {
   ];
   // 站点级「业务服务板块页签显隐」：被隐藏的页签不渲染，命中当前页签则回退到第一个可见页签。
   const visibleTabs = filterBoardTabs("flex", tabs, hiddenBoardTabs);
+  // 深链 + 阻断提示直达：/flex?tab=agents 定位到代理人资源库
+  const wantedTab = useSearchParams().get("tab") || "";
+  const visibleKeys = visibleTabs.map((item) => item.key).join(",");
+  useEffect(() => {
+    if (wantedTab && visibleKeys.split(",").includes(wantedTab)) setTab(wantedTab);
+  }, [wantedTab, visibleKeys]);
 
   /** 用工需求列表（含省市筛选）由 WorkOrderTab 的共享看板自行加载，本页只管其余三份数据。 */
   const workspace = useFlexWorkspace();

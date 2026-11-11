@@ -9,6 +9,7 @@ import {
 } from "@ant-design/icons";
 import { App, Avatar, Button, Drawer, Input, Space, Spin, Tag, Tooltip } from "antd";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Notice } from "@/components/ui/panel";
 import {
   stripSpecMarker,
@@ -203,6 +204,7 @@ export function ClarifyDrawer({
           <div style={{ padding: "12px 16px 0" }}>
             <Notice variant="warn">
               还没有 API Key：先到「API Key 管理」生成一把，才能和 AI 对话。
+              <Link href="/developer/keys"> 立即配置 API Key</Link>
             </Notice>
           </div>
         ) : null}

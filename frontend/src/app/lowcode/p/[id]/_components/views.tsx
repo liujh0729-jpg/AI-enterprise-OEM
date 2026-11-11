@@ -587,10 +587,12 @@ export function EntityKanbanView({
   projectId,
   entity,
   page,
+  onOpenSettings,
 }: {
   projectId: number;
   entity: LowCodeEntityView;
   page: LowCodePageView;
+  onOpenSettings?: (tab: string) => void;
 }) {
   const groupKey = String(page.config.groupField || entity.kanbanField || "");
   const groupField = entity.fields.find((field) => field.fieldKey === groupKey);
@@ -640,7 +642,14 @@ export function EntityKanbanView({
       titleExtra={groupField ? <span className="muted text-12">按「{groupField.name}」分组</span> : null}
     >
       {!groupKey ? (
-        <Notice variant="warn">还没有看板分组字段，请到「设置 → 实体」里指定。</Notice>
+        <Notice variant="warn">
+          还没有看板分组字段，请到「设置 → 实体」里指定。{" "}
+          {onOpenSettings ? (
+            <Button type="link" size="small" onClick={() => onOpenSettings("entities")}>
+              去设置实体
+            </Button>
+          ) : null}
+        </Notice>
       ) : loading && !data ? (
         <EmptyState text="正在加载看板…" />
       ) : (
@@ -815,8 +824,10 @@ export function ApprovalInboxView({ projectId }: { projectId: number }) {
 
 export function DashboardView({
   entities,
+  onOpenSettings,
 }: {
   entities: LowCodeEntityView[];
+  onOpenSettings?: (tab: string) => void;
 }) {
   const [counts, setCounts] = useState<Record<number, number>>({});
   useEffect(() => {
@@ -841,7 +852,16 @@ export function DashboardView({
   return (
     <Panel title="数据看板">
       {!entities.length ? (
-        <EmptyState text="还没有实体，先到「设置 → 实体」里建一张表。" />
+        <EmptyState
+          text="还没有实体，先到「设置 → 实体」里建一张表。"
+          action={
+            onOpenSettings ? (
+              <Button type="primary" onClick={() => onOpenSettings("entities")}>
+                去新建实体
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <>
           <StatGrid>

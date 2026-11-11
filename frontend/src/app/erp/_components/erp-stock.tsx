@@ -323,15 +323,20 @@ export function ErpStockTab() {
         />
       ) : null}
       {mode === "alerts" ? (
-        <Table<ErpStockAlert>
-          rowKey={(row) => `${row.warehouseId}-${row.variantId}`}
-          size="middle"
-          loading={loading}
-          columns={alertColumns}
-          dataSource={alerts}
-          pagination={false}
-          locale={{ emptyText: "暂无低库存预警" }}
-        />
+        <>
+          <div className="muted text-12" style={{ marginBottom: 8 }}>
+            经营异常扫描发现低于补货点的 SKU 时，会自动生成一张待审批的补货采购单（采购单页可查「补货」来源），并派给采购岗位跟进。
+          </div>
+          <Table<ErpStockAlert>
+            rowKey={(row) => `${row.warehouseId}-${row.variantId}`}
+            size="middle"
+            loading={loading}
+            columns={alertColumns}
+            dataSource={alerts}
+            pagination={false}
+            locale={{ emptyText: "暂无低库存预警" }}
+          />
+        </>
       ) : null}
       {mode === "requests" ? (
         <Table<ErpStockRequest>

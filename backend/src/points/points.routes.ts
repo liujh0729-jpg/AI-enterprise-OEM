@@ -11,6 +11,7 @@ import type { PointsSettingsService } from './points-settings.service';
 import type { PointsService } from './points.service';
 import type { PricingService } from './pricing.service';
 import type { RechargeService } from './recharge.service';
+import type { CardService } from './card.service';
 import type { AwcoinClient } from './awcoin.client';
 
 /** PointsModule 直接复用 services.ts 里已构造好的积分域实例（单一构造点）。 */
@@ -19,6 +20,7 @@ export class PointsModule {
   readonly ledger: PointsService;
   readonly pricing: PricingService;
   readonly recharge: RechargeService;
+  readonly card: CardService;
   readonly awcoin: AwcoinClient;
 
   constructor(services: Services) {
@@ -26,6 +28,7 @@ export class PointsModule {
     this.ledger = services.points.ledger;
     this.pricing = services.points.pricing;
     this.recharge = services.points.recharge;
+    this.card = services.gaps.card;
     this.awcoin = services.points.awcoin;
   }
 }
@@ -330,20 +333,36 @@ export function registerPointsPublicRoutes(
       }),
     );
   });
-  app.post('/api/pay/wechat/notify', async (c) => {
-    const rawBody = await c.req.text();
-    const headers: Record<string, string> = {
-      'wechatpay-serial': c.req.header('wechatpay-serial') || '',
-      'wechatpay-nonce-str': c.req.header('wechatpay-nonce-str') || '',
-      'wechatpay-timestamp': c.req.header('wechatpay-timestamp') || '',
-      'wechatpay-signature': c.req.header('wechatpay-signature') || '',
-    };
+  const wechatHeaders = (c: Context<ApiEnv>) => ({
+    'wechatpay-serial': c.req.header('wechatpay-serial') || '',
+    'wechatpay-nonce-str': c.req.header('wechatpay-nonce-str') || '',
+    'wechatpay-timestamp': c.req.header('wechatpay-timestamp') || '',
+    'wechatpay-signature': c.req.header('wechatpay-signature') || '',
+  });
+  /** 微信回调统一应答：成功 200，失败 5xx 让微信按策略重试。 */
+  const ackNotify = async (
+    c: Context<ApiEnv>,
+    handle: () => Promise<unknown>,
+  ) => {
     try {
-      await module.recharge.handleNotify(rawBody, headers);
+      await handle();
       return c.json({ code: 'SUCCESS', message: '成功' }, 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : '处理失败';
       return c.json({ code: 'FAIL', message }, 500);
     }
+  };
+  app.post('/api/pay/wechat/notify', async (c) => {
+    const rawBody = await c.req.text();
+    return ackNotify(c, () =>
+      module.recharge.handleNotify(rawBody, wechatHeaders(c)),
+    );
+  });
+  // 购卡回调独立地址：与充值分开的下单来源，微信侧只需再配一个通知 URL。
+  app.post('/api/pay/card/notify', async (c) => {
+    const rawBody = await c.req.text();
+    return ackNotify(c, () =>
+      module.card.handleNotify(rawBody, wechatHeaders(c)),
+    );
   });
 }

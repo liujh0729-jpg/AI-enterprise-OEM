@@ -56,7 +56,7 @@ const CODE_BLOCK: CSSProperties = {
   overflowX: "auto",
 };
 
-/** 开放集成 → API-MCP-Skill → MCP Server：接入地址、鉴权、工具清单与业务能力总览。 */
+/** 模型服务 → API-MCP-Skill → MCP Server：接入地址、鉴权、工具清单与业务能力总览。 */
 export function McpTab({ onOpenApi }: { onOpenApi: () => void }) {
   // 接入地址跟域名走：后台配了站点域名就用它，没配按当前访问地址推导（/api/* 已由同域代理到后端）。
   const base = useSiteBase();
@@ -106,7 +106,7 @@ export function McpTab({ onOpenApi }: { onOpenApi: () => void }) {
       >
         <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
           6 个元工具背后是 {TOTAL} 个业务接口（读 {TOTAL_READ} / 写 {TOTAL_WRITE}），分布在 {DOMAIN_ROWS.length} 个业务域，
-          覆盖高管驾驶舱、工作台（Agent、Workbuddy 企业云、内容创作、多维表格、RPA 自动化、营销工具、数字资产）
+          覆盖驾驶舱、工作台（Agent、Workbuddy 企业云、内容创作、多维表格、RPA 自动化、营销工具、数字资产）
           与全部业务服务（财税、出海、物流、法律、知产、灵活用工、智库、IT服务、营销、资产、供销）。
           下表与外部客户端调 <span className="mono">list_operations</span> 得到的是同一份，新增接口自动进入；
           平台管理后台、智能体记忆自身、MCP 端点自身以及 Key 铸造/吊销动作不在清单内。

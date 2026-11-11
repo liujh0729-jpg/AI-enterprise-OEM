@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   App,
   Button,
@@ -9,6 +9,7 @@ import {
   Input,
   InputNumber,
   Radio,
+  Space,
   Tag,
 } from "antd";
 import { Notice, Panel } from "@/components/ui/panel";
@@ -18,6 +19,7 @@ import {
   type LoginMethod,
   type RegisterMode,
 } from "@/api/account-settings";
+import { gapsApi, gapsPublicApi, type TermsDocument } from "@/api/gaps";
 import { useOperationMutation } from "@/query/business";
 import { presentMutationError } from "@/query/errors";
 import { PermissionNotice, useAdminData } from "./common";
@@ -83,14 +85,20 @@ export function AccountLoginPanel() {
   const wechat = Form.useWatch("wechat", form);
   // 正在编辑的凭据也算「已具备」：允许一次保存里同时配通道并开启对应登录方式
   const emailReady =
-    !!data?.availability.EMAIL ||
-    !!(smtp?.host && smtp?.user && smtp?.from);
+    !!data?.availability.EMAIL || !!(smtp?.host && smtp?.user && smtp?.from);
   const phoneReady =
     !!data?.availability.PHONE ||
     !!(sms?.accessKeyId && sms?.signName && sms?.templateCode);
   const wechatReady =
     !!data?.loginAvailability.WECHAT ||
     !!(wechat?.appId && (wechat?.appSecret || data?.wechat.configured));
+  const loginMethods =
+    Form.useWatch("loginMethods", form) ?? data?.loginMethods ?? [];
+  const passwordLogin = loginMethods.includes("PASSWORD");
+  const emailRecovery =
+    passwordLogin && loginMethods.includes("EMAIL_CODE") && emailReady;
+  const smsRecovery =
+    passwordLogin && loginMethods.includes("SMS_CODE") && phoneReady;
 
   useEffect(() => {
     if (!data) return;
@@ -176,8 +184,9 @@ export function AccountLoginPanel() {
         titleBadge={<span className="text-12 muted">保存即生效</span>}
       >
         <Notice variant="info">
-          这里控制登录页与注册页展示哪些入口。邮箱通道未配置时，邮箱注册 / 邮箱验证码登录不可用；
-          手机通道未配置时，手机号注册 / 手机验证码登录不可用；微信参数未配置时，微信扫码不可用。
+          这里控制登录页与注册页展示哪些入口。邮箱通道未配置时，邮箱注册 /
+          邮箱验证码登录不可用； 手机通道未配置时，手机号注册 /
+          手机验证码登录不可用；微信参数未配置时，微信扫码不可用。
           敏感项加密保存，留空表示保留原值，只回显「已配置」。
         </Notice>
         <Form<FormValues>
@@ -217,7 +226,9 @@ export function AccountLoginPanel() {
             </div>
             <Form.Item
               name="loginMethods"
-              rules={[{ type: "array", min: 1, message: "至少保留一种登录方式" }]}
+              rules={[
+                { type: "array", min: 1, message: "至少保留一种登录方式" },
+              ]}
               style={{ marginBottom: 0 }}
             >
               <Checkbox.Group
@@ -230,6 +241,43 @@ export function AccountLoginPanel() {
                 }))}
               />
             </Form.Item>
+          </section>
+
+          <section style={{ marginBottom: 20 }}>
+            <strong style={{ fontSize: 13 }}>找回密码 / 验证码设密</strong>
+            <div className="text-12 muted" style={{ margin: "4px 0 8px" }}>
+              与登录方式同源：未勾选「常规登录」时整体关闭；关闭邮箱 /
+              手机验证码会同步关闭对应找回入口。
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                marginBottom: 8,
+              }}
+            >
+              <Tag color={passwordLogin ? "green" : "default"}>
+                {passwordLogin ? "常规登录已开启" : "常规登录未开启"}
+              </Tag>
+              <Tag color={emailRecovery ? "green" : "default"}>
+                邮箱找回：{emailRecovery ? "可用" : "不可用"}
+              </Tag>
+              <Tag color={smsRecovery ? "green" : "default"}>
+                手机找回：{smsRecovery ? "可用" : "不可用"}
+              </Tag>
+            </div>
+            {!passwordLogin ? (
+              <Notice variant="warn">
+                未勾选「常规登录（账号 +
+                密码）」：登录页不显示「忘记密码」，账号安全页也不能用验证码设置密码。
+              </Notice>
+            ) : !emailRecovery && !smsRecovery ? (
+              <Notice variant="warn">
+                当前没有可用的找回通道：登录页不显示「忘记密码」。请勾选邮箱 /
+                手机验证码登录并配好对应通道。
+              </Notice>
+            ) : null}
           </section>
 
           <section style={{ marginBottom: 20 }}>
@@ -273,16 +321,23 @@ export function AccountLoginPanel() {
             <Form.Item
               name={["smtp", "password"]}
               label="密码"
-              extra={data?.smtp.configured ? "留空表示不修改已保存的密码" : undefined}
+              extra={
+                data?.smtp.configured ? "留空表示不修改已保存的密码" : undefined
+              }
             >
               <Input.Password
                 autoComplete="new-password"
                 maxLength={200}
-                placeholder={data?.smtp.configured ? "输入新密码" : "邮箱授权码 / 密码"}
+                placeholder={
+                  data?.smtp.configured ? "输入新密码" : "邮箱授权码 / 密码"
+                }
               />
             </Form.Item>
             <Form.Item name={["smtp", "from"]} label="发件人">
-              <Input placeholder="企业服务台 <no-reply@example.com>" maxLength={200} />
+              <Input
+                placeholder="企业服务台 <no-reply@example.com>"
+                maxLength={200}
+              />
             </Form.Item>
           </section>
 
@@ -298,18 +353,30 @@ export function AccountLoginPanel() {
                 尚未配置短信：手机号注册、手机验证码登录、短信找回密码均不可用。
               </Notice>
             ) : null}
-            <Form.Item name={["sms", "accessKeyId"]} label="AccessKeyId" style={{ marginTop: 10 }}>
+            <Form.Item
+              name={["sms", "accessKeyId"]}
+              label="AccessKeyId"
+              style={{ marginTop: 10 }}
+            >
               <Input placeholder="LTAI..." maxLength={128} autoComplete="off" />
             </Form.Item>
             <Form.Item
               name={["sms", "accessKeySecret"]}
               label="AccessKeySecret"
-              extra={data?.sms.configured ? "留空表示不修改已保存的 Secret" : undefined}
+              extra={
+                data?.sms.configured
+                  ? "留空表示不修改已保存的 Secret"
+                  : undefined
+              }
             >
               <Input.Password
                 autoComplete="new-password"
                 maxLength={200}
-                placeholder={data?.sms.configured ? "输入新的 Secret" : "阿里云 AccessKeySecret"}
+                placeholder={
+                  data?.sms.configured
+                    ? "输入新的 Secret"
+                    : "阿里云 AccessKeySecret"
+                }
               />
             </Form.Item>
             <div
@@ -338,7 +405,11 @@ export function AccountLoginPanel() {
           <section style={{ marginBottom: 20 }}>
             <strong style={{ fontSize: 13 }}>微信扫码</strong>
             <div style={{ margin: "6px 0 10px" }}>
-              <Tag>{data?.wechat.provider === "WECHAT_OPEN" ? "微信开放平台网站应用" : data?.wechat.provider || "微信开放平台网站应用"}</Tag>
+              <Tag>
+                {data?.wechat.provider === "WECHAT_OPEN"
+                  ? "微信开放平台网站应用"
+                  : data?.wechat.provider || "微信开放平台网站应用"}
+              </Tag>
               <Tag color={data?.wechat.configured ? "green" : "default"}>
                 {data?.wechat.configured ? "已配置" : "未配置"}
               </Tag>
@@ -349,18 +420,30 @@ export function AccountLoginPanel() {
                 把授权回调域设为本站域名，再把 AppID / AppSecret 填到这里。
               </Notice>
             ) : null}
-            <Form.Item name={["wechat", "appId"]} label="AppID" style={{ marginTop: 10 }}>
+            <Form.Item
+              name={["wechat", "appId"]}
+              label="AppID"
+              style={{ marginTop: 10 }}
+            >
               <Input placeholder="wx..." maxLength={64} autoComplete="off" />
             </Form.Item>
             <Form.Item
               name={["wechat", "appSecret"]}
               label="AppSecret"
-              extra={data?.wechat.configured ? "留空表示不修改已保存的 Secret" : undefined}
+              extra={
+                data?.wechat.configured
+                  ? "留空表示不修改已保存的 Secret"
+                  : undefined
+              }
             >
               <Input.Password
                 autoComplete="new-password"
                 maxLength={200}
-                placeholder={data?.wechat.configured ? "输入新的 AppSecret" : "微信开放平台 AppSecret"}
+                placeholder={
+                  data?.wechat.configured
+                    ? "输入新的 AppSecret"
+                    : "微信开放平台 AppSecret"
+                }
               />
             </Form.Item>
             <Form.Item name={["wechat", "enabled"]} label="启用微信扫码登录">
@@ -371,7 +454,10 @@ export function AccountLoginPanel() {
                 ]}
               />
             </Form.Item>
-            <Form.Item name={["wechat", "autoRegister"]} label="扫码后未绑定账号">
+            <Form.Item
+              name={["wechat", "autoRegister"]}
+              label="扫码后未绑定账号"
+            >
               <Radio.Group
                 options={[
                   { label: "自动注册新账号（一键即用）", value: true },
@@ -386,6 +472,254 @@ export function AccountLoginPanel() {
           </Button>
         </Form>
       </Panel>
+      <RegisterAgreementEditor />
+    </>
+  );
+}
+
+/* ------------------------------------------------- 注册协议与隐私政策 */
+
+/** 注册前必读的两份协议：编码与登录页勾选、注册接口强校验一一对应。 */
+const CONSENT_DOCS = [
+  {
+    code: "USER_REGISTRATION",
+    label: "用户注册协议",
+    category: "REGISTRATION" as const,
+    path: "/agreement/register",
+  },
+  {
+    code: "USER_PRIVACY",
+    label: "隐私政策",
+    category: "PRIVACY" as const,
+    path: "/agreement/privacy",
+  },
+];
+
+/** 下一版本号：v1.0 → v1.1；非 vX.Y 形态则追加 .1，便于版本历史在留痕里可读。 */
+const nextVersion = (current: string) => {
+  const match = /^v(\d+)\.(\d+)$/.exec(current.trim());
+  return match ? `v${match[1]}.${Number(match[2]) + 1}` : `${current.trim()}.1`;
+};
+
+type AgreementFormValues = {
+  version: string;
+  title: string;
+  content: string;
+};
+
+/**
+ * 注册协议与隐私政策：平台管理员在这里维护正文，保存即生成新的生效版本，
+ * 旧版本自动归档；新注册用户按最新版本留痕，勾选认可后才能注册。
+ */
+function RegisterAgreementEditor() {
+  const { message } = App.useApp();
+  const [rows, setRows] = useState<TermsDocument[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState<{
+    code: string;
+    fallbackTitle: string;
+    category: "REGISTRATION" | "PRIVACY";
+    path: string;
+    doc: TermsDocument | null;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm<AgreementFormValues>();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await gapsApi.termsDocuments({ query: {} });
+      setRows(
+        (list ?? []).filter((row) =>
+          CONSENT_DOCS.some((doc) => doc.code === row.code),
+        ),
+      );
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : "协议加载失败，请稍后重试",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const activeOf = (code: string) =>
+    rows.find((row) => row.code === code && row.status === "ACTIVE") ?? null;
+
+  const openEditor = async (
+    doc: (typeof CONSENT_DOCS)[number],
+  ) => {
+    const current = activeOf(doc.code);
+    // 后台还没发布过时，先把平台默认文本拉出来作为草稿正文
+    let content = current?.content ?? "";
+    if (!current) {
+      try {
+        content = (await gapsPublicApi.terms(doc.code)).content;
+      } catch {
+        content = "";
+      }
+    }
+    setEditing({
+      code: doc.code,
+      fallbackTitle: doc.label,
+      category: doc.category,
+      path: doc.path,
+      doc: current,
+    });
+    form.setFieldsValue({
+      version: current ? nextVersion(current.version) : "v1.0",
+      title: current?.title || doc.label,
+      content,
+    });
+  };
+
+  const submit = async () => {
+    if (!editing) return;
+    const values = await form.validateFields();
+    setSaving(true);
+    try {
+      await gapsApi.saveTermsDocument({
+        body: {
+          id: 0,
+          code: editing.code,
+          version: values.version.trim(),
+          title: values.title.trim(),
+          category: editing.category,
+          content: values.content,
+          requireReaccept: true,
+          effectiveAt: new Date().toISOString(),
+          status: "ACTIVE",
+        },
+      });
+      message.success("协议已发布为新版本，登录页勾选项即时生效");
+      setEditing(null);
+      await load();
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : "协议保存失败，请稍后重试",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Panel
+        title="注册协议与隐私政策"
+        titleBadge={
+          <span className="text-12 muted">
+            注册前必读，保存即发布新版本
+          </span>
+        }
+      >
+        <Notice variant="info">
+          未单独发布时，注册页与协议页展示平台内置的标准文本；
+          在这里保存后即以本站正文为准，旧版本自动归档，已接受旧版本的用户记录保留。
+        </Notice>
+        <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
+          {CONSENT_DOCS.map((doc) => {
+            const active = activeOf(doc.code);
+            return (
+              <div
+                key={doc.code}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  padding: "12px 14px",
+                  border: "1px solid rgba(5, 5, 5, 0.06)",
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600 }}>
+                    {active?.title || doc.label}
+                    <Tag
+                      color={active ? "green" : "default"}
+                      style={{ marginInlineStart: 8 }}
+                    >
+                      {active ? `已发布 ${active.version}` : "平台默认文本"}
+                    </Tag>
+                  </div>
+                  <div className="text-12 muted" style={{ marginTop: 4 }}>
+                    编码 {doc.code} · 注册页勾选链接{" "}
+                    <a href={doc.path} target="_blank" rel="noreferrer">
+                      {doc.path}
+                    </a>
+                  </div>
+                </div>
+                <Space>
+                  <Button
+                    onClick={() => window.open(doc.path, "_blank")}
+                  >
+                    查看全文
+                  </Button>
+                  <Button
+                    type="primary"
+                    ghost
+                    loading={loading}
+                    onClick={() => void openEditor(doc)}
+                  >
+                    {active ? "编辑并发布新版本" : "编辑并发布"}
+                  </Button>
+                </Space>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+      {editing ? (
+        <Panel
+          title={`${editing.fallbackTitle} · ${
+            editing.doc ? "发布新版本" : "首次发布"
+          }`}
+          extra={
+            <Space>
+              <Button onClick={() => setEditing(null)}>取消</Button>
+              <Button type="primary" loading={saving} onClick={() => void submit()}>
+                发布
+              </Button>
+            </Space>
+          }
+        >
+          <Form<AgreementFormValues> form={form} layout="vertical">
+            <div
+              style={{ display: "grid", gridTemplateColumns: "1fr 200px", gap: 12 }}
+            >
+              <Form.Item
+                name="title"
+                label="标题"
+                rules={[{ required: true, message: "请填写标题" }]}
+              >
+                <Input maxLength={160} />
+              </Form.Item>
+              <Form.Item
+                name="version"
+                label="版本号"
+                rules={[{ required: true, message: "请填写版本号" }]}
+                extra="注册留痕按版本记录，发布后不可复用同一版本号"
+              >
+                <Input maxLength={24} />
+              </Form.Item>
+            </div>
+            <Form.Item
+              name="content"
+              label="协议全文"
+              rules={[{ required: true, message: "请填写协议正文" }]}
+              extra="支持多段文本：以「一、二、三」等序号开头的行会作为小标题展示"
+            >
+              <Input.TextArea rows={18} maxLength={200000} />
+            </Form.Item>
+          </Form>
+        </Panel>
+      ) : null}
     </>
   );
 }

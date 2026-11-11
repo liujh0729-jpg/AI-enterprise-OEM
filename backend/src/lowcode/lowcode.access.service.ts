@@ -2,6 +2,7 @@ import { CurrentUser } from '../auth/current-user';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { IdentityService } from '../identity/identity.service';
+import { HrmScopeService } from '../hrm/hrm.scope';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   type AccessContext,
@@ -26,6 +27,7 @@ export class LowCodeAccessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly scope: HrmScopeService,
   ) {}
 
   static projectId(raw: unknown): number {
@@ -62,6 +64,18 @@ export class LowCodeAccessService {
         });
     if (!isOwner && (!member || member.status !== 'ACTIVE')) {
       throw new BusinessException(ErrorCode.NOT_FOUND, '项目不存在');
+    }
+    // 组织项目：项目成员资格必须叠加「当前仍是该组织在册成员」。
+    // 离职/被移出组织后即使成员表还没异步清理，也立刻按「项目不存在」处理。
+    if (project.orgUserId) {
+      const standing = await this.scope.membershipValid(
+        project.orgType,
+        project.orgUserId,
+        user.userId,
+      );
+      if (!standing) {
+        throw new BusinessException(ErrorCode.NOT_FOUND, '项目不存在');
+      }
     }
     const role = member
       ? member.roleId

@@ -33,9 +33,12 @@ import {
 } from './acquisition-scoring';
 import {
   clip,
+  contactKey,
+  contactsOf,
   dateOr,
   dayFloor,
   dedupeKeyOf,
+  evidenceContactsOf,
   int,
   intArr,
   iso,
@@ -48,6 +51,7 @@ import {
   pageResult,
   strArr,
   text,
+  type AcqContact,
   type OrgKey,
   type Row,
 } from './acquisition.helpers';
@@ -160,6 +164,7 @@ type LeadRow = {
   ownerUserId: string;
   crmLeadId: number;
   evidenceCount: number;
+  contactCount: number;
   firstSeenAt: Date;
   lastSeenAt: Date;
 };
@@ -404,7 +409,7 @@ export class AcquisitionRadarService {
   async leadDetail(user: CurrentUser, id: number) {
     const org = await this.settings.org(user);
     const row = await this.requireLead(org, id);
-    const [evidence, outreach, profile] = await Promise.all([
+    const [evidence, outreach, profile, contacts] = await Promise.all([
       this.prisma.acqLeadEvidence.findMany({
         where: { leadId: id, ...orgKey(org) },
         orderBy: { capturedAt: 'desc' },
@@ -425,12 +430,14 @@ export class AcquisitionRadarService {
             select: { id: true },
           })
         : Promise.resolve(null),
+      this.leadContacts(org, id),
     ]);
     return {
       ...this.leadView(row),
       opening: row.opening,
       risk: row.risk,
       profileId: profile?.id || 0,
+      contacts,
       evidence: evidence.map((item) => ({
         id: item.id,
         leadId: item.leadId,
@@ -440,6 +447,7 @@ export class AcquisitionRadarService {
         excerpt: item.excerpt,
         summary: item.summary,
         metrics: asRecord(item.metrics),
+        contacts: evidenceContactsOf(item.contacts),
         capturedAt: iso(item.capturedAt),
       })),
       outreach: outreach.map((item) => ({
@@ -775,6 +783,8 @@ export class AcquisitionRadarService {
           metrics,
         },
       ];
+      // 公开联系方式只取主页已公开可见字段（D7=B）：本系统不绕过登录墙、不抓隐藏资料。
+      const contacts = contactsOf(item.contacts);
       const score = ruleScore(evidenceInput, {
         ...context,
         keywords: [...context.keywords, ...strArr(query.keywords)],
@@ -828,12 +838,15 @@ export class AcquisitionRadarService {
           excerpt,
           summary: clip(excerpt.replace(/\s+/g, ' '), 200),
           metrics: json(metrics),
+          contacts: json(contacts),
           capturedAt: publishedAt || now,
         },
         update: {
           runId,
           excerpt: excerpt || undefined,
           metrics: json(metrics),
+          // 主页公开信息的补抓结果按「最后一次采到」覆盖；本次没采到就保留上一次的，不清空。
+          contacts: contacts.length ? json(contacts) : undefined,
         },
       });
       budget -= 1;
@@ -855,12 +868,44 @@ export class AcquisitionRadarService {
       const count = await this.prisma.acqLeadEvidence.count({
         where: { leadId },
       });
+      const contactCount = (await this.leadContacts(key, leadId)).length;
       await this.prisma.acqLead.update({
         where: { id: leadId },
-        data: { evidenceCount: count },
+        data: { evidenceCount: count, contactCount },
       });
     }
     return { ...stats, leadIds: [...new Set(leadIds)] };
+  }
+
+  /**
+   * 汇总某条线索下跨全部证据的公开联系方式，按「字段 + 取值」去重。
+   * 带 url / capturedAt 追溯来源：这就是 D7=B 要求的证据链，界面据此展示每条联系方式的出处。
+   */
+  private async leadContacts(
+    org: HrmOrg | OrgKey,
+    leadId: number,
+  ): Promise<Array<AcqContact & { url: string; capturedAt: string }>> {
+    const rows = await this.prisma.acqLeadEvidence.findMany({
+      where: { leadId, ...orgKey(org) },
+      orderBy: { capturedAt: 'desc' },
+      take: 200,
+      select: { url: true, contacts: true, capturedAt: true },
+    });
+    const seen = new Set<string>();
+    const out: Array<AcqContact & { url: string; capturedAt: string }> = [];
+    for (const row of rows) {
+      for (const contact of evidenceContactsOf(row.contacts)) {
+        const key = contactKey(contact);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          ...contact,
+          url: row.url,
+          capturedAt: iso(row.capturedAt),
+        });
+      }
+    }
+    return out;
   }
 
   // ---------- 插件任务（采集） ----------
@@ -1337,6 +1382,7 @@ export class AcquisitionRadarService {
       ownerUserId: row.ownerUserId,
       crmLeadId: row.crmLeadId,
       evidenceCount: row.evidenceCount,
+      contactCount: row.contactCount,
       firstSeenAt: iso(row.firstSeenAt),
       lastSeenAt: iso(row.lastSeenAt),
     };

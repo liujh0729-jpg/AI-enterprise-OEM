@@ -5,6 +5,11 @@ import {
   type AgentBusinessContext,
 } from './agent-business-tools';
 import { parseCopilot } from './agent.service';
+import {
+  AGENT_TOOLS,
+  runAgentTool,
+  type AgentToolContext,
+} from './agent-tools';
 import { stub } from '../../test/doubles';
 
 /**
@@ -75,5 +80,61 @@ describe('副驾只读模式下不执行写动作', () => {
       expect.objectContaining({ name: '华南客户' }),
     );
     expect(result?.text).toContain('线索已创建');
+  });
+
+  const chromeStart = jest
+    .fn()
+    .mockResolvedValue({ id: 31, status: 'RUNNING' });
+  const paidBusiness = stub<AgentBusinessContext>({
+    rpaChrome: stub({ startSession: chromeStart }),
+  });
+
+  it('只读模式下付费的 RPA 接管同样拦在发起前', async () => {
+    const result = await runWithAgentScope(
+      { connectorIds: [], mailboxIds: [], trigger: 'schedule' },
+      () =>
+        runBusinessTool(
+          'chrome_start_session',
+          { client_id: 'c-1', goal: '比价' },
+          paidBusiness,
+          actor,
+        ),
+    );
+    expect(result?.text).toContain('会消耗积分的动作');
+    expect(chromeStart).not.toHaveBeenCalled();
+  });
+
+  it('放开写后付费动作照常发起', async () => {
+    await runWithAgentScope(
+      { connectorIds: [], mailboxIds: [], trigger: 'chat', allowWrite: true },
+      () =>
+        runBusinessTool(
+          'chrome_start_session',
+          { client_id: 'c-1', goal: '比价' },
+          paidBusiness,
+          actor,
+        ),
+    );
+    expect(chromeStart).toHaveBeenCalled();
+  });
+
+  it('内置生成类工具在只读模式下不发起（避免消耗模型额度）', async () => {
+    const imageTool = AGENT_TOOLS.find(
+      (tool) => tool.function.name === 'generate_image',
+    );
+    expect(imageTool).toBeTruthy();
+    const context = stub<AgentToolContext>({});
+    const result = await runWithAgentScope(
+      { connectorIds: [], mailboxIds: [], trigger: 'schedule' },
+      () =>
+        runAgentTool(
+          'generate_image',
+          { prompt: '一张产品图' },
+          context,
+          actor,
+        ),
+    );
+    expect(result.text).toContain('只读模式');
+    expect(imageTool?.function.name).toBe('generate_image');
   });
 });

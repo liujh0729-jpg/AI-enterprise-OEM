@@ -1,5 +1,8 @@
 import {
+  contactKey,
+  contactsOf,
   dedupeKeyOf,
+  evidenceContactsOf,
   pageArgs,
   peerKeyOf,
   percent,
@@ -26,6 +29,12 @@ import {
 } from './follow-up.service';
 import { nextRunAt } from './radar.service';
 import { ruleQc } from './qc.service';
+import { AcquisitionProfileService } from './profile.service';
+import type { AcquisitionSettingsService } from './acquisition-settings.service';
+import type { AcquisitionRadarService } from './radar.service';
+import type { CrmLeadService } from '../crm/crm.lead.service';
+import type { PrismaService } from '../prisma/prisma.service';
+import { stub } from '../../test/doubles';
 
 const at = (
   year: number,
@@ -102,6 +111,67 @@ describe('acquisition helpers', () => {
     expect(dedupeKeyOf('XHS', 'user-1')).toBe('XHS:user-1');
     expect(peerKeyOf('WECOM', 'ext-1')).toBe('WECOM:ext-1');
     expect(peerKeyOf('WECOM', 'x'.repeat(300))).toHaveLength(166);
+  });
+});
+
+describe('public contacts (D7=B)', () => {
+  it('只认白名单字段与可见性，非白名单字段一律丢弃', () => {
+    const contacts = contactsOf([
+      { field: 'email', value: 'a@b.com', visibility: 'PROFILE_PUBLIC' },
+      { field: 'qq', value: '12345', visibility: 'PROFILE_PUBLIC' },
+      { field: 'phone', value: '13800000000', visibility: 'HIDDEN' },
+      { field: 'wechat', value: 'wx-id', visibility: 'BIO_PUBLIC' },
+    ]);
+    expect(contacts).toEqual([
+      { field: 'email', value: 'a@b.com', visibility: 'PROFILE_PUBLIC' },
+      { field: 'phone', value: '13800000000', visibility: 'PROFILE_PUBLIC' },
+      { field: 'wechat', value: 'wx-id', visibility: 'BIO_PUBLIC' },
+    ]);
+  });
+
+  it('同一字段同一取值大小写不敏感去重，空值不落库', () => {
+    const contacts = contactsOf([
+      { field: 'email', value: 'A@B.com', visibility: 'PROFILE_PUBLIC' },
+      { field: 'email', value: 'a@b.com', visibility: 'BIO_PUBLIC' },
+      { field: 'homepage', value: '   ', visibility: 'PROFILE_PUBLIC' },
+      { field: 'homepage', value: 'https://shop.example.com' },
+    ]);
+    expect(contacts).toEqual([
+      { field: 'email', value: 'A@B.com', visibility: 'PROFILE_PUBLIC' },
+      {
+        field: 'homepage',
+        value: 'https://shop.example.com',
+        visibility: 'PROFILE_PUBLIC',
+      },
+    ]);
+  });
+
+  it('非数组入参与非对象条目安全跳过，最多保留 20 条', () => {
+    expect(contactsOf(null)).toEqual([]);
+    expect(contactsOf(['x', 1, null])).toEqual([]);
+    const many = Array.from({ length: 30 }, (_, index) => ({
+      field: 'email',
+      value: `u${index}@b.com`,
+      visibility: 'PROFILE_PUBLIC',
+    }));
+    expect(contactsOf(many)).toHaveLength(20);
+  });
+
+  it('contactKey 与 evidenceContactsOf 复用同一去重口径', () => {
+    expect(
+      contactKey({
+        field: 'email',
+        value: 'A@B.com',
+        visibility: 'PROFILE_PUBLIC',
+      }),
+    ).toBe('email:a@b.com');
+    expect(
+      evidenceContactsOf([
+        { field: 'phone', value: '13900000000', visibility: 'BIO_PUBLIC' },
+      ]),
+    ).toEqual([
+      { field: 'phone', value: '13900000000', visibility: 'BIO_PUBLIC' },
+    ]);
   });
 });
 
@@ -480,5 +550,79 @@ describe('reception QC', () => {
       expect(dimension.score).toBeGreaterThanOrEqual(0);
       expect(dimension.score).toBeLessThanOrEqual(20);
     }
+  });
+});
+
+describe('CRM → 获客档案阶段同步', () => {
+  function serviceOf(prisma: object) {
+    return new AcquisitionProfileService(
+      stub<PrismaService>(prisma),
+      stub<AcquisitionSettingsService>({}),
+      stub<AcquisitionRadarService>({}),
+      stub<CrmLeadService>({}),
+    );
+  }
+
+  function prismaWith(rows: object[]) {
+    return {
+      acqProfile: {
+        findMany: jest.fn().mockResolvedValue(rows),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      acqProfileEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+  }
+
+  it('把 CRM 阶段映射为档案业务状态并记一条 STAGE 事件', async () => {
+    const prisma = prismaWith([
+      {
+        id: 7,
+        orgType: 'HRM',
+        orgUserId: 'u1',
+        businessStatus: 'engaged',
+      },
+    ]);
+
+    await serviceOf(prisma).syncCrmStage('u1', 42, 'SUCCESS');
+
+    expect(prisma.acqProfile.update).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { businessStatus: 'customer' },
+    });
+    expect(prisma.acqProfileEvent.create).toHaveBeenCalledTimes(1);
+    const created = prisma.acqProfileEvent.create.mock.calls[0][0].data;
+    expect(created).toMatchObject({
+      profileId: 7,
+      orgType: 'HRM',
+      orgUserId: 'u1',
+      kind: 'STAGE',
+      refId: 42,
+      summary: 'CRM 阶段变为「SUCCESS」，业务状态 engaged → customer',
+    });
+    expect(created.payload).toEqual({
+      from: 'engaged',
+      to: 'customer',
+      crmStage: 'SUCCESS',
+    });
+  });
+
+  it('同状态档案不重复写，未知阶段与缺参直接返回', async () => {
+    const prisma = prismaWith([
+      {
+        id: 8,
+        orgType: 'HRM',
+        orgUserId: 'u1',
+        businessStatus: 'customer',
+      },
+    ]);
+    const service = serviceOf(prisma);
+
+    await service.syncCrmStage('u1', 42, 'SUCCESS');
+    await service.syncCrmStage('u1', 42, 'UNKNOWN_STAGE');
+    await service.syncCrmStage('', 42, 'SUCCESS');
+    await service.syncCrmStage('u1', 0, 'SUCCESS');
+
+    expect(prisma.acqProfile.update).not.toHaveBeenCalled();
+    expect(prisma.acqProfileEvent.create).not.toHaveBeenCalled();
   });
 });

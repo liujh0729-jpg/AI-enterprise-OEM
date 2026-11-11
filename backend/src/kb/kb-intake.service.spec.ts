@@ -179,6 +179,7 @@ describe('KbIntakeService 摄取管道', () => {
     >(
       jest.fn(async () => ({
         id: 9,
+        userId: 'u1',
         text: '资产抽取出来的正文',
         ossKey: 'enterprise/u1/library/9.pdf',
       })),
