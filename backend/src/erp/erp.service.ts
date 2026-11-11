@@ -1560,7 +1560,9 @@ export class ErpService {
       where: { orgType: org.orgType, orgUserId: org.orgUserId },
     });
     const vendorName = new Map(vendors.map((row) => [row.id, row.name]));
-    const projectIds = [...new Set(rows.map((row) => row.projectId).filter((id) => id > 0))];
+    const projectIds = [
+      ...new Set(rows.map((row) => row.projectId).filter((id) => id > 0)),
+    ];
     const projects = projectIds.length
       ? await this.prisma.pjProject.findMany({
           where: {
@@ -1667,7 +1669,11 @@ export class ErpService {
     const projectId = num(body.projectId);
     if (projectId) {
       const project = await this.prisma.pjProject.findFirst({
-        where: { id: projectId, orgType: org.orgType, orgUserId: org.orgUserId },
+        where: {
+          id: projectId,
+          orgType: org.orgType,
+          orgUserId: org.orgUserId,
+        },
         select: { id: true },
       });
       if (!project)
@@ -2064,7 +2070,11 @@ export class ErpService {
    */
   private async syncPurchaseOrderPayable(org: HrmOrg, purchaseOrderId: number) {
     const order = await this.prisma.erpPurchaseOrder.findFirst({
-      where: { id: purchaseOrderId, orgType: org.orgType, orgUserId: org.orgUserId },
+      where: {
+        id: purchaseOrderId,
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+      },
     });
     if (!order) return;
     const amount = num(order.amount) + num(order.taxAmount);
@@ -2493,7 +2503,10 @@ export class ErpService {
       );
     }
     const total = num(row.amount);
-    if (total >= PAYMENT_APPROVAL_THRESHOLD && row.approvalStatus !== 'APPROVED') {
+    if (
+      total >= PAYMENT_APPROVAL_THRESHOLD &&
+      row.approvalStatus !== 'APPROVED'
+    ) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
         row.approvalStatus === 'REJECTED'

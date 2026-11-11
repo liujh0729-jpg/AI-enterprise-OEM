@@ -1659,10 +1659,7 @@ export class ServiceDeskService {
     }
     const answer = text(body.answer).trim().slice(0, 8000);
     if (!answer) {
-      throw new BusinessException(
-        ErrorCode.BAD_REQUEST,
-        '解决稿正文不能为空',
-      );
+      throw new BusinessException(ErrorCode.BAD_REQUEST, '解决稿正文不能为空');
     }
     const latest = await this.prisma.serviceDeskMessage.findFirst({
       where: { conversationId: row.id, senderType: 'visitor' },

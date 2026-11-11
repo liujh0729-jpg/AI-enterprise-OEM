@@ -1,5 +1,4 @@
-import type { CurrentUser } from '../../auth/current-user';
-import type { TaskCollectOptions, TaskDraft, TaskSource } from '../task-source';
+import type { TaskSource } from '../task-source';
 import type { OperationRiskService } from '../../growth/operation-risk.service';
 
 /**
@@ -14,12 +13,7 @@ export function riskSource(
     label: '经营异常',
     category: 'matter',
     push: true,
-    async collect(
-      _user: CurrentUser,
-      _options?: TaskCollectOptions,
-    ): Promise<TaskDraft[]> {
-      return [];
-    },
+    collect: () => Promise.resolve([]),
     async recheck(draft) {
       const service = risks();
       if (!service) return { cleared: true, reason: '' };

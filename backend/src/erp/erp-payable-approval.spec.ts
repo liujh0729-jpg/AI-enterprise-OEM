@@ -44,8 +44,9 @@ function model(seed: AnyRow[] = []) {
   let seq = 1000;
   return {
     rows,
-    count: jest.fn(async ({ where }: { where?: AnyRow } = {}) =>
-      rows.filter((row) => matches(row, where ?? {})).length,
+    count: jest.fn(
+      async ({ where }: { where?: AnyRow } = {}) =>
+        rows.filter((row) => matches(row, where ?? {})).length,
     ),
     findFirst: jest.fn(
       async ({ where }: { where: AnyRow }) =>

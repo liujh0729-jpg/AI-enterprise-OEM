@@ -130,7 +130,11 @@ export class ServiceDeskController {
     return ok(await this.service.send(user, owner, Number(id), body));
   }
 
-  async createTask(user: CurrentUser, id: string, body: Record<string, unknown>) {
+  async createTask(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
     const owner = await this.service.workOwner(user);
     return ok(await this.service.createTask(user, owner, Number(id), body));
   }

@@ -69,10 +69,7 @@ export class HrmController {
     return this.profileService.updateStatus(body, user);
   }
 
-  handoverChecklist(
-    user: CurrentUser,
-    query: { memberUserId: string },
-  ) {
+  handoverChecklist(user: CurrentUser, query: { memberUserId: string }) {
     return this.profileService.handover(query.memberUserId, user);
   }
 

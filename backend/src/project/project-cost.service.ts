@@ -592,9 +592,14 @@ export class ProjectCostService {
         !receivedOrders.has(row.id) &&
         ['APPROVED', 'RECEIVING'].includes(row.status),
     );
-    const settledExternal = engagements.filter((row) => row.status === 'SETTLED');
+    const settledExternal = engagements.filter(
+      (row) => row.status === 'SETTLED',
+    );
     const openExternal = engagements.filter(
-      (row) => row.status === 'DRAFT' || row.status === 'ACTIVE' || row.status === 'ACCEPTING',
+      (row) =>
+        row.status === 'DRAFT' ||
+        row.status === 'ACTIVE' ||
+        row.status === 'ACCEPTING',
     );
     const sum = (rows: Array<{ amount: unknown }>): number =>
       rows.reduce((total: number, row) => total + num(row.amount), 0);
@@ -603,9 +608,7 @@ export class ProjectCostService {
     return {
       revenueAmount: ds(await this.projectRevenue(org, project)),
       committedAmount: ds(round(sum(pendingOrders) + sum(openExternal))),
-      confirmedAmount: ds(
-        round(sum(confirmedOrders) + sum(settledExternal)),
-      ),
+      confirmedAmount: ds(round(sum(confirmedOrders) + sum(settledExternal))),
       paidAmount: ds(round(paidOnOrders + sum(settledExternal))),
       purchaseAmount: ds(round(sum(projectOrders))),
     };
@@ -708,7 +711,11 @@ export class ProjectCostService {
       { amount: number; paid: number; count: number }
     >();
     for (const row of payables) {
-      const bucket = payableOf.get(row.sourceId) || { amount: 0, paid: 0, count: 0 };
+      const bucket = payableOf.get(row.sourceId) || {
+        amount: 0,
+        paid: 0,
+        count: 0,
+      };
       bucket.amount += num(row.amount);
       bucket.paid += num(row.paidAmount);
       bucket.count += 1;
@@ -752,7 +759,10 @@ export class ProjectCostService {
       };
     });
     const onlyIssues = query.onlyIssues === true || query.onlyIssues === '1';
-    const list = (onlyIssues ? rows.filter((row) => row.issue) : rows).slice(0, 500);
+    const list = (onlyIssues ? rows.filter((row) => row.issue) : rows).slice(
+      0,
+      500,
+    );
     return {
       list,
       total: list.length,
@@ -1124,7 +1134,11 @@ export class ProjectCostService {
     row: { id: number; partyId: number; amount: unknown; currency: string },
   ) {
     const party = await this.prisma.bizParty.findFirst({
-      where: { id: row.partyId, orgType: org.orgType, orgUserId: org.orgUserId },
+      where: {
+        id: row.partyId,
+        orgType: org.orgType,
+        orgUserId: org.orgUserId,
+      },
       select: { name: true },
     });
     // 应付按供应商登记：外部主体与供应商各自独立维护，按同名供应商匹配，无匹配则留空待财务补。

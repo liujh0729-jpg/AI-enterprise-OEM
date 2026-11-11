@@ -181,7 +181,9 @@ export class HrmLifecycleService {
         update: { status: 'ACTIVE', department },
       });
       // 再入职（上一次离职已清空角色）时补回基础职员角色，保留已有的其它角色。
-      const roles = Array.isArray(staff.roles) ? (staff.roles as unknown[]) : [];
+      const roles = Array.isArray(staff.roles)
+        ? (staff.roles as unknown[])
+        : [];
       if (!roles.length) {
         await tx.orgStaff.update({
           where: { id: staff.id },

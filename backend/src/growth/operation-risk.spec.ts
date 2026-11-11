@@ -1,4 +1,3 @@
-import { CurrentUser } from '../auth/current-user';
 import type { HrmOrg, HrmScopeService } from '../hrm/hrm.scope';
 import type { MechanismService } from '../mechanisms/mechanism.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -67,11 +66,11 @@ describe('OperationRiskService：经营异常模型', () => {
           dueDate: '2026-10-02',
         },
       ],
-      projects: [{ id: 10, name: '项目 X', ownerId: 'pm-1', budgetAmount: 1000 }],
-      costs: [{ projectId: 10, _sum: { amount: 1300 } }],
-      stocks: [
-        { warehouseId: 1, variantId: 5, onHand: 1, reorderPoint: 10 },
+      projects: [
+        { id: 10, name: '项目 X', ownerId: 'pm-1', budgetAmount: 1000 },
       ],
+      costs: [{ projectId: 10, _sum: { amount: 1300 } }],
+      stocks: [{ warehouseId: 1, variantId: 5, onHand: 1, reorderPoint: 10 }],
       tasks: [
         {
           id: 9,

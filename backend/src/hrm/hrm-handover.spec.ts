@@ -38,7 +38,9 @@ function prismaStub(collections: {
     },
     pjProject: {
       findMany: jest.fn(async (args: { where?: { id?: unknown } }) =>
-        args?.where?.id ? collections.linkedProjects || [] : collections.projects || [],
+        args?.where?.id
+          ? collections.linkedProjects || []
+          : collections.projects || [],
       ),
       updateMany: jest.fn(async () => ({
         count: (collections.projects || []).length,
@@ -65,7 +67,9 @@ function scopeStub(): HrmScopeService {
     resolve: jest.fn(async () => orgOf()),
     requireAdmin: jest.fn(),
     requireStaff: jest.fn(async (_org: HrmOrg, id: string) => id),
-    names: jest.fn(async (ids: string[]) => new Map(ids.map((id) => [id, `名-${id}`]))),
+    names: jest.fn(
+      async (ids: string[]) => new Map(ids.map((id) => [id, `名-${id}`])),
+    ),
   });
 }
 
@@ -90,10 +94,16 @@ describe('HrmProfileService：离职交接', () => {
     const plan = await service.handover('user-9', actor);
     const projects = plan.checklist.find((item) => item.key === 'projects');
     expect(projects?.pending).toBe(2);
-    expect(plan.checklist.find((item) => item.key === 'tasks')?.pending).toBe(3);
-    expect(plan.checklist.find((item) => item.key === 'approvals')?.pending).toBe(1);
+    expect(plan.checklist.find((item) => item.key === 'tasks')?.pending).toBe(
+      3,
+    );
+    expect(
+      plan.checklist.find((item) => item.key === 'approvals')?.pending,
+    ).toBe(1);
     expect(plan.closable).toBe(false);
-    expect(plan.assets.find((item) => item.key === 'tasks')?.transferable).toBe(false);
+    expect(plan.assets.find((item) => item.key === 'tasks')?.transferable).toBe(
+      false,
+    );
   });
 
   it('全部清零且已离职才可结案', async () => {
@@ -110,7 +120,12 @@ describe('HrmProfileService：离职交接', () => {
     });
     const assign = jest.fn(async () => ({ id: 77 }));
     const notify = jest.fn(async () => null);
-    const service = new HrmProfileService(prisma, scopeStub(), { assign }, { notify });
+    const service = new HrmProfileService(
+      prisma,
+      scopeStub(),
+      { assign },
+      { notify },
+    );
     const result = await service.transferHandover(
       { memberUserId: 'user-9', toUserId: 'user-2' },
       actor,

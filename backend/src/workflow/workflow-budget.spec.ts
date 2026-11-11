@@ -115,7 +115,11 @@ function build(budgets: Record<string, number>, graph = chain(3)) {
       findMany: jest.fn(async () => steps),
       findFirst: jest.fn(async () => null),
       create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
-        const row = { id: steps.length + 1, attempts: 0, ...data } as StepRow & { attempts: number };
+        const row = {
+          id: steps.length + 1,
+          attempts: 0,
+          ...data,
+        } as StepRow & { attempts: number };
         steps.push(row);
         return Promise.resolve(row);
       }),

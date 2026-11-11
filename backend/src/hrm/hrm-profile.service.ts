@@ -56,11 +56,7 @@ export type HandoverCheckItem = {
 
 /** 离职交接的检查项与移交项一一对应：checked 的项才允许移交。 */
 export type HandoverAssetKey =
-  | 'customers'
-  | 'projects'
-  | 'projectMembers'
-  | 'tasks'
-  | 'approvals';
+  'customers' | 'projects' | 'projectMembers' | 'tasks' | 'approvals';
 
 export type HandoverAsset = {
   key: HandoverAssetKey;
@@ -335,7 +331,10 @@ export class HrmProfileService {
   // ---------------------------------------------------------------- 离职交接
 
   /** 交接清单：离职人当前仍挂在身上的客户/项目/任务/审批，逐项给数字与跳转。 */
-  async handover(memberUserId: string, user: CurrentUser): Promise<HandoverPlan> {
+  async handover(
+    memberUserId: string,
+    user: CurrentUser,
+  ): Promise<HandoverPlan> {
     const org = await this.scope.resolve(user);
     this.scope.requireAdmin(org);
     const target = await this.scope.requireStaff(org, memberUserId, false);
@@ -345,8 +344,7 @@ export class HrmProfileService {
     const liveProjectCount = new Set(
       assets
         .filter(
-          (item) =>
-            item.key === 'projects' || item.key === 'projectMembers',
+          (item) => item.key === 'projects' || item.key === 'projectMembers',
         )
         .flatMap((item) => item.items.map((entry) => entry.id)),
     ).size;
@@ -382,7 +380,8 @@ export class HrmProfileService {
       memberUserId: target,
       checklist,
       assets,
-      closable: profile?.status === 'LEFT' && checklist.every((item) => !item.pending),
+      closable:
+        profile?.status === 'LEFT' && checklist.every((item) => !item.pending),
       profileStatus: profile?.status || '',
     };
   }
@@ -400,7 +399,10 @@ export class HrmProfileService {
       throw new BusinessException(ErrorCode.BAD_REQUEST, '请选择接手人');
     }
     if (toUserId === target) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '接手人不能是离职人本人');
+      throw new BusinessException(
+        ErrorCode.BAD_REQUEST,
+        '接手人不能是离职人本人',
+      );
     }
     await this.scope.requireStaff(org, toUserId, false);
     const picked = new Set<HandoverAssetKey>(
@@ -492,8 +494,7 @@ export class HrmProfileService {
       }
     }
     const total = Object.values(moved).reduce((sum, n) => sum + n, 0);
-    const name =
-      (await this.scope.names([target])).get(target) || target;
+    const name = (await this.scope.names([target])).get(target) || target;
     if (this.tasks) {
       await this.tasks.assign({
         assigneeUserId: toUserId,
@@ -504,9 +505,14 @@ export class HrmProfileService {
         sourceId: `handover:${target}`,
         title: `接手 ${name} 的离职交接`,
         description: [
-          `已接收：${Object.entries(moved)
-            .map(([k, n]) => `${HANDOVER_LABELS[k as HandoverAssetKey] || k} ${n} 项`)
-            .join('、') || '无'}`,
+          `已接收：${
+            Object.entries(moved)
+              .map(
+                ([k, n]) =>
+                  `${HANDOVER_LABELS[k as HandoverAssetKey] || k} ${n} 项`,
+              )
+              .join('、') || '无'
+          }`,
           clip(body.note, 300),
         ]
           .filter(Boolean)
@@ -525,7 +531,10 @@ export class HrmProfileService {
           category: 'platform',
           title: `你接手了 ${name} 的离职交接（${total} 项）`,
           body: Object.entries(moved)
-            .map(([k, n]) => `${HANDOVER_LABELS[k as HandoverAssetKey] || k}：${n}`)
+            .map(
+              ([k, n]) =>
+                `${HANDOVER_LABELS[k as HandoverAssetKey] || k}：${n}`,
+            )
             .join('；'),
           link: '/hrm',
           level: 'warning',
@@ -551,7 +560,12 @@ export class HrmProfileService {
     const key = { orgType: org.orgType, orgUserId: org.orgUserId };
     const [customers, projects, memberRows] = await Promise.all([
       this.prisma.crmCustomer.findMany({
-        where: { ...key, ownerId: memberUserId, deletedAt: null, inPool: false },
+        where: {
+          ...key,
+          ownerId: memberUserId,
+          deletedAt: null,
+          inPool: false,
+        },
         select: { id: true, name: true },
         orderBy: { updatedAt: 'desc' },
         take: 200,
@@ -585,12 +599,15 @@ export class HrmProfileService {
           take: 200,
         })
       : [];
-    const liveProjectIds = [...new Set(memberRows.map((row) => row.projectId))].filter(
-      (id) => linkedProjects.some((project) => project.id === id),
-    );
+    const liveProjectIds = [
+      ...new Set(memberRows.map((row) => row.projectId)),
+    ].filter((id) => linkedProjects.some((project) => project.id === id));
     const [taskCount, approvalCount] = await Promise.all([
       this.prisma.myTask.count({
-        where: { assigneeUserId: memberUserId, status: { in: ['OPEN', 'DOING'] } },
+        where: {
+          assigneeUserId: memberUserId,
+          status: { in: ['OPEN', 'DOING'] },
+        },
       }),
       this.prisma.oaTask.count({
         where: { approverId: memberUserId, status: 'PENDING' },

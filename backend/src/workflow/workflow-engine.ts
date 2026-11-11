@@ -1161,7 +1161,7 @@ export class WorkflowEngine {
     const before = this.usageOf(row?.usage);
     const reserved: WorkflowUsage = { ...before };
     // 开波时就已经累计到上限（token 只能同波事后记账）：本波一个节点都不开跑。
-    let pending = this.overBudget(budget, reserved, reserved);
+    const pending = this.overBudget(budget, reserved, reserved);
     let blocked = '';
     const reserve = async (
       node: WorkflowNode,
@@ -1173,7 +1173,8 @@ export class WorkflowEngine {
         return { status: 'SKIPPED', output: { reason: '超预算跳过' } };
       }
       reserved.nodes += 1;
-      if (node.type === 'ai') reserved.aiCalls = Math.max(1, reserved.aiCalls + 1);
+      if (node.type === 'ai')
+        reserved.aiCalls = Math.max(1, reserved.aiCalls + 1);
       if (node.type === 'action' || node.type === 'integration') {
         reserved.toolCalls += Math.max(1, this.retryOf(node).times + 1);
       }
@@ -1242,7 +1243,13 @@ export class WorkflowEngine {
     budget: WorkflowBudgets,
     reserved: WorkflowUsage,
     settled: WorkflowUsage,
-  ): '' | 'TOKENS' | 'AI_CALLS' | 'TOOL_CALLS' | 'BROWSER_ACTIONS' | 'LOOP_LIMIT' {
+  ):
+    | ''
+    | 'TOKENS'
+    | 'AI_CALLS'
+    | 'TOOL_CALLS'
+    | 'BROWSER_ACTIONS'
+    | 'LOOP_LIMIT' {
     if (budget.maxNodes > 0 && reserved.nodes > budget.maxNodes)
       return 'LOOP_LIMIT';
     if (budget.maxAiCalls > 0 && reserved.aiCalls > budget.maxAiCalls)

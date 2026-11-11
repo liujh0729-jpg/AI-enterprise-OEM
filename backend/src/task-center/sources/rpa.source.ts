@@ -1,5 +1,4 @@
-import type { CurrentUser } from '../../auth/current-user';
-import type { TaskCollectOptions, TaskDraft, TaskSource } from '../task-source';
+import type { TaskSource } from '../task-source';
 import type { ChromeAgentService } from '../../rpa/chrome-agent.service';
 
 /**
@@ -15,12 +14,7 @@ export function rpaBrowserSource(
     label: '浏览器代理',
     category: 'matter',
     push: true,
-    async collect(
-      _user: CurrentUser,
-      _options?: TaskCollectOptions,
-    ): Promise<TaskDraft[]> {
-      return [];
-    },
+    collect: () => Promise.resolve([]),
     async recheck(draft) {
       const service = chrome();
       if (!service) return { cleared: true, reason: '' };
