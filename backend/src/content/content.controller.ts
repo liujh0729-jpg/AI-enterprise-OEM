@@ -1,4 +1,4 @@
-import { ok } from '../common/api';
+import { ok, text } from '../common/api';
 import { BusinessException } from '../common/business.exception';
 import { ErrorCode } from '../common/error-code';
 import { CurrentUser } from '../auth/current-user';
@@ -21,6 +21,7 @@ import {
   type ManifestWorkflow,
 } from './agent-tool-manifest';
 import { ContentJobService } from './content-job.service';
+import { CanvasProjectService, type CanvasRunBody } from './canvas.service';
 import { DigitalAssetService } from './digital-asset.service';
 import { AssetShareService } from './asset-share.service';
 import { aipddBaseUrl } from './content-shared';
@@ -59,6 +60,7 @@ export class ContentController {
     private readonly agentConnectors: ContentAgentConnectorService,
     private readonly agentSkills: ContentAgentSkillService,
     private readonly agentPlugins: ContentAgentPluginService,
+    private readonly canvases: CanvasProjectService,
     /** 已共享工作流工具目录（wf__）：工作流服务在 orgContext 之后构造，故以惰性回调注入 */
     private readonly workflowTools: (
       user: CurrentUser,
@@ -121,6 +123,12 @@ export class ContentController {
     token: string | undefined,
     body: Record<string, unknown>,
   ) {
+    // 三个工作台要拿整批任务（生图最多 4 张）回填结果区；小工具卡片只要第一条
+    if (text(body.source).trim() === 'studio') {
+      return ok(
+        await this.jobs.enqueue(user, token, body, { source: 'studio' }),
+      );
+    }
     return ok(await this.jobs.create(user, token, body));
   }
 
@@ -130,6 +138,72 @@ export class ContentController {
 
   async cancelJob(user: CurrentUser, id: string) {
     return ok(await this.jobs.cancel(user, id));
+  }
+
+  async retryJob(user: CurrentUser, id: string) {
+    return ok(await this.jobs.retry(user, id));
+  }
+
+  // ---------- AI 画布（我的画布 / 三个工作台共用任务表） ----------
+
+  async listCanvases(user: CurrentUser, query: Record<string, unknown>) {
+    return ok(await this.canvases.list(user, query));
+  }
+
+  async createCanvas(user: CurrentUser, body: Record<string, unknown>) {
+    return ok(await this.canvases.create(user, body));
+  }
+
+  async canvas(user: CurrentUser, id: string) {
+    return ok(await this.canvases.get(user, id));
+  }
+
+  async saveCanvas(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.canvases.save(user, id, body));
+  }
+
+  async renameCanvas(
+    user: CurrentUser,
+    id: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.canvases.rename(user, id, body));
+  }
+
+  async removeCanvas(user: CurrentUser, id: string) {
+    return ok(await this.canvases.remove(user, id));
+  }
+
+  async runCanvasNode(
+    user: CurrentUser,
+    id: string,
+    nodeId: string,
+    body: Record<string, unknown>,
+    token?: string,
+  ) {
+    return ok(
+      await this.canvases.runNode(
+        user,
+        id,
+        nodeId,
+        body as CanvasRunBody,
+        token,
+      ),
+    );
+  }
+
+  /** 把节点复制到另一张画布（撞 200 上限时的过渡能力）。 */
+  async copyCanvasNode(
+    user: CurrentUser,
+    id: string,
+    nodeId: string,
+    body: Record<string, unknown>,
+  ) {
+    return ok(await this.canvases.copyNode(user, id, nodeId, body));
   }
 
   // ---------- Agent 技能 ----------

@@ -62,6 +62,19 @@ export async function computeProviderSupported(
   return isProviderSupported(await readChannelPolicy(prisma), provider);
 }
 
+/**
+ * 本人绑定的 AIPDD Key：没有请求令牌时按 userId 现取（未绑定由 resolveToken 抛出可执行的绑定引导）。
+ * 后台 / 无请求上下文的链路（后台执行、任务重试、定时任务、静默链路）不会带回请求令牌，
+ * 少了这层回落就会拿空令牌误报「请先绑定 API Key」——与 aipddApiKey() 同口径。
+ */
+async function ownAipddKey(
+  prisma: PrismaService,
+  userId: string,
+): Promise<string> {
+  const { AipddKeyService } = await import('../account/aipdd-key.service');
+  return new AipddKeyService(prisma).resolveToken(userId);
+}
+
 export async function loadChannelCredentials(input: {
   prisma: PrismaService;
   userId: string;
@@ -82,7 +95,11 @@ export async function loadChannelCredentials(input: {
   }
   if (channelId === 0) {
     await assertComputeProviderSupported(prisma, 'aipdd');
-    const apiKey = modelKeys.requireKey(token);
+    // AIPDD 渠道的凭据不是渠道行里的 Key，而是本人绑定的 AIPDD APIKey（设计 3.4）：
+    // 本次请求已解析的上游令牌优先，否则按 userId 现取本人绑定的 Key。
+    const apiKey = String(token || '').trim()
+      ? modelKeys.requireKey(token)
+      : await ownAipddKey(prisma, userId);
     return {
       baseUrl: aipddBaseUrl(),
       apiKey,

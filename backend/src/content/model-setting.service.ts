@@ -122,7 +122,7 @@ function applyPresetMediaType(
 }
 
 /**
- * 内容创作的模型设置：渠道（AIPDD 内置 / 自定义 OpenAI 兼容 / 火山 MediaKit）+
+ * 内容创作的模型设置：渠道（AIPDD / 自定义 OpenAI 兼容 / 火山 MediaKit）+
  * 每种类型的默认模型。
  * AIPDD 的 Key 优先取本账号在模型设置里单独保存的那把，其次「API Key 管理」里的 sk- Key；
  * 其余渠道的 Key 走 ContentCrypto 加密，接口只回掩码。
@@ -137,7 +137,7 @@ export class ContentModelSettingService {
     private readonly channelPolicy: ContentChannelPolicyService,
   ) {}
 
-  /** AIPDD 内置渠道：不单独配 Key，直接用当前用户绑定的 AIPDD APIKey（设计 3.4）。 */
+  /** AIPDD 渠道：不单独配 Key，直接用当前用户绑定的 AIPDD APIKey（设计 3.4）。 */
   aipddKey(user: CurrentUser, token?: string) {
     return this.modelKeys.requireKey(token);
   }
@@ -424,7 +424,7 @@ export class ContentModelSettingService {
     if (id > 0 && !existing) {
       throw new BusinessException(ErrorCode.NOT_FOUND, '渠道不存在');
     }
-    // AIPDD 内置渠道不保存单独 Key，始终取账号在「API Key 管理」里的 Key
+    // AIPDD 渠道不保存单独 Key，始终取账号在「API Key 管理」里的 Key
     const keyCipher =
       provider === 'aipdd'
         ? ''

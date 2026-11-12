@@ -148,7 +148,7 @@ export class ModelUpstreamService {
     this.aipdd = new AipddKeyService(prisma);
   }
 
-  /** AIPDD 内置渠道的凭据：固定平台级 Key（系统设置里那把）。 */
+  /** AIPDD 渠道的凭据：固定平台级 Key（系统设置里那把）。 */
   async aipddCredentials(): Promise<PlazaCredentials> {
     const apiKey = await this.aipdd.resolvePlatformToken();
     if (!apiKey) {

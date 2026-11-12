@@ -31,6 +31,23 @@ const DONE_STATUSES = new Set(['completed', 'succeeded', 'success', 'done']);
 export type ModelOverride = { channelId: number; model: string };
 export type ModelOverrides = Partial<Record<ContentMediaType, ModelOverride>>;
 
+/** 任务取消与进度：由任务调度池传入，一路透传到提交与轮询请求。 */
+export type JobControl = {
+  signal?: AbortSignal;
+  /** 0-100；按轮询次数归一，不代表上游真实进度 */
+  onProgress?: (percent: number) => void;
+  /**
+   * 上游已受理这一次生成：网关返回子任务号时带上来（同步出图没有子任务号传空串）。
+   * 任务行据此记「上游受理时间 / 子任务号」，取消时能查上游是否已经计费。
+   */
+  onAccepted?: (taskId: string) => void;
+  /**
+   * 任务来源（tool / canvas / workbench）。画布 / 工作台的产物走本站 OSS 底座、
+   * 由任务层 `store()` 入库，媒体层据此跳过 AIPDD 平台登记（不取 Key、不落内容资产行）。
+   */
+  source?: string;
+};
+
 type GatewaySlot = {
   baseUrl: string;
   apiKey: string;
@@ -132,10 +149,33 @@ function upstreamReason(body: string) {
   }
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (!signal) {
+      setTimeout(resolve, ms);
+      return;
+    }
+    if (signal.aborted) {
+      reject(
+        signal.reason instanceof Error ? signal.reason : new Error('已取消'),
+      );
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(
+        signal.reason instanceof Error ? signal.reason : new Error('已取消'),
+      );
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 
 /**
- * 内容创作与 Agent 的媒体生成：全部走模型网关（AIPDD 内置或自定义 OpenAI 兼容渠道），
+ * 内容创作与 Agent 的媒体生成：全部走模型网关（AIPDD 或自定义 OpenAI 兼容渠道），
  * 成功后自动把结果登记进 AIPDD 数字资产（登记失败只告警，不影响出片）。
  */
 export class ContentMediaService {
@@ -147,6 +187,27 @@ export class ContentMediaService {
 
   private baseOf(slot: GatewaySlot) {
     return String(slot.baseUrl || '').replace(/\/+$/, '');
+  }
+
+  /**
+   * 产物登记分流：老工具走 AIPDD 平台登记；画布 / 工作台的产物由任务层落本站 OSS 台账，
+   * 这里直接回「无需平台登记」，避免白取一次 Key、白落一条内容资产行。
+   */
+  private registerDeliverable(
+    control: JobControl | undefined,
+    user: CurrentUser,
+    token: string | undefined,
+    input: Parameters<ContentAssetService['tryRegister']>[2],
+  ): Promise<{ ok: boolean; assetId: string; url: string; message: string }> {
+    if (control?.source === 'canvas' || control?.source === 'workbench') {
+      return Promise.resolve({
+        ok: true,
+        assetId: '',
+        url: input.url,
+        message: '',
+      });
+    }
+    return this.assets.tryRegister(user, token, input);
   }
 
   private authHeaders(slot: GatewaySlot) {
@@ -164,6 +225,7 @@ export class ContentMediaService {
     slot: GatewaySlot,
     body: Record<string, unknown>,
     operation: string,
+    signal?: AbortSignal,
   ) {
     try {
       const response = await httpRequest<string>(url, {
@@ -173,6 +235,7 @@ export class ContentMediaService {
         timeoutMs: SUBMIT_TIMEOUT_MS,
         readAs: 'text',
         operation,
+        signal,
       });
       if (!response.ok) {
         const reason = upstreamReason(response.data);
@@ -210,9 +273,17 @@ export class ContentMediaService {
     intervalMs: number,
     maxPolls: number,
     operation: string,
+    control?: JobControl,
+    taskId = '',
   ) {
+    // 走到轮询说明上游已经受理（提交拿到了子任务号）：先落一条受理记录，取消时才有据可查
+    control?.onAccepted?.(taskId);
     for (let index = 0; index < maxPolls; index += 1) {
-      await sleep(intervalMs);
+      control?.signal?.throwIfAborted?.();
+      await sleep(intervalMs, control?.signal);
+      control?.onProgress?.(
+        Math.min(90, 20 + Math.round((index / maxPolls) * 70)),
+      );
       let parsed: Record<string, unknown> = {};
       try {
         const response = await httpRequest<string>(url, {
@@ -220,6 +291,7 @@ export class ContentMediaService {
           timeoutMs: 30_000,
           readAs: 'text',
           operation,
+          signal: control?.signal,
         });
         if (!response.ok) continue;
         const json = JSON.parse(response.data) as unknown;
@@ -263,6 +335,7 @@ export class ContentMediaService {
     token: string | undefined,
     input: { prompt: string; size?: string; model?: string },
     overrides?: ModelOverrides,
+    control?: JobControl,
   ) {
     const slot = await this.settings.resolveTarget(
       user,
@@ -279,7 +352,13 @@ export class ContentMediaService {
     if (input.size) payload.size = input.size;
     const base = this.baseOf(slot);
     const submitUrl = `${base}/images/generations`;
-    const body = await this.post(submitUrl, slot, payload, 'content:image');
+    const body = await this.post(
+      submitUrl,
+      slot,
+      payload,
+      'content:image',
+      control?.signal,
+    );
     const node = unwrap(body);
     const direct = this.extractImage(node);
     let url = direct.url;
@@ -307,9 +386,11 @@ export class ContentMediaService {
         IMAGE_POLL_INTERVAL_MS,
         IMAGE_MAX_POLLS,
         'content:imagePoll',
+        control,
+        taskId,
       );
     }
-    const asset = await this.assets.tryRegister(user, token, {
+    const asset = await this.registerDeliverable(control, user, token, {
       url,
       kind: 'image',
       name: `图片-${Date.now()}.png`,
@@ -332,6 +413,7 @@ export class ContentMediaService {
       model?: string;
     },
     overrides?: ModelOverrides,
+    control?: JobControl,
   ) {
     const slot = await this.settings.resolveTarget(
       user,
@@ -348,7 +430,13 @@ export class ContentMediaService {
     let submitUrl = `${base}/videos`;
     let body: unknown;
     try {
-      body = await this.post(submitUrl, slot, payload, 'content:video');
+      body = await this.post(
+        submitUrl,
+        slot,
+        payload,
+        'content:video',
+        control?.signal,
+      );
     } catch (error) {
       // 部分兼容网关只实现 /video/generations；404 时退到该路径再试一次
       if (
@@ -356,7 +444,13 @@ export class ContentMediaService {
         /HTTP 404/.test(error.message)
       ) {
         submitUrl = `${base}/video/generations`;
-        body = await this.post(submitUrl, slot, payload, 'content:video');
+        body = await this.post(
+          submitUrl,
+          slot,
+          payload,
+          'content:video',
+          control?.signal,
+        );
       } else {
         throw error;
       }
@@ -377,9 +471,11 @@ export class ContentMediaService {
         VIDEO_POLL_INTERVAL_MS,
         VIDEO_MAX_POLLS,
         'content:videoPoll',
+        control,
+        taskId,
       );
     }
-    const asset = await this.assets.tryRegister(user, token, {
+    const asset = await this.registerDeliverable(control, user, token, {
       url,
       kind: 'video',
       name: `视频-${Date.now()}.mp4`,
@@ -396,6 +492,7 @@ export class ContentMediaService {
     user: CurrentUser,
     token: string | undefined,
     input: { videoUrl: string; resolution: string },
+    control?: JobControl,
   ) {
     const credentials = await this.settings.mediakitCredentials(user);
     const kit = new MediaKitClient(credentials.baseUrl, credentials.apiKey);
@@ -403,7 +500,7 @@ export class ContentMediaService {
       videoUrl: input.videoUrl,
       resolution: input.resolution,
     });
-    const asset = await this.assets.tryRegister(user, token, {
+    const asset = await this.registerDeliverable(control, user, token, {
       url,
       kind: 'video',
       name: `超清-${Date.now()}.mp4`,
@@ -523,6 +620,7 @@ export class ContentMediaService {
       references: { type: 'video' | 'image' | 'audio'; url: string }[];
     },
     overrides?: ModelOverrides,
+    control?: JobControl,
   ) {
     const slot = await this.settings.resolveTarget(
       user,
@@ -540,7 +638,13 @@ export class ContentMediaService {
     if (input.ratio) payload.ratio = input.ratio;
     if (input.resolution) payload.resolution = input.resolution;
     const submitUrl = `${base}/videos`;
-    const body = await this.post(submitUrl, slot, payload, 'content:videoRef');
+    const body = await this.post(
+      submitUrl,
+      slot,
+      payload,
+      'content:videoRef',
+      control?.signal,
+    );
     const node = unwrap(body);
     let url = urlOf(node);
     if (!url) {
@@ -557,9 +661,11 @@ export class ContentMediaService {
         VIDEO_POLL_INTERVAL_MS,
         VIDEO_MAX_POLLS,
         'content:videoRefPoll',
+        control,
+        taskId,
       );
     }
-    const asset = await this.assets.tryRegister(user, token, {
+    const asset = await this.registerDeliverable(control, user, token, {
       url,
       kind: 'video',
       name: `视频-${Date.now()}.mp4`,
@@ -584,6 +690,7 @@ export class ContentMediaService {
       namePrefix?: string;
     },
     overrides?: ModelOverrides,
+    control?: JobControl,
   ) {
     const slot = await this.settings.resolveTarget(
       user,
@@ -668,9 +775,11 @@ export class ContentMediaService {
         IMAGE_POLL_INTERVAL_MS,
         IMAGE_MAX_POLLS,
         'content:imageEditPoll',
+        control,
+        taskId,
       );
     }
-    const asset = await this.assets.tryRegister(user, token, {
+    const asset = await this.registerDeliverable(control, user, token, {
       url,
       kind: 'image',
       name: `${input.namePrefix || '修图'}-${Date.now()}.png`,
@@ -688,6 +797,7 @@ export class ContentMediaService {
     token: string | undefined,
     input: { text: string; voice?: string; format?: string },
     overrides?: ModelOverrides,
+    control?: JobControl,
   ) {
     const slot = await this.settings.resolveTarget(
       user,
@@ -712,6 +822,7 @@ export class ContentMediaService {
         timeoutMs: SUBMIT_TIMEOUT_MS,
         readAs: 'bytes',
         operation: 'content:speech',
+        signal: control?.signal,
       });
     } catch (error) {
       if (error instanceof TransportError) {
@@ -745,7 +856,7 @@ export class ContentMediaService {
       });
       url = uploaded.url;
     }
-    const asset = await this.assets.tryRegister(user, token, {
+    const asset = await this.registerDeliverable(control, user, token, {
       url,
       kind: 'audio',
       name: `配音-${Date.now()}.${format}`,
@@ -841,6 +952,7 @@ export class ContentMediaService {
     token: string | undefined,
     input: { prompt: string; lyrics?: string; duration?: number },
     overrides?: ModelOverrides,
+    control?: JobControl,
   ) {
     const slot = await this.settings.resolveTarget(
       user,
@@ -860,6 +972,7 @@ export class ContentMediaService {
       slot,
       payload,
       'content:music',
+      control?.signal,
     );
     const node = unwrap(body);
     let url = urlOf(node);
@@ -877,9 +990,11 @@ export class ContentMediaService {
         VIDEO_POLL_INTERVAL_MS,
         VIDEO_MAX_POLLS,
         'content:musicPoll',
+        control,
+        taskId,
       );
     }
-    const asset = await this.assets.tryRegister(user, token, {
+    const asset = await this.registerDeliverable(control, user, token, {
       url,
       kind: 'audio',
       name: `音乐-${Date.now()}.mp3`,

@@ -173,7 +173,17 @@
   function actionLine(stepIndex, action, result) {
     const status = result && result.ok ? "DONE" : "FAILED";
     const err = result && result.errorMessage ? ` 错误=${clip(result.errorMessage, 160)}` : "";
-    return `#${stepIndex + 1} 动作=${JSON.stringify(action)} 结果=${status}${err}`;
+    return `#${stepIndex + 1} 动作=${JSON.stringify(action)} 结果=${status}${resultData(result)}${err}`;
+  }
+
+  /** 回执里进历史的关键数据：open_tab 的 tabId 不回灌，模型下一步就关不掉自己开的页签。 */
+  function resultData(result) {
+    const data = result && result.data;
+    if (!data || typeof data !== "object") return "";
+    const picked = [];
+    if (Number(data.tabId) > 0) picked.push(`tabId=${Number(data.tabId)}`);
+    if (typeof data.count === "number") picked.push(`count=${data.count}`);
+    return picked.length ? ` 数据=${picked.join(" ")}` : "";
   }
 
   /** 调用平台工具（RPA 账号/脚本/矩阵任务、工作流、技能等）：与站内 Agent / MCP 同一条授权闸。 */

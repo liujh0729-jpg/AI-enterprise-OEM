@@ -14,8 +14,7 @@ import type {
 import { endpoint } from "./endpoint";
 import { http, streamSse, uploadFormTo } from "./http";
 
-export const contentApi = {
-  settings: endpoint(endpoints.Content_settings),
+export const contentApi = {  settings: endpoint(endpoints.Content_settings),
   saveSettings: endpoint(endpoints.Content_saveSettings),
   saveChannel: endpoint(endpoints.Content_saveChannel),
   removeChannel: endpoint(endpoints.Content_removeChannel),
@@ -27,6 +26,15 @@ export const contentApi = {
   createJob: endpoint(endpoints.Content_createJob),
   job: endpoint(endpoints.Content_job),
   cancelJob: endpoint(endpoints.Content_cancelJob),
+  retryJob: endpoint(endpoints.Content_retryJob),
+  canvases: endpoint(endpoints.Content_canvases),
+  createCanvas: endpoint(endpoints.Content_createCanvas),
+  canvas: endpoint(endpoints.Content_canvas),
+  saveCanvas: endpoint(endpoints.Content_saveCanvas),
+  renameCanvas: endpoint(endpoints.Content_renameCanvas),
+  deleteCanvas: endpoint(endpoints.Content_deleteCanvas),
+  runCanvasNode: endpoint(endpoints.Content_runCanvasNode),
+  copyCanvasNode: endpoint(endpoints.Content_copyCanvasNode),
   conversations: endpoint(endpoints.Content_conversations),
   createConversation: endpoint(endpoints.Content_createConversation),
   updateConversation: endpoint(endpoints.Content_updateConversation),
@@ -105,6 +113,37 @@ export const contentApi = {
   syncVideoTemplateAdmin: endpoint(endpoints.VideoTemplateAdmin_sync),
 };
 
+/** 提交生成（画布节点 / 三个工作台共用）：走 /jobs，统一按数组返回，单条调用取第一条。 */
+export async function createContentJobs(body: Record<string, unknown>) {
+  const result = await contentApi.createJob({ body });
+  return Array.isArray(result) ? result : result ? [result] : [];
+}
+
+/** 画布节点跑一次生成：服务端按连线翻译成工具与参数，返回本次 runId 与任务。 */
+export async function runCanvasNode(
+  canvasId: number,
+  nodeId: string,
+  body: Record<string, unknown> = {},
+) {
+  return contentApi.runCanvasNode({
+    params: { id: String(canvasId), nodeId },
+    body,
+  });
+}
+
+/** 撞到 200 节点上限时的过渡能力：把节点复制到另一张自己的画布。 */
+export async function copyCanvasNode(
+  canvasId: number,
+  nodeId: string,
+  targetCanvasId: number,
+) {
+  return contentApi.copyCanvasNode({
+    params: { id: String(canvasId), nodeId },
+    body: { targetCanvasId },
+  });
+}
+
+
 const uploadResultSchema = z.object({
   url: z.string(),
   name: z.string(),
@@ -164,7 +203,7 @@ export function streamAgentMessage(
   options: {
     signal?: AbortSignal;
     references?: ContentAgentReference[];
-    /** 本轮选的渠道（模型设置里的 channelId；0＝AIPDD 内置）；不传＝沿用文本槽位 */
+    /** 本轮选的渠道（模型设置里的 channelId；0＝AIPDD）；不传＝沿用文本槽位 */
     channelId?: number;
     /** 本轮选的模型；不传且渠道与文本槽位一致时用槽位默认模型 */
     model?: string;

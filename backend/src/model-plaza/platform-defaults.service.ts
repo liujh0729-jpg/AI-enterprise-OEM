@@ -274,7 +274,7 @@ export async function platformBudget(
   return { allowed: !overDay && !overMonth, todayPoints, monthPoints };
 }
 
-/** 运行时可用性：上游渠道已启用且有 Key（AIPDD 内置渠道看平台 Key 是否配置）。 */
+/** 运行时可用性：上游渠道已启用且有 Key（AIPDD 渠道看平台 Key 是否配置）。 */
 async function upstreamUsable(
   prisma: PrismaService,
   upstreamId: number,

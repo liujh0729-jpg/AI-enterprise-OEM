@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { platformApi, type SiteConfig } from "@/api/platform";
+import { TITLE_SUFFIX } from "@/lib/brand";
 import { currentSiteOrigin, normalizeSiteUrl } from "@/lib/site-url";
 
 const EMPTY: SiteConfig = {
@@ -45,7 +46,8 @@ export function SiteBrandProvider({ children }: { children: ReactNode }) {
       .then((config) => {
         if (controller.signal.aborted) return;
         setSite(config);
-        if (config.siteName) document.title = config.siteName;
+        // 与 SSR 的 metadata 同口径：站点名只是「标题变量」，署名后缀照跟
+        if (config.siteName) document.title = `${config.siteName} ${TITLE_SUFFIX}`;
       })
       .catch(() => {
         /* 站点配置拉取失败回落到内置默认，不影响使用 */

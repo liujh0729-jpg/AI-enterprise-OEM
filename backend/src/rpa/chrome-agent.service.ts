@@ -49,16 +49,21 @@ const SYSTEM_PROMPT = [
   '你每一步只能输出一个 JSON 动作对象，不要输出多余文字。可用动作（闭集，别的动作一律无效）：',
   '{ "action": "open_tab", "url": "https://..." }  打开新标签页并跳转到该地址',
   '{ "action": "navigate", "url": "https://..." }  当前页跳转到该地址',
+  '{ "action": "close_tab", "tabId": 123 }  关闭本会话打开的第 123 号标签页（只能关 open_tab 回来的那个 id）',
   '{ "action": "snapshot" }  读取当前页面地图（不确定页面时先做这个）',
   '{ "action": "read", "elementIndex": 3 }  读取页面地图中第 3 号元素的文本/属性',
   '{ "action": "act", "act": "click", "elementIndex": 3 }  点击第 3 号元素',
   '{ "action": "act", "act": "type", "elementIndex": 4, "value": "文本" }  在第 4 号输入框输入',
   '{ "action": "act", "act": "select", "elementIndex": 5, "value": "选项文本" }  选择下拉项',
+  '{ "action": "act", "act": "check", "elementIndex": 6, "value": true }  勾选（value=false 为取消勾选）第 6 号复选框/开关',
   '{ "action": "act", "act": "scroll", "value": "down" }  向下滚动一屏（value 可为 up/down）',
-  '{ "action": "wait", "ms": 1500 }  等待毫秒数',
+  '{ "action": "act", "act": "key", "key": "Enter" }  发一次按键（Enter/Tab/Escape 等；可加 elementIndex 指定作用元素，省略则作用于当前焦点）',
+  '{ "action": "act", "act": "submit", "elementIndex": 7 }  提交第 7 号元素所在的表单（属敏感动作，用户需在插件里点确认）',
+  '{ "action": "wait", "ms": 1500 }  等待固定毫秒数',
+  '{ "action": "wait", "target": { "selector": ".result-item" }, "timeoutMs": 8000 }  等某个元素出现再继续（比死等秒数稳，页面异步出结果时优先用这个；selector 也可换成 { "elementIndex": 3 }）',
   '{ "action": "screenshot" }  截图（用于确认视觉结果）',
   '{ "action": "finish", "reason": "完成原因" }  目标已达成或无法继续时结束',
-  '优先用 elementIndex 指定元素（比猜选择器可靠）。若目标已达成，立即输出 finish。',
+  '优先用 elementIndex 指定元素（比猜选择器可靠）；elementIndex 来自最近一次 snapshot 的页面地图。若目标已达成，立即输出 finish。',
   'mode 字段表示用户的意图：act 在页面上执行操作、crawl 顺着链接批量抓取多页、extract 把当前页抽成结构化数据；按它调整策略。',
   '先判断用户意图再决定怎么输出：',
   '（1）若用户只是提问、闲聊、问你的身份/能力/用法，或要你解释、给建议、做规划而不需要操作页面，就直接输出 { "reply": "给用户的回答" }，不要勉强改动页面。',
@@ -1142,10 +1147,15 @@ export class ChromeAgentService {
     });
     return rows
       .reverse()
-      .map(
-        (row) =>
-          `#${row.stepIndex + 1} 动作=${JSON.stringify(toJsonObject(row.action))} 结果=${row.status}${row.errorMessage ? ` 错误=${row.errorMessage}` : ''}`,
-      )
+      .map((row) => {
+        const observation = toJsonObject(row.observation);
+        // 回执里的标量（open_tab 的 tabId、read count 的条数）：没有它，模型开完页签就再也关不掉。
+        const numbers = (['tabId', 'count'] as const)
+          .filter((key) => typeof observation[key] === 'number')
+          .map((key) => `${key}=${observation[key] as number}`)
+          .join(' ');
+        return `#${row.stepIndex + 1} 动作=${JSON.stringify(toJsonObject(row.action))} 结果=${row.status}${numbers ? ` 数据=${numbers}` : ''}${row.errorMessage ? ` 错误=${row.errorMessage}` : ''}`;
+      })
       .join('\n');
   }
 

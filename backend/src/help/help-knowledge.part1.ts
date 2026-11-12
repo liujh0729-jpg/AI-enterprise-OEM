@@ -164,7 +164,7 @@ export const HELP_CHAPTERS_PART_ONE: HelpChapterContent[] = [
 
 - 对话产出图片 / 视频 / 文案，生成结果自动存进本账号的 AIPDD 数字资产。
 - 「记忆」页签里既有 Agent 长期记忆，也有你在全站做过的操作留痕（哪个模块、什么动作、成功与否）。
-- 模型与 Key 先在「模型服务 → 模型设置」配置好（AIPDD 内置渠道可直接用绑定的 sk- Key）。
+- 模型与 Key 先在「模型服务 → 模型设置」配置好（AIPDD 渠道可直接用绑定的 sk- Key）。
 
 Agent 还能通过 MCP 通道执行本站动作（需你在授权闸里勾选放行），具体见「MCP 与开发者能力」。`,
       },

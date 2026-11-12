@@ -38,6 +38,8 @@ async function bootstrap() {
   const communityScheduler = services.community.scheduler;
   // 视频模版：按后台策略从 AIworkin 平台补充模版（上游接口未上线时只记 SKIPPED）
   const videoTemplateScheduler = services.videoTemplate.scheduler;
+  // 内容生成任务：DB 唯一真值，定时捞 PENDING 起跑（画布 / 三个工作台 / 小工具共用）
+  const contentJobPool = services.contentJob.pool;
   // 视频内容安全：送审是异步的，轮询结论写回数字资产台账
   const moderationScheduler = new ModerationPollScheduler(
     services.digitalAsset,
@@ -78,6 +80,7 @@ async function bootstrap() {
     usageRetentionScheduler.onModuleInit();
     communityScheduler.onModuleInit();
     videoTemplateScheduler.onModuleInit();
+    contentJobPool.onModuleInit();
     acquisitionScheduler.onModuleInit();
     scrmScheduler.onModuleInit();
     wechatMpScheduler.onModuleInit();
@@ -97,6 +100,7 @@ async function bootstrap() {
     usageRetentionScheduler.onModuleDestroy();
     communityScheduler.onModuleDestroy();
     videoTemplateScheduler.onModuleDestroy();
+    contentJobPool.onModuleDestroy();
     acquisitionScheduler.onModuleDestroy();
     scrmScheduler.onModuleDestroy();
     wechatMpScheduler.onModuleDestroy();
@@ -128,6 +132,7 @@ async function bootstrap() {
     usageRetentionScheduler.onModuleDestroy();
     communityScheduler.onModuleDestroy();
     videoTemplateScheduler.onModuleDestroy();
+    contentJobPool.onModuleDestroy();
     acquisitionScheduler.onModuleDestroy();
     scrmScheduler.onModuleDestroy();
     wechatMpScheduler.onModuleDestroy();

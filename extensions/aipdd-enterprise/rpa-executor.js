@@ -166,6 +166,14 @@
     return null;
   }
 
+  /** 决策器习惯把目标写成扁平的 elementIndex/selector，执行器内部只认 target：这里统一收口。 */
+  function targetOf(action) {
+    if (action.target != null) return action.target;
+    if (action.elementIndex !== undefined) return { elementIndex: Number(action.elementIndex) };
+    if (action.selector) return { selector: String(action.selector) };
+    return null;
+  }
+
   function elementByIndex(index) {
     if (!Number.isInteger(index) || index < 0) return null;
     const entry = lastMap[index] || collectElements()[index];
@@ -224,7 +232,18 @@
       self.scrollBy({ top: dir * Math.round(self.innerHeight * 0.9), behavior: "instant" });
       return { matched: true, effect: dir < 0 ? "向上滚动一屏" : "向下滚动一屏" };
     }
-    const el = resolveTarget(action.target);
+    const el = resolveTarget(targetOf(action));
+    if (act === "key") {
+      // 不给元素时作用于当前焦点，这是「输入完按回车搜索」的常用形态。
+      const target = el || document.activeElement || document.body;
+      const key = clip(action.key || action.value, 24) || "Enter";
+      for (const type of ["keydown", "keypress", "keyup"]) {
+        target.dispatchEvent(
+          new KeyboardEvent(type, { key, bubbles: true, cancelable: true }),
+        );
+      }
+      return { matched: true, effect: `已按键 ${key}` };
+    }
     if (!el) return { matched: false, effect: "没有匹配到目标元素" };
     if (act === "click") {
       clickElement(el);
@@ -254,16 +273,6 @@
       fireInput(el);
       return { matched: true, effect: next ? "已勾选" : "已取消勾选" };
     }
-    if (act === "key") {
-      const key = clip(action.key || action.value, 24) || "Enter";
-      const target = el || document.activeElement || document.body;
-      for (const type of ["keydown", "keypress", "keyup"]) {
-        target.dispatchEvent(
-          new KeyboardEvent(type, { key, bubbles: true, cancelable: true }),
-        );
-      }
-      return { matched: true, effect: `已按键 ${key}` };
-    }
     if (act === "submit") {
       const form = el.form || (el.tagName === "FORM" ? el : el.closest && el.closest("form"));
       if (form && typeof form.requestSubmit === "function") {
@@ -278,9 +287,10 @@
 
   function runRead(action) {
     const mode = clip(action.mode, 24) || "text";
-    const target = resolveTarget(action.target);
+    const wanted = targetOf(action);
+    const target = resolveTarget(wanted);
     if (mode === "count") {
-      const base = action.target && action.target.selector ? String(action.target.selector) : "";
+      const base = wanted && wanted.selector ? String(wanted.selector) : "";
       if (!base) return { value: "", count: 0 };
       try {
         return { value: "", count: document.querySelectorAll(base).length };
@@ -297,11 +307,12 @@
   }
 
   async function runWait(action) {
-    if (action.target) {
+    const wanted = targetOf(action);
+    if (wanted) {
       const timeoutMs = Math.min(30000, Math.max(0, Number(action.timeoutMs) || 10000));
       const start = Date.now();
       for (;;) {
-        if (resolveTarget(action.target)) {
+        if (resolveTarget(wanted)) {
           return { ok: true, elapsedMs: Date.now() - start };
         }
         if (Date.now() - start >= timeoutMs) {

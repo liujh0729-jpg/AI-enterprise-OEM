@@ -139,6 +139,7 @@ const UPSTREAM_TOKEN_OPERATIONS = new Set<string>([
   'Content_similarDigitalAssets',
   'Content_registerAsset',
   'Content_createJob',
+  'Content_runCanvasNode',
   'Content_createExpert',
   'Content_librarySearch',
   'Content_libraryPublish',
@@ -871,6 +872,36 @@ export function registerAutomationRoutes(
     Content_job: async (i) => c.contentController.job(i.user, i.param['id']),
     Content_cancelJob: async (i) =>
       c.contentController.cancelJob(i.user, i.param['id']),
+    Content_retryJob: async (i) =>
+      c.contentController.retryJob(i.user, i.param['id']),
+    // ---------- AI 画布（内容创作 → AI 画布，页内四个 Tab 共用任务表） ----------
+    Content_canvases: async (i) =>
+      c.contentController.listCanvases(i.user, i.query),
+    Content_createCanvas: async (i) =>
+      c.contentController.createCanvas(i.user, i.json),
+    Content_canvas: async (i) =>
+      c.contentController.canvas(i.user, i.param['id']),
+    Content_saveCanvas: async (i) =>
+      c.contentController.saveCanvas(i.user, i.param['id'], i.json),
+    Content_renameCanvas: async (i) =>
+      c.contentController.renameCanvas(i.user, i.param['id'], i.json),
+    Content_deleteCanvas: async (i) =>
+      c.contentController.removeCanvas(i.user, i.param['id']),
+    Content_runCanvasNode: async (i) =>
+      c.contentController.runCanvasNode(
+        i.user,
+        i.param['id'],
+        i.param['nodeId'],
+        i.json,
+        i.token,
+      ),
+    Content_copyCanvasNode: async (i) =>
+      c.contentController.copyCanvasNode(
+        i.user,
+        i.param['id'],
+        i.param['nodeId'],
+        i.json,
+      ),
     Content_agentTools: async (i) => c.contentController.agentTools(i.user),
     Content_skills: async (i) => c.contentController.listSkills(i.user),
     Content_toggleSkill: async (i) =>

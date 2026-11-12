@@ -623,7 +623,7 @@ export function AgentChatPanel({
         setChannels(
           settings.channels.map((item) => ({
             value: item.id,
-            label: item.id === 0 ? `${item.name}（内置）` : item.name,
+            label: item.name,
           })),
         );
         const defaults = emptySelections();

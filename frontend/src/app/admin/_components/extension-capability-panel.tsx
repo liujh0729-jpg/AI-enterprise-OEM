@@ -185,7 +185,7 @@ export function ExtensionCapabilityPanel() {
         onCancel={() => setEditing(null)}
         onOk={() => form.submit()}
         confirmLoading={save.isPending}
-        destroyOnHidden
+        forceRender
         okText="保存"
         cancelText="取消"
       >

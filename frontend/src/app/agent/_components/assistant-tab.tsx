@@ -36,7 +36,6 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { contentApi } from "@/api/content";
 import { EmptyState, Notice, Panel } from "@/components/ui/panel";
 import { joinSiteUrl } from "@/lib/site-url";
@@ -165,7 +164,7 @@ export function AgentAssistantTab() {
         if (!settings) return;
         setChannels(
           settings.channels
-            .filter((item) => item.id > 0)
+            .filter((item) => item.id >= 0)
             .map((item) => ({
               value: item.id,
               label: item.name,
@@ -213,7 +212,7 @@ export function AgentAssistantTab() {
   );
 
   const defaultChannelId = (() => {
-    const first = enabledChannels[0]?.value;
+    const first = enabledChannels.find((item) => item.value > 0)?.value;
     if (first) return first;
     return slot.channelId > 0 ? slot.channelId : 0;
   })();
@@ -266,6 +265,10 @@ export function AgentAssistantTab() {
 
   const channelOptions = (() => {
     const list = [...enabledChannels];
+    // AIPDD 渠道（0）永远可选：执行时用本人绑定的 Key，未绑定才会失败
+    if (!list.some((item) => item.value === 0)) {
+      list.unshift({ value: 0, label: "AIPDD", enabled: true });
+    }
     if (
       editor.channelId > 0 &&
       !list.some((item) => item.value === editor.channelId)
@@ -299,8 +302,8 @@ export function AgentAssistantTab() {
       message.warning(`请填写「${field.label}」`);
       return;
     }
-    if (!editor.channelId) {
-      message.warning("请选择一个自定义模型渠道");
+    if (!Number.isInteger(editor.channelId) || editor.channelId < 0) {
+      message.warning("请选择助理执行用的模型渠道");
       return;
     }
     if (!editor.model.trim()) {
@@ -499,7 +502,7 @@ export function AgentAssistantTab() {
           <div style={{ wordBreak: "break-all" }}>{row.model}</div>
           <div className="text-12 muted">
             {channels.find((item) => item.value === row.channelId)?.label ||
-              `渠道 #${row.channelId}`}
+              (row.channelId === 0 ? "AIPDD" : `渠道 #${row.channelId}`)}
           </div>
         </div>
       ),
@@ -823,11 +826,9 @@ export function AgentAssistantTab() {
               <label className="data-table-form-item">
                 <span className="data-table-form-label">执行渠道</span>
                 <Select
-                  value={editor.channelId || undefined}
+                  value={editor.channelId}
                   options={channelOptions}
-                  placeholder={
-                    channelOptions.length ? "选一个自定义模型渠道" : "还没有可用的自定义渠道"
-                  }
+                  placeholder="选择执行渠道"
                   onChange={(value) => {
                     patchEditor({ channelId: value, model: "" });
                     void loadModels(value, "");
@@ -869,11 +870,10 @@ export function AgentAssistantTab() {
             {modelsError ? (
               <div className="text-12 muted">{modelsError}</div>
             ) : null}
-            {!channelOptions.length ? (
-              <Notice variant="warn">
-                还没有可用的自定义模型渠道：助理是无人值守执行，拿不到登录态，不能用「模型设置」里的内置渠道和默认槽位。请先到「模型服务 →
-                模型设置」添加一个渠道，再回来绑这个助理。
-                <Link href="/model-settings"> 立即配置模型</Link>
+            {editor.channelId === 0 ? (
+              <Notice variant="info">
+                AIPDD 渠道用你本人绑定的 AIPDD API Key
+                执行；如果这个账号还没绑定，执行会失败，原因会记在消息记录里。
               </Notice>
             ) : null}
           </div>

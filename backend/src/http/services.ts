@@ -169,6 +169,8 @@ import { ContentAgentService } from '../content/agent.service';
 import { ContentAgentScheduleService } from '../content/agent-schedule.service';
 import { ContentAgentAssistantService } from '../content/agent-assistant.service';
 import { ContentJobService } from '../content/content-job.service';
+import { ContentJobWorkerPool } from '../content/content-job.worker-pool';
+import { CanvasProjectService } from '../content/canvas.service';
 import { DigitalAssetService } from '../content/digital-asset.service';
 import { AssetShareService } from '../content/asset-share.service';
 import { VideoTemplateService } from '../content/video-template.service';
@@ -1122,7 +1124,18 @@ export function createServices() {
     prismaService,
     contentModelSettingService,
     contentMediaService,
-    contentAssetService,
+    contentDigitalAssetService,
+    aipddAssetClient,
+  );
+  const canvasProjectService = new CanvasProjectService(
+    prismaService,
+    contentJobService,
+    contentDigitalAssetService,
+  );
+  // 任务调度池：DB 唯一真值，每轮按剩余并发槽捞 PENDING（main.ts 启动/停机关闭）
+  const contentJobPool = new ContentJobWorkerPool(
+    prismaService,
+    contentJobService,
   );
   const contentAgentScheduleService = new ContentAgentScheduleService(
     prismaService,
@@ -1158,6 +1171,7 @@ export function createServices() {
     contentAgentConnectorService,
     contentAgentSkillService,
     contentAgentPluginService,
+    canvasProjectService,
     (user) =>
       workflowRef.service
         ? workflowRef.service.toolSpecs(user)
@@ -2609,6 +2623,8 @@ export function createServices() {
       service: videoTemplateService,
       scheduler: videoTemplateSyncScheduler,
     },
+    // 内容生成任务调度池：DB 唯一真值，由 main.ts 启停。
+    contentJob: { pool: contentJobPool },
     builtinMcp,
     // 平台治理域（§5.9/§5.10）：app.ts 拦截中间件与 governance 路由消费。
     feature: {

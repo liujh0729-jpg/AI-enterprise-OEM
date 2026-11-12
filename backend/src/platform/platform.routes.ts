@@ -109,7 +109,10 @@ export function registerPlatformAdminRoutes(
       }),
       async (c) =>
         c.json(
-          serializeResponse(endpoint.response, await module.catalog.catalog()),
+          serializeResponse(
+            endpoint.response,
+            ok(await module.catalog.catalog()),
+          ),
           200,
         ),
     );
@@ -150,7 +153,7 @@ export function registerPlatformAdminRoutes(
           c.req.valid('json'),
           actor.userId,
         );
-        return c.json(serializeResponse(endpoint.response, result), 200);
+        return c.json(serializeResponse(endpoint.response, ok(result)), 200);
       },
     );
   }

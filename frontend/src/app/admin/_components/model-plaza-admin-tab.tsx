@@ -385,7 +385,7 @@ export function ModelPlazaAdminTab() {
       setUpstreams(data.list);
       setAipdd(data.aipdd);
       setUpstreamOptions([
-        { id: 0, name: "AIPDD（平台内置）", provider: "AIPDD" },
+        { id: 0, name: "AIPDD（平台）", provider: "AIPDD" },
         ...data.list.map((row) => ({
           id: row.id,
           name: row.name,
@@ -421,7 +421,7 @@ export function ModelPlazaAdminTab() {
         setRate(data.rate);
         setAipdd(data.aipdd);
         setUpstreamOptions([
-          { id: 0, name: "AIPDD（平台内置）", provider: "AIPDD" },
+          { id: 0, name: "AIPDD（平台）", provider: "AIPDD" },
           ...data.upstreams.map((row) => ({
             id: row.id,
             name: row.name,
@@ -1067,7 +1067,7 @@ export function ModelPlazaAdminTab() {
                   title="上游通道"
                   titleExtra={
                     <span className="text-12 muted">
-                      AIPDD 内置渠道使用「系统设置 → AIPDD 平台
+                      AIPDD 渠道使用「系统设置 → AIPDD 平台
                       Key」，无需在这里配置
                     </span>
                   }
@@ -1101,7 +1101,7 @@ export function ModelPlazaAdminTab() {
                       icon={
                         <ApiOutlined style={{ fontSize: 40 }} aria-hidden />
                       }
-                      text="还没有自定义上游渠道；AIPDD 内置渠道无需配置。"
+                      text="还没有自定义上游渠道；AIPDD 渠道无需配置。"
                     />
                   ) : null}
                   {!upstreamLoading && upstreams.length ? (

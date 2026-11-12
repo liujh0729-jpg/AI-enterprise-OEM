@@ -506,9 +506,11 @@ export function ProductTab({
         okText={editing ? "保存修改（需密码）" : "创建商品"}
         cancelText="取消"
         confirmLoading={busy}
+        forceRender
         onCancel={() => setOpen(false)}
         onOk={() => void submit()}
       >
+        <Form form={form} layout="vertical">
         <Notice>
           交易数据本地自持；营销标题/摘要/正文用于 AIworkin GEO 独立站展示，
           一期本地留痕（未接通通道时不对外发布）。
@@ -533,6 +535,11 @@ export function ProductTab({
           name="station_ids"
           label="归属服务站 *（可多选，按站点独立上下架）"
           rules={[{ required: true, message: "请至少选择一个服务站" }]}
+          extra={
+            !myStations.length ? (
+              <Link href="/supply?tab=stations">去创建服务站</Link>
+            ) : null
+          }
         >
           <Select
             mode="multiple"
@@ -546,11 +553,6 @@ export function ProductTab({
               label: `${item.name}${item.region ? `（${item.region}）` : ""}`,
             }))}
           />
-          {!myStations.length ? (
-            <div className="text-12 muted" style={{ marginTop: 4 }}>
-              <Link href="/supply?tab=stations">去创建服务站</Link>
-            </div>
-          ) : null}
         </Form.Item>
         <Form.List name="attrs">
           {(fields, { add, remove }) => (
@@ -614,6 +616,7 @@ export function ProductTab({
         <Form.Item name="cover_url" label="封面展示图 URL">
           <Input placeholder="留空表示暂不上传封面" />
         </Form.Item>
+        </Form>
       </Modal>
 
       <Modal
@@ -740,9 +743,11 @@ export function ProductTab({
         width={560}
         okText={skuEditing ? "保存修改（需密码）" : "添加"}
         cancelText="取消"
+        forceRender
         onCancel={() => setSkuOpen(false)}
         onOk={() => void submitSku()}
       >
+        <Form form={skuForm} layout="vertical">
         <div className="form-2col">
           <Form.Item
             name="spec_name"
@@ -768,6 +773,7 @@ export function ProductTab({
             <Input placeholder="如：小地块灌溉" />
           </Form.Item>
         </div>
+        </Form>
       </Modal>
 
       {/* 站点归属与按站点上下架 */}

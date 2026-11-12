@@ -411,7 +411,7 @@ export const mpUpstreamSaveSchema = z.object({
 export type MpUpstreamSave = z.infer<typeof mpUpstreamSaveSchema>;
 
 export const mpPullInputSchema = z.object({
-  /** 0＝AIPDD 内置（用平台级 Key）；>0＝已保存的上游渠道 */
+  /** 0＝AIPDD（用平台级 Key）；>0＝已保存的上游渠道 */
   upstreamId: z.coerce.number().int().nonnegative().default(0),
   /** 临时试拉：不入库，直接给地址与 Key */
   baseUrl: z.string().trim().max(300).default(""),

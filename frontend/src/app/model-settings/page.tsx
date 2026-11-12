@@ -164,7 +164,7 @@ export default function ModelSettingsPage() {
           value: channel.id,
           label:
             channel.id === 0
-              ? "AIPDD（内置）"
+              ? "AIPDD"
               : channel.id === -1
                 ? "LocalAPI（本站模型广场，免 Key）"
                 : channel.available
@@ -420,7 +420,7 @@ export default function ModelSettingsPage() {
     <div>
       <PageHero
         title="模型设置"
-        desc="Agent 与内容创作共用的模型配置。AIPDD 是内置渠道，直接使用当前登录账号在「API Key 管理」里的同源 API Key；没有时先去生成一把，不需要为渠道单独配置。也可以接入其他 OpenAI 兼容网关与火山 AI MediaKit。每种类型选好默认模型后，对应功能才能提交任务"
+        desc="Agent 与内容创作共用的模型配置。AIPDD 渠道直接使用当前登录账号在「API Key 管理」里的同源 API Key；没有时先去生成一把，不需要为渠道单独配置。也可以接入其他 OpenAI 兼容网关与火山 AI MediaKit。每种类型选好默认模型后，对应功能才能提交任务"
         extra={
           <Button
             icon={<ReloadOutlined aria-hidden />}
@@ -505,7 +505,7 @@ export default function ModelSettingsPage() {
                     </span>
                   </Space>
                   <div className="text-12 muted" style={{ marginTop: 6 }}>
-                    内置渠道：模型都从这里拉取，使用当前登录账号在「API Key
+                    AIPDD 渠道：模型都从这里拉取，使用当前登录账号在「API Key
                     管理」里的同源 API Key。
                     {aipdd?.configured ? null : (
                       <>

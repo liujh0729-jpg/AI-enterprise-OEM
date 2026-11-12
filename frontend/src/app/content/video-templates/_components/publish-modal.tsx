@@ -100,7 +100,7 @@ export function PublishTemplateModal({
         if (!settings) return;
         const nextChannels = settings.channels.map((item) => ({
           value: item.id,
-          label: item.id === 0 ? `${item.name}（内置）` : item.name,
+          label: item.name,
         }));
         setChannels(nextChannels);
         const slot = settings.slots.find((item) => item.mediaType === "video");

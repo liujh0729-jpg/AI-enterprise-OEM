@@ -87,7 +87,7 @@ type Emit = (event: EngineEvent) => Promise<void>;
 type RunInput = {
   user: CurrentUser;
   token: string | undefined;
-  /** 本轮选的渠道（模型设置里的 channelId；0＝AIPDD 内置） */
+  /** 本轮选的渠道（模型设置里的 channelId；0＝AIPDD） */
   channelId?: number;
   model?: string;
   system: string;

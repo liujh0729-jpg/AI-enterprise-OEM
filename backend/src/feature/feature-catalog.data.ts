@@ -66,6 +66,8 @@ export const FEATURE_SEED: FeatureSeedNode[] = [
   menu('rpa', 'workbench', 'RPA自动化', '/rpa', 40),
   group('content-creation', '内容创作', 50, 'workbench'),
   menu('content-tools', 'content-creation', '内容创作小工具', '/content', 10),
+  // AI 画布与三个工作台同属一个开关；画布任务仍走 /enterprise/content/jobs（归 content-tools）
+  menu('content-canvas', 'content-creation', 'AI 画布', '/content/canvas', 15),
   menu('community', 'content-creation', '创意社区', '/community', 20),
   menu(
     'video-templates',
@@ -177,6 +179,11 @@ export const FEATURE_API_PREFIXES: Record<string, string[]> = {
     '/enterprise/distribution',
     '/enterprise/ecom-pdp',
     '/enterprise/domestic-pdp',
+  ],
+  // 画布前缀比 /enterprise/content 长：关闭画布不影响既有小工具
+  'content-canvas': [
+    '/enterprise/content/canvas',
+    '/enterprise/content/studio',
   ],
   assets: ['/enterprise/content/digital-assets'],
   community: ['/enterprise/community'],

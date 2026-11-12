@@ -218,7 +218,7 @@ export function AgentSchedulesTab({
         setChannels(
           settings.channels.map((item) => ({
             value: item.id,
-            label: item.id === 0 ? `${item.name}（内置）` : item.name,
+            label: item.name,
           })),
         );
         const textSlot = settings.slots.find((item) => item.mediaType === "text");
@@ -351,12 +351,12 @@ export function AgentSchedulesTab({
     }));
 
   const channelOptions = (() => {
-    const list = channels.length ? [...channels] : [{ value: 0, label: "AIPDD 内置" }];
+    const list = channels.length ? [...channels] : [{ value: 0, label: "AIPDD" }];
     if (!list.some((item) => item.value === editor.channelId)) {
       list.unshift({
         value: editor.channelId,
         label:
-          editor.channelId === 0 ? "AIPDD 内置" : `渠道 #${editor.channelId}`,
+          editor.channelId === 0 ? "AIPDD" : `渠道 #${editor.channelId}`,
       });
     }
     return list;
@@ -511,11 +511,6 @@ export function AgentSchedulesTab({
     }
   };
 
-  /** 用内置 AIPDD 渠道的任务：到点执行没有登录态，只会失败，提前指出来。 */
-  const builtinChannelCount = rows.filter(
-    (row) => row.status === "enabled" && row.channelId === 0,
-  ).length;
-
   const columns: ColumnsType<ContentAgentSchedule> = [
     {
       title: "任务",
@@ -565,7 +560,7 @@ export function AgentSchedulesTab({
           </div>
           <div className="text-12 muted">
             {channels.find((item) => item.value === row.channelId)?.label ||
-              (row.channelId === 0 ? "AIPDD 内置" : `渠道 #${row.channelId}`)}
+              (row.channelId === 0 ? "AIPDD" : `渠道 #${row.channelId}`)}
           </div>
         </div>
       ),
@@ -723,11 +718,6 @@ export function AgentSchedulesTab({
         }
       >
         {error ? <Notice variant="error">{error}</Notice> : null}
-        {builtinChannelCount ? (
-          <Notice variant="warn">
-            {`有 ${builtinChannelCount} 条任务用的是内置 AIPDD 渠道：到点执行没有登录态，取不到账号 Key，会自动失败（原因记在执行记录里）。请编辑这些任务，改选一个自定义渠道并固定模型；「立即执行」不受影响。`}
-          </Notice>
-        ) : null}
         {!loading && !rows.length ? (
           <EmptyState
             icon={<ClockCircleOutlined style={{ fontSize: 40 }} aria-hidden />}
@@ -902,9 +892,8 @@ export function AgentSchedulesTab({
         ) : null}
         {editor.channelId === 0 ? (
           <div style={{ marginTop: 10 }}>
-            <Notice variant="warn">
-              定时到点执行时没有登录态：内置 AIPDD 渠道要凭登录态取账号
-              Key，自动执行会失败并记下原因。要无人值守，请选一个自定义渠道并固定模型；「立即执行」会用当前登录态，不受影响。
+            <Notice variant="info">
+              AIPDD 渠道用你本人绑定的 AIPDD API Key 执行；如果这个账号还没绑定，到点执行会失败，原因会记在执行记录里。
             </Notice>
           </div>
         ) : null}

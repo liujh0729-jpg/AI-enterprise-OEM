@@ -297,6 +297,40 @@ export class DigitalAssetService {
     return Array.from(seen);
   }
 
+  /**
+   * 按资产编号解析「当前可用」的地址与名称：本人台账优先，其次他人共享给我的记录。
+   * 画布素材节点只存 assetId + 地址快照，取用时走这里拿活链；返回 null＝已删除或无权访问。
+   */
+  async resolveForUse(user: CurrentUser, assetId: number) {
+    if (!Number.isInteger(assetId) || assetId === 0) return null;
+    const own = await this.prisma.digitalAssetEntry.findUnique({
+      where: {
+        userId_aipddAssetId: { userId: user.userId, aipddAssetId: assetId },
+      },
+      select: { url: true, name: true, type: true },
+    });
+    if (own) {
+      return {
+        url: readText(own.url).trim(),
+        name: readText(own.name).trim(),
+        type: readText(own.type).trim(),
+      };
+    }
+    const shared = await this.prisma.contentSharedAsset.findFirst({
+      where: { targetUserId: user.userId, assetId: String(assetId) },
+      orderBy: { id: 'desc' },
+      select: { assetUrl: true, assetName: true, assetType: true },
+    });
+    if (shared) {
+      return {
+        url: readText(shared.assetUrl).trim(),
+        name: readText(shared.assetName).trim(),
+        type: readText(shared.assetType).trim(),
+      };
+    }
+    return null;
+  }
+
   /** 路径参数 → 资产编号：非法直接拒绝，避免把 NaN 传进唯一键查询。 */
   private assetIdOf(id: string) {
     const assetId = Number(id);

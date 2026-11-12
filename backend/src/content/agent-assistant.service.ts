@@ -72,8 +72,8 @@ type MessageRow = {
  * Agent 助理：把企业微信 / 钉钉 / 飞书 / QQ / 微信客服 / 公众号这些消息通道挂到 Agent 上。
  * 入站消息当一轮对话交给 Agent，回答原路回给对方；群机器人只出不进，只用来推结果。
  *
- * 执行走 `runSilent`，没有浏览器登录态可借，所以通道必须绑定自建模型渠道（channelId>0），
- * 否则无人值守时取不到账号 Key —— 这与定时任务是同一条约束。
+ * 执行走 `runSilent`，没有浏览器登录态可借：渠道 0（AIPDD）的凭据由取凭据层按 userId
+ * 现取本人绑定的 Key，自建渠道（channelId>0）走渠道自己的 Key —— 与定时任务同一条口径。
  */
 export class ContentAgentAssistantService {
   /** 同一个外部聊天串行执行，避免两条指令交叉写进同一段上下文。 */
@@ -208,27 +208,32 @@ export class ContentAgentAssistantService {
     return config;
   }
 
-  /** 助理是无人值守执行：只能绑自建渠道，且必须定死模型。 */
+  /**
+   * 助理是无人值守执行：渠道 0（AIPDD）用本人绑定的 Key，自建渠道要校验归属与启用状态；
+   * 模型必须定死（不能留空等「模型设置」的默认槽位）。
+   */
   private async readExecution(user: CurrentUser, raw: Record<string, unknown>) {
     const channelId = Number(raw.channelId ?? 0);
-    if (!Number.isInteger(channelId) || channelId <= 0) {
+    if (!Number.isInteger(channelId) || channelId < 0) {
       throw new BusinessException(
         ErrorCode.BAD_REQUEST,
-        '助理执行要选择具体的模型渠道（不能取「模型设置」里的默认槽位，无人值守时拿不到账号 Key）',
+        '请选择助理执行用的模型渠道',
       );
     }
-    const channel = await this.prisma.contentModelChannel.findFirst({
-      where: { id: channelId, userId: user.userId },
-      select: { id: true, enabled: true },
-    });
-    if (!channel) {
-      throw new BusinessException(
-        ErrorCode.NOT_FOUND,
-        '模型渠道不存在，请到「模型设置」确认',
-      );
-    }
-    if (!channel.enabled) {
-      throw new BusinessException(ErrorCode.BAD_REQUEST, '该模型渠道已停用');
+    if (channelId > 0) {
+      const channel = await this.prisma.contentModelChannel.findFirst({
+        where: { id: channelId, userId: user.userId },
+        select: { id: true, enabled: true },
+      });
+      if (!channel) {
+        throw new BusinessException(
+          ErrorCode.NOT_FOUND,
+          '模型渠道不存在，请到「模型设置」确认',
+        );
+      }
+      if (!channel.enabled) {
+        throw new BusinessException(ErrorCode.BAD_REQUEST, '该模型渠道已停用');
+      }
     }
     const model = text(raw.model).trim().slice(0, 128);
     if (!model) {
@@ -555,7 +560,7 @@ export class ContentAgentAssistantService {
         conversationId,
         event.text,
         {
-          channelId: row.channelId > 0 ? row.channelId : undefined,
+          channelId: row.channelId,
           model: row.model,
           personaId: row.personaId > 0 ? row.personaId : undefined,
         },

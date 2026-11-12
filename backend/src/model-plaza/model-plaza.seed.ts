@@ -8,7 +8,7 @@ import type {
 import { categoryOf, type PlazaCategory } from './model-plaza.category';
 
 /**
- * AIPDD 内置模型的静态初始清单。
+ * AIPDD 模型的静态初始清单。
  *
  * 计费规格完全取自上游 `GET /v1/models` 的 `aipdd.pricing`：
  * billing_unit 为 token / image / second / call；token 类价格是每百万 tokens，
@@ -381,7 +381,7 @@ export async function ensurePlazaSeed(prisma: PrismaService): Promise<{
       tags: row.tags,
       enabled: true,
       sort: row.sort,
-      remark: 'AIPDD 内置初始清单',
+      remark: 'AIPDD 初始清单',
       createdBy: 'system',
     })),
   });

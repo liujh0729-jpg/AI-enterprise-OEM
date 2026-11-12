@@ -5,7 +5,7 @@ import Link from "next/link";
 import { DEFAULT_HOMEPAGE, type HomepageSettings } from "@enterprise/contracts";
 import { homepageApi } from "@/api/homepage";
 import { BrandLogo } from "@/components/brand-logo";
-import { PRODUCT_NAME } from "@/lib/brand";
+import { POWERED_BY, PRODUCT_NAME } from "@/lib/brand";
 import { useSiteBrand } from "@/lib/site-brand";
 import styles from "./home.module.css";
 
@@ -309,6 +309,7 @@ export default function HomePage() {
               </a>
             )}
             <span>{copyright}</span>
+            <span>{POWERED_BY}</span>
           </div>
         </div>
       </footer>

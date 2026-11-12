@@ -34,7 +34,7 @@ export const CONTENT_MEDIA_TYPE_LABELS: Record<ContentMediaType, string> = {
   embedding: "向量嵌入",
 };
 
-/** 渠道类型：aipdd 内置（Key 取「API Key 管理」），localapi 本站模型广场（免 Key），custom 通用 OpenAI 兼容，mediakit 火山增强。 */
+/** 渠道类型：aipdd（Key 取「API Key 管理」），localapi 本站模型广场（免 Key），custom 通用 OpenAI 兼容，mediakit 火山增强。 */
 export const CONTENT_CHANNEL_PROVIDERS = [
   "aipdd",
   "localapi",
@@ -178,7 +178,7 @@ export const CONTENT_CHANNEL_PROVIDER_LABELS: Record<
   ContentChannelProvider,
   string
 > = {
-  aipdd: "AIPDD（内置）",
+  aipdd: "AIPDD",
   localapi: "LocalAPI（本站模型广场，免 Key）",
   custom: "自定义 OpenAI 兼容（支持 NewAPI）",
   volcengine: "火山引擎（豆包 / 方舟）",
@@ -214,7 +214,7 @@ export const contentModelSlotSchema = z.object({
 export const contentSettingsSchema = z.object({
   channels: z.array(contentModelChannelSchema),
   slots: z.array(contentModelSlotSchema),
-  /** AIPDD 内置渠道的 Key 状态（来自「API Key 管理」，本系统不落库） */
+  /** AIPDD 渠道的 Key 状态（来自「API Key 管理」，本系统不落库） */
   aipdd: z.object({
     baseUrl: z.string(),
     configured: z.boolean(),
@@ -1158,6 +1158,135 @@ export const CONTENT_TOOLS: Record<string, ContentTool> = {
   },
 };
 
+/** AI 画布的整包快照（主表 doc 列）：节点 / 连线 / 视口。 */
+export const CANVAS_NODE_TYPES = ["prompt", "asset", "config", "generate"] as const;
+export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[number];
+
+export const CANVAS_EDGE_ROLES = [
+  "prompt",
+  "asset",
+  "config",
+  "first-frame",
+  "last-frame",
+] as const;
+export type CanvasEdgeRole = (typeof CANVAS_EDGE_ROLES)[number];
+
+export type CanvasPromptData = { kind: "prompt"; text: string };
+export type CanvasAssetData = {
+  kind: "asset";
+  assetId: number;
+  name: string;
+  media: "image" | "video" | "audio";
+  url: string;
+  previewUrl: string;
+};
+export type CanvasConfigData = {
+  kind: "config";
+  channelId: number;
+  channelName: string;
+  model: string;
+  size?: string;
+  ratio?: string;
+  resolution?: string;
+  duration?: number;
+  count?: number;
+};
+/** 提示词里 @ 引用的数字资产：不走连线，随节点存进 doc，提交时并进参考素材。 */
+export type CanvasMentionRef = {
+  /** 提示词里的记号（图片1 / 视频1 / 音频1） */
+  label: string;
+  media: "image" | "video" | "audio";
+  assetId: number;
+  name: string;
+  url: string;
+};
+
+export type CanvasGenerateData = {
+  kind: "generate";
+  media: "image" | "video" | "music";
+  prompt: string;
+  channelId: number;
+  channelName: string;
+  model: string;
+  size?: string;
+  ratio?: string;
+  resolution?: string;
+  duration?: number;
+  count: number;
+  /** 音乐创作节点的歌词（可选） */
+  lyrics?: string;
+  /** 提示词里 @ 的数字资产（连线素材另走 edges） */
+  refs: CanvasMentionRef[];
+  /** 最近一批结果（同一 runId 的产物） */
+  results: { jobId: number; url: string; assetId: string; media: string }[];
+  lastRunId: string;
+};
+export type CanvasNodeData =
+  | CanvasPromptData
+  | CanvasAssetData
+  | CanvasConfigData
+  | CanvasGenerateData;
+
+export type CanvasNode = {
+  id: string;
+  type: CanvasNodeType;
+  x: number;
+  y: number;
+  width: number;
+  data: CanvasNodeData;
+};
+
+export type CanvasEdge = {
+  id: string;
+  from: string;
+  to: string;
+  role: CanvasEdgeRole;
+};
+
+export type CanvasDoc = {
+  version: number;
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  viewport: { x: number; y: number; zoom: number };
+};
+
+export const canvasAssetRefSchema = z.object({
+  assetId: z.number(),
+  type: z.string(),
+  name: z.string(),
+  url: z.string(),
+});
+
+/** 画布列表项：列表页只回摘要，doc 只在详情里出现。 */
+export const canvasProjectSummarySchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  version: z.number(),
+  status: z.string(),
+  templateId: z.number(),
+  nodeCount: z.number(),
+  coverUrl: z.string(),
+  assetRefs: z.array(canvasAssetRefSchema),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const canvasProjectSchema = canvasProjectSummarySchema.extend({
+  /** 整包快照；服务端保证形状合法，异常时回落到空文档 */
+  doc: z.unknown(),
+});
+
+export const canvasProjectPageSchema = z.object({
+  list: z.array(canvasProjectSummarySchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
+export type CanvasProjectSummary = z.infer<typeof canvasProjectSummarySchema>;
+export type CanvasProject = z.infer<typeof canvasProjectSchema>;
+export type CanvasAssetRef = z.infer<typeof canvasAssetRefSchema>;
+
 export const contentJobSchema = z.object({
   id: z.number(),
   tool: z.string(),
@@ -1169,6 +1298,25 @@ export const contentJobSchema = z.object({
   assetUrl: z.string(),
   aipddAssetId: z.string(),
   error: z.string(),
+  /** 发起端：tool | canvas | studio */
+  source: z.string().default("tool"),
+  /** 画布任务归属（0＝非画布任务） */
+  canvasId: z.number().default(0),
+  nodeId: z.string().default(""),
+  /** 同一节点一次提交的批次 id */
+  runId: z.string().default(""),
+  /** image | video | music | text */
+  media: z.string().default(""),
+  /** 0-100；上游多数网关不给百分比，这里按轮询次数归一 */
+  progress: z.number().default(0),
+  /** 取消/中断原因（CANCELED 时说明上游计费不退回） */
+  cancelReason: z.string().default(""),
+  /** 上游受理的子任务号（网关没给就为空）；取消时用于排查上游是否已计费 */
+  upstreamTaskId: z.string().default(""),
+  /** 上游受理时间（提交流转到上游的时刻，ISO 串；未受理为空） */
+  upstreamAcceptedAt: z.string().default(""),
+  /** 已等待秒数（RUNNING 时由服务端按 startedAt 计算） */
+  elapsedSeconds: z.number().default(0),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -2026,6 +2174,15 @@ export const ContentEndpoints = {
         page: z.coerce.number().int().positive().max(100_000).default(1),
         pageSize: z.coerce.number().int().positive().max(100).default(20),
         tool: z.string().optional(),
+        /** 按发起端筛选：tool | canvas | studio */
+        source: z.string().optional(),
+        /** 媒体类型：image | video | music | text */
+        media: z.string().optional(),
+        /** 状态：PENDING | RUNNING | SUCCESS | FAILED | CANCELED */
+        status: z.string().optional(),
+        canvasId: z.coerce.number().int().optional(),
+        /** 画布节点：只看这个节点提交过的任务 */
+        nodeId: z.string().optional(),
       })
       .passthrough(),
     body: z.undefined(),
@@ -2037,7 +2194,10 @@ export const ContentEndpoints = {
     params: z.object({}),
     query: emptyQuery,
     body: passthroughBody,
-    response: envelope(contentJobSchema),
+    // studio（三个工作台）一次提交按张数建多条任务，返回整批；其余入口只返回第一条
+    response: envelope(
+      z.union([contentJobSchema, z.array(contentJobSchema)]),
+    ),
   },
   Content_job: {
     method: "get" as const,
@@ -2054,6 +2214,91 @@ export const ContentEndpoints = {
     query: emptyQuery,
     body: z.undefined(),
     response: envelope(contentJobSchema),
+  },
+  Content_retryJob: {
+    method: "post" as const,
+    path: "/enterprise/content/jobs/:id/retry",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(contentJobSchema),
+  },
+  // ---------- AI 画布 ----------
+  Content_canvases: {
+    method: "get" as const,
+    path: "/enterprise/content/canvas",
+    params: z.object({}),
+    query: pageQuery(20).extend({
+      keyword: z.string().optional(),
+      status: z.string().optional(),
+    }),
+    body: z.undefined(),
+    response: envelope(canvasProjectPageSchema),
+  },
+  Content_createCanvas: {
+    method: "post" as const,
+    path: "/enterprise/content/canvas",
+    params: z.object({}),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(canvasProjectSchema),
+  },
+  Content_canvas: {
+    method: "get" as const,
+    path: "/enterprise/content/canvas/:id",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(canvasProjectSchema),
+  },
+  Content_saveCanvas: {
+    method: "post" as const,
+    path: "/enterprise/content/canvas/:id",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(canvasProjectSchema),
+  },
+  Content_renameCanvas: {
+    method: "patch" as const,
+    path: "/enterprise/content/canvas/:id",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(canvasProjectSchema),
+  },
+  Content_deleteCanvas: {
+    method: "delete" as const,
+    path: "/enterprise/content/canvas/:id",
+    params: z.object({ id: z.string().min(1) }),
+    query: emptyQuery,
+    body: z.undefined(),
+    response: envelope(z.object({ removed: z.boolean() })),
+  },
+  Content_runCanvasNode: {
+    method: "post" as const,
+    path: "/enterprise/content/canvas/:id/nodes/:nodeId/run",
+    params: z.object({
+      id: z.string().min(1),
+      nodeId: z.string().min(1),
+    }),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(z.object({ runId: z.string(), jobs: z.array(contentJobSchema) })),
+  },
+  /** 跨画布复用节点：撞到 200 节点上限时把节点搬到另一张自己的画布。 */
+  Content_copyCanvasNode: {
+    method: "post" as const,
+    path: "/enterprise/content/canvas/:id/nodes/:nodeId/copy",
+    params: z.object({
+      id: z.string().min(1),
+      nodeId: z.string().min(1),
+    }),
+    query: emptyQuery,
+    body: passthroughBody,
+    response: envelope(
+      z.object({ canvasId: z.number(), title: z.string() }),
+    ),
   },
   Content_agentTools: {
     method: "get" as const,

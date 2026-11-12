@@ -734,6 +734,7 @@ export function normalizeChromeAction(
     'url',
     'tabId',
     'ms',
+    'timeoutMs',
     'key',
     'target',
     'reason',

@@ -65,6 +65,7 @@ describe("navigationFor 站点级菜单显隐", () => {
     const content = (workbench?.routes ?? []).find((route) => route.name === "内容创作");
     expect(content?.routes?.map((child) => child.path)).toEqual([
       "/content",
+      "/content/canvas",
       "/content/video-templates",
     ]);
   });

@@ -3128,6 +3128,24 @@ model ContentGenerationJob {
   assetUrl     String    @default("") @map("asset_url") @db.Text
   aipddAssetId String    @default("") @map("aipdd_asset_id") @db.VarChar(64)
   error        String    @default("") @db.VarChar(500)
+  /// 发起端：tool（内容创作小工具）| canvas（AI 画布）| studio（三个工作台）
+  source       String    @default("tool") @db.VarChar(12)
+  /// 画布任务归属（source=canvas 时非 0）
+  canvasId     Int       @default(0) @map("canvas_id")
+  /// 画布节点 id（空串＝非画布任务）
+  nodeId       String    @default("") @map("node_id") @db.VarChar(64)
+  /// 同一节点一次提交的批次 id：批量出图 N 张共享，节点按 runId 聚合结果
+  runId        String    @default("") @map("run_id") @db.VarChar(64)
+  /// 生成类型：image | video | music | text
+  media        String    @default("") @db.VarChar(12)
+  /// 0-100 进度（PENDING=0，起跑 5，产物落库 95，SUCCESS=100）
+  progress     Int       @default(0)
+  /// 取消/中断原因；CANCELED 时说明上游计费不退回
+  cancelReason String    @default("") @map("cancel_reason") @db.VarChar(200)
+  /// 上游受理的子任务号（网关没给就为空）；取消后可据此查上游是否已计费
+  upstreamTaskId String  @default("") @map("upstream_task_id") @db.VarChar(128)
+  /// 上游受理时间（提交流转到上游的时刻）
+  upstreamAcceptedAt DateTime? @map("upstream_accepted_at")
   startedAt    DateTime? @map("started_at")
   finishedAt   DateTime? @map("finished_at")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -3135,7 +3153,37 @@ model ContentGenerationJob {
 
   @@index([userId, createdAt])
   @@index([status, updatedAt])
+  /// 调度池取活：status + id，按 PENDING 最老优先
+  @@index([status, id])
+  @@index([canvasId])
   @@map("content_generation_jobs")
+}
+
+/// AI 画布：整包 JSON 快照存节点/连线/视口；高频字段拆列索引，不做节点分表
+model ContentCanvasProject {
+  id         Int      @id @default(autoincrement())
+  /// 作者
+  userId     String   @map("user_id") @db.VarChar(64)
+  title      String   @default("未命名画布") @db.VarChar(80)
+  /// 整包快照：{ version, nodes[], edges[], viewport:{x,y,zoom} }
+  doc        Json     @default("{}")
+  /// 文档自增版本：保存时校验，冲突返回版本冲突
+  version    Int      @default(0)
+  /// DRAFT | ACTIVE | ARCHIVED
+  status     String   @default("ACTIVE") @db.VarChar(16)
+  /// 来源模板（0＝空白新建）
+  templateId Int      @default(0) @map("template_id")
+  /// 资源引用摘要：[{ assetId, type, name, url }]
+  assetRefs  Json     @default("[]") @map("asset_refs")
+  nodeCount  Int      @default(0) @map("node_count")
+  coverUrl   String   @default("") @map("cover_url") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, updatedAt])
+  @@index([userId, status])
+  @@index([templateId])
+  @@map("content_canvas_projects")
 }
 
 /// 短视频模版：发布者给出样片、参考图、提示词与所用模型；viewCost>0 时首位非发布者查看扣分给作者

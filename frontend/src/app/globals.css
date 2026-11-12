@@ -4633,3 +4633,236 @@ body,
 .ai-code-diff-line.add { background: rgba(22, 163, 74, 0.18); color: #bbf7d0; }
 .ai-code-diff-line.del { background: rgba(220, 38, 38, 0.18); color: #fecaca; }
 .ai-code-diff-line.hunk { color: #93c5fd; }
+
+/* ---------- AI 画布（/content/canvas）：列表 + 编辑器 ---------- */
+/* 编辑页沉浸式：吃掉内容区内边距与滚动，画布铺满窗口，控件全部悬浮在画布上 */
+.enterprise-pro-layout .ant-pro-layout-content:has(.cv-immersive) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.cv-immersive { position: relative; flex: 1 1 auto; height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.cv-editor {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cv-loading { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; }
+.cv-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg-muted);
+}
+.cv-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 420px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+/* 悬浮顶栏：返回 / 标题 / 保存 */
+.cv-topbar {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 28px rgba(16, 24, 40, 0.1);
+}
+.cv-topbar-title { flex: 1 1 auto; min-width: 0; font-weight: 600; }
+.cv-topbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+/* 悬浮底部 dock：添加节点 + 任务 */
+.cv-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.14);
+}
+.cv-dock-tip { font-size: 12px; color: var(--text-4); }
+
+/* 悬浮任务面板（右下）：画布不被任务区挤小 */
+.cv-taskdock {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 7;
+  width: min(460px, calc(100% - 28px));
+  max-height: 46%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.18);
+}
+.cv-taskdock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.cv-taskdock-body { padding: 10px 12px; overflow-y: auto; min-height: 0; }
+
+.cv-empty { padding: 32px 12px; text-align: center; font-size: 12.5px; color: var(--text-3); }
+.cv-panel { display: flex; flex-direction: column; gap: 12px; }
+.cv-panel-head { display: flex; align-items: center; gap: 8px; }
+.cv-field { display: flex; flex-direction: column; gap: 6px; }
+.cv-field-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.cv-job-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+
+.cv-node {
+  position: relative;
+  width: 220px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+}
+.cv-node.selected { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.16); }
+.cv-node.running { border-color: var(--primary); }
+/* 生成节点：卡片里直接带提示词框与生成按钮，给足宽度 */
+.cv-node-gen { width: 300px; }
+.cv-node-head { display: flex; align-items: center; gap: 6px; }
+.cv-node-gen-kind { font-size: 12px; font-weight: 600; color: var(--text-1); }
+.cv-node-status { margin-left: auto; font-size: 11px; color: var(--text-3); }
+.cv-node-prompt-wrap { margin-top: 6px; }
+/* 提示词框用 antd TextArea（要带 @ 菜单）：用 .cv-node-prompt-wrap 提权盖住 antd 默认外观 */
+.cv-node-prompt-wrap textarea.cv-node-prompt {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--text-1);
+  font-size: 12.5px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.cv-node-prompt-wrap textarea.cv-node-prompt:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--card);
+  box-shadow: none;
+}
+/* @ 引用菜单：上游素材 + 数字资产两组 */
+.cv-mention-panel {
+  width: 320px;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cv-mention-group { display: flex; flex-direction: column; gap: 4px; }
+.cv-mention-title { font-size: 12px; font-weight: 600; color: var(--text-3); padding: 2px 2px 0; }
+.cv-mention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.cv-mention-row:hover { background: var(--bg-muted); }
+.cv-mention-thumb {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.cv-mention-thumb-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-muted);
+  color: var(--text-4);
+}
+.cv-mention-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+.cv-mention-token { flex: 0 0 auto; font-size: 12px; color: var(--primary); }
+.cv-mention-role {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.cv-mention-empty { padding: 2px; font-size: 12px; line-height: 1.6; color: var(--text-4); }
+.cv-node-gen-foot { margin-top: 6px; display: flex; align-items: center; gap: 8px; }
+.cv-node-gen-model { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-node-run { flex: 0 0 auto; }
+.cv-node-text { margin-top: 6px; font-size: 12.5px; line-height: 1.5; word-break: break-word; max-height: 84px; overflow: hidden; }
+.cv-node-asset { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.cv-node-asset img { width: 100%; height: 96px; object-fit: cover; border-radius: 6px; }
+.cv-node-asset-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96px;
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--text-4);
+  font-size: 20px;
+}
+.cv-node-asset-name { font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-node-thumbs { margin-top: 6px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+.cv-node-thumbs img { width: 100%; height: 56px; object-fit: cover; border-radius: 4px; }
+.cv-node-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--text-3);
+}
+
+@media (max-width: 1100px) {
+  .studio-grid { grid-template-columns: 1fr !important; }
+  .cv-topbar { flex-wrap: wrap; }
+  .cv-dock-tip { display: none; }
+}

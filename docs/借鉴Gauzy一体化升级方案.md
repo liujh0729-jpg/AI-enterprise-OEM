@@ -431,7 +431,7 @@ HiringPost 投递/私信意向 → 回流生成 HrmApplication(关联 job+candid
 
 #### 5.9.3 AI 审查环节（核心，决定放行/拒绝）
 
-- **密钥与模型**：优先使用用户在「模型设置」里为文本选择的渠道——AIPDD 内置渠道用账号绑定的 Key，自定义 OpenAI 兼容渠道用用户自己填写的渠道 Key；未配默认槽位时回落到账号 AIPDD Key + `SKILL_REVIEW_MODEL`（再回落 RPA/Workbuddy 模型）。**始终只认用户自己的 Key，不拿平台 Key 代跑；没有可用 Key/模型即拒绝上传**（返回 26003，提示先到模型设置配置）。
+- **密钥与模型**：优先使用用户在「模型设置」里为文本选择的渠道——AIPDD 渠道用账号绑定的 Key，自定义 OpenAI 兼容渠道用用户自己填写的渠道 Key；未配默认槽位时回落到账号 AIPDD Key + `SKILL_REVIEW_MODEL`（再回落 RPA/Workbuddy 模型）。**始终只认用户自己的 Key，不拿平台 Key 代跑；没有可用 Key/模型即拒绝上传**（返回 26003，提示先到模型设置配置）。
 - **输入**：`<skill_content>` 包裹的 SKILL.md/PLUGIN.md 正文 + files 全文（限长截断）+ `<deterministic_scan>`（category、permissions、四组预检结论与告警）+ 当前 `AgentAccessPolicy` 黑名单 + 能力基线。
 - **AI 职责**：判定“这个包要做什么、是否越界、是否诱导 Agent 绕过写闸/执行破坏性批量动作/窃取数据/进指令注入”；输出结构化 verdict：`{decision: pass|reject|needsAdmin, riskLevel, violations:[{group, rule, evidence, severity}], summary}`。
 - **判定口径（安全就通过、不安全就不通过）**：AI 显式输出 `decision=pass` 且 `riskLevel=none|low` → `passed` 并入库；其余（reject/needsAdmin/无法解析/超时/异常）→ `rejected`，**不写库**。确定性预检命中 → 直接 `rejected`，AI 也不推翻（它是原六道红线的机械兜底，不是替代）。

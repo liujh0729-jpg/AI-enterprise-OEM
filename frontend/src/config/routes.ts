@@ -292,6 +292,7 @@ export const enterpriseRoute: EnterpriseRoute = {
           icon: "play",
           routes: [
             { path: "/content", name: "内容创作小工具", icon: "play" },
+            { path: "/content/canvas", name: "AI 画布", icon: "workflow" },
             { path: "/community", name: "创意社区", icon: "apps" },
             { path: "/content/video-templates", name: "视频模版", icon: "play" },
           ],
@@ -701,6 +702,11 @@ export const PAGE_META: Record<
     description:
       "一屏工具卡片：文案、图片、视频、配音配乐、去水印与超分，末尾是「视频创作工具」（AIPDD Drama Agent，点卡片先看简介与网关配置——支持直接粘贴 AIPDD / AIworkin 的 API Key，那一页再去它的 GitHub Releases 下载）。生成结果自动存进本账号的 AIPDD 数字资产；模型与 Key 在「模型服务 → 模型设置」里配置。",
   },
+  "/content/canvas": {
+    title: "AI 画布",
+    description:
+      "一个入口四个 Tab：我的画布（节点式编排：提示词、数字资产素材、模型配置、生成节点连起来出图/出片/出曲，任务在画布内管理）、生图工作台、视频创作台、音乐创作台。模型与规格只认所选模型声明的能力；产物自动存进数字资产。",
+  },
   "/community": {
     title: "创意社区",
     description:
@@ -724,7 +730,7 @@ export const PAGE_META: Record<
   "/model-settings": {
     title: "模型设置",
     description:
-      "Agent 与内容创作共用的模型配置：AIPDD 内置渠道直接用「API Key 管理」里的 sk- Key，也可接入其他 OpenAI 兼容网关与火山 AI MediaKit，并为每种类型选定默认模型。",
+      "Agent 与内容创作共用的模型配置：AIPDD 渠道直接用「API Key 管理」里的 sk- Key，也可接入其他 OpenAI 兼容网关与火山 AI MediaKit，并为每种类型选定默认模型。",
   },
   "/developer/api-mcp-skill": {
     title: "API-MCP-Skill",

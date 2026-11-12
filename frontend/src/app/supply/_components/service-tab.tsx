@@ -318,9 +318,11 @@ export function ServiceTab({
         okText={editing ? "保存修改（需密码）" : "创建服务项目"}
         cancelText="取消"
         confirmLoading={busy}
+        forceRender
         onCancel={() => setOpen(false)}
         onOk={() => void submit()}
       >
+        <Form form={form} layout="vertical">
         <Notice>
           服务项目＝线下履约能力（如土地平整、植保飞防）；线上交易台账本地自持，
           营销标题/摘要/正文用于 AIworkin GEO 独立站展示，一期本地留痕。
@@ -337,6 +339,11 @@ export function ServiceTab({
             name="station_id"
             label="所属服务站 *"
             rules={[{ required: true, message: "请选择所属服务站" }]}
+            extra={
+              !myStations.length ? (
+                <Link href="/supply?tab=stations">去创建服务站</Link>
+              ) : null
+            }
           >
             <Select
               placeholder={
@@ -349,11 +356,6 @@ export function ServiceTab({
                 label: `${item.name}${item.region ? `（${item.region}）` : ""}`,
               }))}
             />
-            {!myStations.length ? (
-              <div className="text-12 muted" style={{ marginTop: 4 }}>
-                <Link href="/supply?tab=stations">去创建服务站</Link>
-              </div>
-            ) : null}
           </Form.Item>
           <Form.Item name="price_unit" label="报价单位">
             <Input placeholder="如：次 / 亩 / 工日" />
@@ -401,6 +403,7 @@ export function ServiceTab({
         <Form.Item name="cover_url" label="封面展示图 URL">
           <Input placeholder="留空表示暂不上传封面" />
         </Form.Item>
+        </Form>
       </Modal>
 
       <Modal

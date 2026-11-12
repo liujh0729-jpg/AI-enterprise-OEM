@@ -32,7 +32,11 @@ import {
   type ContentModel,
   type ContentTool,
 } from "@enterprise/contracts";
-import { contentApi, uploadContentMedia } from "@/api/content";
+import {
+  contentApi,
+  createContentJobs,
+  uploadContentMedia,
+} from "@/api/content";
 import { Notice, PageHero, Panel } from "@/components/ui/panel";
 import { RawImg } from "@/components/ui/raw-img";
 import { ToolCard, ToolCardGrid } from "@/components/ui/tool-card";
@@ -302,7 +306,7 @@ function ContentToolPanel({ tool }: { tool: ContentTool }) {
         setChannels(
           settings.channels.map((item) => ({
             value: item.id,
-            label: item.id === 0 ? `${item.name}（内置）` : item.name,
+            label: item.name,
           })),
         );
         for (const slot of slotTypes) {
@@ -463,9 +467,11 @@ function ContentToolPanel({ tool }: { tool: ContentTool }) {
         const choice = picked[slot];
         if (choice?.model) models[slot] = choice;
       }
-      const created = await contentApi.createJob({
-        body: { tool: tool.key, input: payload, models },
-      });
+      const created = (await createContentJobs({
+        tool: tool.key,
+        input: payload,
+        models,
+      }))[0];
       if (!created) throw new Error("任务创建失败");
       setJob(created);
       void loadJobs();
